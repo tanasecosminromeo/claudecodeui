@@ -1,18 +1,18 @@
 [Unit]
-Description=CloudCLI (claudecodeui) web UI - Tailscale only
+Description=CloudCLI (claudecodeui) web UI - localhost, behind a tunnel
 After=network-online.target
 Wants=network-online.target
 
 [Service]
 Type=simple
-WorkingDirectory=/home/romeo/Work/claudecodeui
-EnvironmentFile=/home/romeo/Work/claudecodeui/.env
+WorkingDirectory=%h/Work/claudecodeui
+EnvironmentFile=%h/Work/claudecodeui/.env
 Environment=NODE_ENV=production
 # Extra runtime modules kept outside the app tree so `npm ci` never touches them (playwright)
-Environment=NODE_PATH=/home/romeo/.local/share/cloudcli-extra/node_modules
-Environment=PATH=/home/romeo/.nvm/versions/node/v24.14.0/bin:/home/romeo/.local/bin:/usr/local/bin:/usr/bin:/bin
-ExecStartPre=-/home/romeo/Work/claudecodeui/custom/ui-cleanup/inject.sh
-ExecStart=/home/romeo/.nvm/versions/node/v24.14.0/bin/node dist-server/server/index.js
+Environment=NODE_PATH=%h/.local/share/cloudcli-extra/node_modules
+Environment=PATH=%h/.nvm/versions/node/v24.14.0/bin:%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+ExecStartPre=-%h/Work/claudecodeui/custom/ui-cleanup/inject.sh
+ExecStart=%h/.nvm/versions/node/v24.14.0/bin/node dist-server/server/index.js
 Restart=always
 RestartSec=3
 

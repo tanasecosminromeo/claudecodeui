@@ -1,1 +1,2 @@
+custom/hooks/commit-guard.sh staged
 npx lint-staged

@@ -1,5 +1,5 @@
 # Personal fork of CloudCLI UI (siteboon/claudecodeui).
-#   upstream = GitHub original (fetch only)   origin = your fork (github.com/tanasecosminromeo/claudecodeui)
+#   upstream = GitHub original (fetch only)   origin = your fork on GitHub
 # Your own code lives in custom/ so upstream merges rarely conflict.
 #
 #   make status    what upstream has that you don't (and vice versa)
@@ -21,7 +21,7 @@ help:
 remotes:
 	@git remote get-url upstream >/dev/null 2>&1 || git remote add upstream $(UPSTREAM_URL)
 	@git remote set-url --push upstream DISABLED-push-to-origin
-	@git remote get-url origin >/dev/null 2>&1 || echo "note: no 'origin' yet -> git remote add origin git@github.com:tanasecosminromeo/claudecodeui.git"
+	@git remote get-url origin >/dev/null 2>&1 || echo "note: no 'origin' yet -> git remote add origin git@github.com:<you>/claudecodeui.git"
 
 fetch: remotes
 	git fetch upstream --prune --tags
