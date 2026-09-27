@@ -1,0 +1,13 @@
+{
+  "name": "claude-usage",
+  "displayName": "Usage",
+  "version": "1.0.0",
+  "description": "Claude plan limits (5h / 7d / per-model) for every claude-swap account.",
+  "author": "custom",
+  "icon": "icon.svg",
+  "type": "module",
+  "slot": "tab",
+  "entry": "index.js",
+  "server": "server.mjs",
+  "permissions": []
+}

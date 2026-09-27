@@ -1,0 +1,13 @@
+{
+  "name": "session-radar",
+  "displayName": "Sessions",
+  "version": "1.0.0",
+  "description": "Live Claude Code sessions on this host: waiting on you first, then busy, then anything active in the last 24h.",
+  "author": "homelab",
+  "icon": "icon.svg",
+  "type": "module",
+  "slot": "tab",
+  "entry": "index.js",
+  "server": "server.mjs",
+  "permissions": []
+}
