@@ -105,6 +105,17 @@
     return body;
   }
 
+  async function switchUsageAccount(number) {
+    const r = await fetch(`/api/plugins/${USAGE_PLUGIN}/rpc/switch`, {
+      method: 'POST',
+      headers: { ...authHeaders(), 'content-type': 'application/json' },
+      body: JSON.stringify({ number }),
+    });
+    const body = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(body.error || `HTTP ${r.status}`);
+    return body;
+  }
+
   function meterLevel(pct) { return pct >= 90 ? 'bad' : pct >= 70 ? 'warn' : 'ok'; }
 
   function paintMeter(m) {
@@ -127,7 +138,16 @@
       `5-hour: ${five ?? '–'}%${a.fiveHour && a.fiveHour.countdown ? ` (resets in ${a.fiveHour.countdown})` : ''}`,
       `7-day: ${seven ?? '–'}%${a.sevenDay && a.sevenDay.countdown ? ` (resets in ${a.sevenDay.countdown})` : ''}`,
       ...scoped.map((x) => `7-day ${x.name}: ${Math.round(x.pct)}%`),
+      ...codexTitleLines(),
       'Click for all accounts'].join('\n');
+  }
+
+  // Codex usage (from its local session logs) is only present on machines that use Codex.
+  function codexTitleLines() {
+    const cx = usageData && usageData.codex && (usageData.codex.limits || []).find((l) => l.id === 'codex');
+    if (!cx) return [];
+    const pct = (w) => (w && w.pct != null ? `${Math.round(w.pct)}%` : '–');
+    return [`Codex: 5h ${pct(cx.primary)} · 7d ${pct(cx.secondary)} (as of last Codex request)`];
   }
 
   function paintAllMeters() { document.querySelectorAll(`[${METER}]`).forEach(paintMeter); }
@@ -178,6 +198,8 @@
         if (usagePop !== pop) return;
         pop.handle = mod.renderUsage(el, {
           fetchData: async (force) => { const d = await fetchUsage(force); usageData = d; usageError = null; paintAllMeters(); return d; },
+          switchAccount: switchUsageAccount,
+          onData: (d) => { usageData = d; usageError = null; paintAllMeters(); },
         });
       })
       .catch((err) => { el.textContent = `Usage plugin unavailable: ${err.message || err}`; });

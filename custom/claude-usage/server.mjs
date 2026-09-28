@@ -1,9 +1,10 @@
-// claude-usage backend: wraps `claude-swap list --json` and serves GET /usage.
-// Only whitelisted fields leave this process (no credentials are ever read).
+// claude-usage backend: wraps `claude-swap list --json`, adds Codex usage from its local session logs
+// (codex.mjs), and serves GET /usage. Only whitelisted fields leave this process (no credentials are ever read).
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFile } from 'node:child_process';
+import { readCodexUsage } from './codex.mjs';
 
 const HOME = process.env.HOME || '';
 const CANDIDATES = [path.join(HOME, '.local/bin/claude-swap'), 'claude-swap'];
@@ -53,19 +54,73 @@ function runSwap() {
   });
 }
 
+// null when Codex isn't used here; a Codex read problem never takes the Claude numbers down with it
+function codexOrNull() {
+  try { return readCodexUsage(); } catch (err) { console.error(`codex usage: ${err.message}`); return null; }
+}
+
 async function getUsage(force) {
   const age = cache ? Date.now() - cache.at : Infinity;
   if (cache && (age < (force ? MIN_REFRESH_MS : TTL_MS))) return cache.body;
   if (!inflight) {
     inflight = runSwap()
+      .then((body) => ({ ...body, codex: codexOrNull() }))
       .then((body) => { cache = { at: Date.now(), body }; return body; })
       .finally(() => { inflight = null; });
   }
   return inflight;
 }
 
+// `claude-swap switch <n>`: swaps the active Claude login (Keychain / ~/.claude/.credentials.json) to a
+// managed account. New Claude sessions use it; a CLAUDE_CODE_OAUTH_TOKEN pinned in the service env wins.
+let switching = null;
+async function switchAccount(number) {
+  if (!Number.isInteger(number) || number < 1) throw Object.assign(new Error('number must be a positive integer'), { status: 400 });
+  const known = await getUsage(false);
+  if (!(known.accounts || []).some((a) => a.number === number)) throw Object.assign(new Error(`no account #${number}`), { status: 400 });
+  if (switching) throw Object.assign(new Error('a switch is already running'), { status: 409 });
+  switching = new Promise((resolve, reject) => {
+    execFile(BIN, ['switch', String(number)], { timeout: 30_000, env: { ...process.env, NO_COLOR: '1' } }, (err, stdout, stderr) => {
+      if (err) reject(new Error((stderr || err.message || 'claude-swap switch failed').trim().split('\n').pop()));
+      else resolve();
+    });
+  });
+  try { await switching; } finally { switching = null; }
+  cache = null;
+  return getUsage(false);
+}
+
+function readJson(req, limit = 1024) {
+  return new Promise((resolve, reject) => {
+    let raw = '';
+    let tooLarge = false;
+    req.on('data', (chunk) => {
+      if (tooLarge) return; // keep draining so the 413 can still be sent
+      raw += chunk;
+      if (raw.length > limit) { tooLarge = true; raw = ''; }
+    });
+    req.on('end', () => {
+      if (tooLarge) return reject(Object.assign(new Error('body too large'), { status: 413 }));
+      try { resolve(raw ? JSON.parse(raw) : {}); } catch { reject(Object.assign(new Error('bad JSON'), { status: 400 })); }
+    });
+    req.on('error', reject);
+  });
+}
+
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, 'http://x');
+  if (req.method === 'POST' && url.pathname === '/switch') {
+    try {
+      const body = await readJson(req);
+      const usage = await switchAccount(body.number);
+      res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' });
+      res.end(JSON.stringify(usage));
+    } catch (err) {
+      res.writeHead(err.status || 502, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ error: String(err.message || err) }));
+    }
+    return;
+  }
   if (req.method === 'GET' && (url.pathname === '/usage' || url.pathname === '/')) {
     try {
       const body = await getUsage(url.searchParams.get('refresh') === '1');

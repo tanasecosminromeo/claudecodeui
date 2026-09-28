@@ -15,6 +15,10 @@ const CSS = `
 .cu-num{font-weight:600;color:hsl(var(--muted-foreground))}
 .cu-email{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
 .cu-badge{margin-left:auto;flex:0 0 auto;font-size:9.5px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;padding:1px 5px;background:hsl(var(--primary));color:hsl(var(--primary-foreground))}
+.cu-badge.cu-muted{background:hsl(var(--muted));color:hsl(var(--muted-foreground))}
+.cu-switch{margin-left:auto;flex:0 0 auto;font-size:10.5px;padding:1px 7px}
+.cu-switch.cu-armed{border-color:#f59e0b;color:#d97706}
+.cu-switch:disabled{opacity:.6;cursor:default}
 .cu-org{font-size:10.5px;color:hsl(var(--muted-foreground));margin:-5px 0 7px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .cu-win{margin-top:6px}
 .cu-line{display:flex;justify-content:space-between;gap:8px;font-size:11px}
@@ -76,6 +80,7 @@ function windowEl(doc, label, w, withPace) {
     bar.append(exp);
   }
   const parts = [];
+  if (w.resetSinceObserved) parts.push('reset since');
   if (w.countdown) parts.push(`resets in ${w.countdown}${w.clock ? ` (${w.clock})` : ''}`);
   if (w.pct >= 100) parts.push('limit reached');
   else if (withPace && w.willLastToReset === false && w.projectedExhaustionAt) parts.push(`runs out ~${fmtDate(w.projectedExhaustionAt)}`);
@@ -85,17 +90,72 @@ function windowEl(doc, label, w, withPace) {
   return box;
 }
 
-function cardEl(doc, a) {
+// Two clicks (Switch → Switch to #n?) so a stray click can't swap the machine's Claude login.
+function switchButton(doc, a, onSwitch) {
+  const btn = el(doc, 'button', 'cu-refresh cu-switch', 'Switch');
+  btn.type = 'button';
+  btn.title = `Make #${a.number} the active Claude account on this machine (new sessions use it)`;
+  let armed = null;
+  btn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (!armed) {
+      btn.textContent = `Switch to #${a.number}?`;
+      btn.classList.add('cu-armed');
+      armed = setTimeout(() => { armed = null; btn.textContent = 'Switch'; btn.classList.remove('cu-armed'); }, 4000);
+      return;
+    }
+    clearTimeout(armed);
+    armed = null;
+    btn.disabled = true;
+    btn.textContent = 'Switching…';
+    onSwitch(a.number, btn);
+  });
+  return btn;
+}
+
+function cardEl(doc, a, onSwitch) {
   const card = el(doc, 'div', `cu-card${a.active ? ' cu-active' : ''}`);
   const head = el(doc, 'div', 'cu-head');
   head.append(el(doc, 'span', 'cu-num', `#${a.number}`), el(doc, 'span', 'cu-email', a.email || '(no email)'));
   if (a.active) head.append(el(doc, 'span', 'cu-badge', 'active'));
+  else if (onSwitch) head.append(switchButton(doc, a, onSwitch));
   card.append(head);
   if (a.organizationName && a.organizationName !== `${a.email}'s Organization`) card.append(el(doc, 'div', 'cu-org', a.organizationName));
   if (a.usageStatus && a.usageStatus !== 'ok') card.append(el(doc, 'div', 'cu-err', `usage: ${a.usageStatus}`));
   card.append(windowEl(doc, '5-hour', a.fiveHour, false), windowEl(doc, '7-day', a.sevenDay, true));
   for (const s of a.scoped || []) card.append(windowEl(doc, `7-day · ${s.name || 'model'}`, s, true));
   return card;
+}
+
+function fmtAgo(iso) {
+  const d = new Date(iso);
+  const mins = Math.round((Date.now() - d) / 60000);
+  const ago = mins < 1 ? 'just now' : mins < 60 ? `${mins}m ago` : mins < 1440 ? `${Math.round(mins / 60)}h ago` : `${Math.round(mins / 1440)}d ago`;
+  return `${d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}, ${ago}`;
+}
+
+// Codex numbers come from its local session logs, so they're as of the last Codex request here.
+function codexCardEl(doc, codex) {
+  const card = el(doc, 'div', 'cu-card');
+  const head = el(doc, 'div', 'cu-head');
+  head.append(el(doc, 'span', 'cu-email', 'Codex'));
+  if (codex.planType) head.append(el(doc, 'span', 'cu-badge cu-muted', codex.planType));
+  card.append(head, el(doc, 'div', 'cu-org', `as of last Codex request (${fmtAgo(codex.observedAt)})`));
+  for (const l of codex.limits || []) {
+    const prefix = l.id === 'codex' ? '' : `${l.name} · `;
+    for (const w of [l.primary, l.secondary]) {
+      if (w) card.append(windowEl(doc, `${prefix}${w.name}`, w, w.windowMinutes >= 1440));
+    }
+    if (l.reached) card.append(el(doc, 'div', 'cu-err', `${l.name}: ${l.reached} (${fmtDate(l.observedAt)})`));
+  }
+  return card;
+}
+
+/** Codex headline numbers for the header meter's tooltip, or null when Codex isn't used here. */
+export function codexSummary(data) {
+  const limit = data.codex && (data.codex.limits || []).find((l) => l.id === 'codex');
+  if (!limit) return null;
+  return { five: limit.primary ? limit.primary.pct : null, seven: limit.secondary ? limit.secondary.pct : null, observedAt: data.codex.observedAt };
 }
 
 /** The active account's headline numbers, for the header meter. */
@@ -108,8 +168,9 @@ export function summary(data) {
   return { account: a, five, seven, scopedMax, worst: Math.max(five || 0, seven || 0) };
 }
 
-/** Render the account cards into `container`; fetchData(force) -> Promise<usage>. */
-export function renderUsage(container, { fetchData, pollMs = POLL_MS } = {}) {
+/** Render the account cards into `container`; fetchData(force) -> Promise<usage>.
+ *  switchAccount(number) -> Promise<usage> adds a Switch button to inactive accounts. */
+export function renderUsage(container, { fetchData, switchAccount, onData, pollMs = POLL_MS } = {}) {
   const doc = container.ownerDocument;
   const win = doc.defaultView;
   ensureStyle(doc);
@@ -130,16 +191,31 @@ export function renderUsage(container, { fetchData, pollMs = POLL_MS } = {}) {
     }
   }
 
+  async function onSwitch(number, btn) {
+    try {
+      const data = await switchAccount(number);
+      if (onData) onData(data);
+      draw(data);
+    } catch (err) {
+      btn.disabled = false;
+      btn.textContent = 'Switch';
+      btn.title = `Switch failed: ${err.message || err}`;
+      btn.classList.add('cu-armed');
+    }
+  }
+
   function draw(data) {
     const top = el(doc, 'div', 'cu-top');
     const when = data.fetchedAt ? new Date(data.fetchedAt).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' }) : '';
-    top.append(el(doc, 'span', null, `Claude plan usage${when ? ` · ${when}` : ''}`));
+    top.append(el(doc, 'span', null, `${data.codex ? 'Plan usage' : 'Claude plan usage'}${when ? ` · ${when}` : ''}`));
     const btn = el(doc, 'button', 'cu-refresh', 'Refresh');
     btn.type = 'button';
     btn.addEventListener('click', (e) => { e.stopPropagation(); btn.textContent = '…'; refresh(true); });
     top.append(btn);
     const accounts = [...(data.accounts || [])].sort((x, y) => (y.active - x.active) || (x.number - y.number));
-    root.replaceChildren(top, ...accounts.map((a) => cardEl(doc, a)));
+    const cards = accounts.map((a) => cardEl(doc, a, switchAccount ? onSwitch : null));
+    if (data.codex) cards.push(codexCardEl(doc, data.codex));
+    root.replaceChildren(top, ...cards);
   }
 
   refresh(false);
@@ -149,7 +225,10 @@ export function renderUsage(container, { fetchData, pollMs = POLL_MS } = {}) {
 // ---- CloudCLI tab plugin contract ----
 let handle = null;
 export function mount(container, api) {
-  handle = renderUsage(container, { fetchData: (force) => api.rpc('GET', force ? 'usage?refresh=1' : 'usage') });
+  handle = renderUsage(container, {
+    fetchData: (force) => api.rpc('GET', force ? 'usage?refresh=1' : 'usage'),
+    switchAccount: (number) => api.rpc('POST', 'switch', { number }),
+  });
 }
 export function unmount() {
   handle?.destroy();
