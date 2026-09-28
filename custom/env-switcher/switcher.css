@@ -1,0 +1,197 @@
+/* env-switcher: logo chip, environment menu, iframe stage, sign-in overlay and banner.
+   Injected by ui-cleanup/inject-html.mjs when ENV_SWITCHER is set. Uses the app's theme tokens. */
+
+/* ---- Logo chip (drawn with ::after so React's children stay untouched) ---- */
+[data-envsw-logo] { cursor: pointer; }
+[data-envsw-logo]:focus-visible { outline: 2px solid hsl(var(--ring, var(--primary))); outline-offset: 2px; }
+[data-envsw-logo]::after {
+  content: attr(data-envsw-label) " \25BE";
+  flex: 0 0 auto;
+  padding: 0 6px;
+  font-size: 10.5px;
+  font-weight: 600;
+  line-height: 17px;
+  white-space: nowrap;
+  color: hsl(var(--muted-foreground));
+  background: hsl(var(--muted, var(--background)));
+  border: 1px solid hsl(var(--border));
+}
+[data-envsw-logo]:hover::after { color: hsl(var(--foreground)); background: hsl(var(--accent)); }
+[data-envsw-logo][data-envsw-alert]::after {
+  color: #92400e;
+  background: #fef3c7;
+  border-color: #f59e0b;
+  animation: envsw-pulse 1.4s ease-in-out infinite;
+}
+.dark [data-envsw-logo][data-envsw-alert]::after { color: #fcd34d; background: #451a03; }
+
+/* ---- Stage: the remote environments' iframes, stacked; hidden ones keep their size (xterm) ---- */
+#envsw-stage {
+  position: fixed;
+  inset: 0;
+  z-index: 2147482500;
+  box-sizing: border-box;
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+  background: hsl(var(--background));
+  visibility: hidden;
+  pointer-events: none;
+}
+#envsw-stage.envsw-on { visibility: visible; pointer-events: auto; }
+#envsw-stage .envsw-stage-inner { position: relative; width: 100%; height: 100%; }
+#envsw-stage .envsw-frame {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: hsl(var(--background));
+  visibility: hidden;
+}
+#envsw-stage.envsw-on .envsw-frame.envsw-on { visibility: visible; }
+/* The home window's own needs-input badge would float over the remote app */
+html[data-envsw-remote] #uic-alert { display: none !important; }
+
+/* ---- Menu ---- */
+.envsw-backdrop { position: fixed; inset: 0; z-index: 2147483100; }
+.envsw-menu {
+  position: fixed;
+  z-index: 2147483200;
+  box-sizing: border-box;
+  width: min(340px, calc(100vw - 16px));
+  padding: 4px;
+  font-size: 13px;
+  color: hsl(var(--popover-foreground, var(--foreground)));
+  background: hsl(var(--popover, var(--background)));
+  border: 1px solid hsl(var(--border));
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .18);
+}
+.envsw-menu-head {
+  padding: 5px 8px 6px;
+  margin-bottom: 3px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  color: hsl(var(--muted-foreground));
+  border-bottom: 1px solid hsl(var(--border));
+}
+.envsw-row { display: flex; align-items: stretch; }
+.envsw-row[aria-current="true"] { background: hsl(var(--accent) / .6); }
+.envsw-item {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 8px;
+  text-align: left;
+  color: inherit;
+  font: inherit;
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+.envsw-item:hover, .envsw-item:focus-visible, .envsw-act:hover, .envsw-act:focus-visible { background: hsl(var(--accent)); outline: none; }
+.envsw-label { display: flex; flex: 1 1 auto; min-width: 0; flex-direction: column; }
+.envsw-name { font-weight: 600; }
+.envsw-host { overflow: hidden; font-size: 11px; color: hsl(var(--muted-foreground)); text-overflow: ellipsis; white-space: nowrap; }
+.envsw-count {
+  flex: 0 0 auto;
+  min-width: 18px;
+  padding: 0 5px;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 18px;
+  text-align: center;
+  color: #92400e;
+  background: #fef3c7;
+  border: 1px solid #f59e0b;
+}
+.dark .envsw-count { color: #fcd34d; background: #451a03; }
+.envsw-kbd { flex: 0 0 auto; font: 11px ui-monospace, SFMono-Regular, Menlo, monospace; color: hsl(var(--muted-foreground)); }
+.envsw-act {
+  display: flex;
+  flex: 0 0 30px;
+  align-items: center;
+  justify-content: center;
+  font: inherit;
+  font-size: 14px;
+  color: hsl(var(--muted-foreground));
+  text-decoration: none;
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+.envsw-dot {
+  flex: 0 0 auto;
+  width: 8px;
+  height: 8px;
+  box-sizing: border-box;
+  border: 1.5px solid hsl(var(--muted-foreground));
+  border-radius: 50%;
+}
+.envsw-row[data-state="here"] .envsw-dot { background: hsl(var(--primary)); border-color: hsl(var(--primary)); }
+.envsw-row[data-state="ready"] .envsw-dot { background: #22c55e; border-color: #22c55e; }
+.envsw-row[data-state="loading"] .envsw-dot { border-color: #22c55e; animation: envsw-pulse 1s ease-in-out infinite; }
+.envsw-row[data-state="auth"] .envsw-dot { background: #f59e0b; border-color: #f59e0b; }
+.envsw-row[data-state="down"] .envsw-dot { background: #ef4444; border-color: #ef4444; }
+.envsw-row[data-state="tab"] .envsw-dot { border-style: dashed; }
+
+/* ---- Sign-in overlay (over a remote env that can't load) and banner ---- */
+.envsw-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: hsl(var(--background));
+}
+.envsw-card {
+  max-width: 440px;
+  padding: 20px;
+  color: hsl(var(--foreground));
+  background: hsl(var(--card, var(--background)));
+  border: 1px solid hsl(var(--border));
+}
+.envsw-card-title { font-size: 16px; font-weight: 600; }
+.envsw-card-text { margin: 8px 0 16px; font-size: 13px; color: hsl(var(--muted-foreground)); }
+.envsw-card-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.envsw-btn {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 12px;
+  font: inherit;
+  font-size: 13px;
+  color: inherit;
+  text-decoration: none;
+  background: hsl(var(--background));
+  border: 1px solid hsl(var(--border));
+  cursor: pointer;
+}
+.envsw-btn:hover { background: hsl(var(--accent)); }
+.envsw-btn-primary { color: hsl(var(--primary-foreground)); background: hsl(var(--primary)); border-color: transparent; }
+.envsw-btn-primary:hover { background: hsl(var(--primary) / .9); }
+#envsw-banner {
+  position: fixed;
+  top: calc(8px + env(safe-area-inset-top));
+  left: 50%;
+  z-index: 2147483300;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: calc(100vw - 16px);
+  padding: 6px 6px 6px 12px;
+  font-size: 13px;
+  color: hsl(var(--popover-foreground, var(--foreground)));
+  background: hsl(var(--popover, var(--background)));
+  border: 1px solid #f59e0b;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .18);
+  transform: translateX(-50%);
+}
+
+@keyframes envsw-pulse { 50% { opacity: .55; } }
+@media (prefers-reduced-motion: reduce) {
+  [data-envsw-logo][data-envsw-alert]::after, .envsw-row[data-state="loading"] .envsw-dot { animation: none; }
+}

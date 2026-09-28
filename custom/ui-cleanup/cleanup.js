@@ -224,6 +224,11 @@
   let iconFrames = null; // Promise<[litHref, dimHref]>
   let alertBadge = null;
   let waitingNow = [];
+  // Inside env-switcher's iframe only the top window's favicon is visible, so the top one pulses
+  // for everyone: it adds the other environments' count, published by env-switcher.
+  const FRAMED = (() => { try { return window.top !== window.self; } catch { return true; } })();
+  const remoteWaiting = () => Number(document.documentElement.dataset.envswWaiting) || 0;
+  const shouldPulse = () => !FRAMED && waitingNow.length + remoteWaiting() > 0;
 
   function sessionPath(s) { return `/session/${encodeURIComponent(s.appSessionId || s.sessionId)}`; }
 
@@ -274,7 +279,7 @@
   function startPulse() {
     if (pulseTimer) return;
     buildIconFrames().then(([lit, dim]) => {
-      if (pulseTimer || waitingNow.length === 0) return;
+      if (pulseTimer || !shouldPulse()) return;
       origIcons = iconLinks().map((link) => ({ link, href: link.getAttribute('href'), type: link.getAttribute('type') }));
       const tick = () => {
         pulseOn = !pulseOn;
@@ -329,11 +334,19 @@
     alertBadge.append(dot, text, count);
   }
 
+  function syncPulse() { if (shouldPulse()) startPulse(); else stopPulse(); }
+
   function updateAlert(sessions) {
     waitingNow = sessions.filter((s) => s.state === 'waiting');
-    if (waitingNow.length > 0) startPulse(); else stopPulse();
+    const count = String(waitingNow.length);
+    if (document.documentElement.dataset.uicWaiting !== count) {
+      document.documentElement.dataset.uicWaiting = count; // read by env-switcher if it loads later
+      dispatchEvent(new CustomEvent('uic:waiting', { detail: { count: waitingNow.length } }));
+    }
+    syncPulse();
     renderBadge();
   }
+  addEventListener('envsw:waiting', syncPulse);
 
   async function pollAlert() {
     let delay = ALERT_POLL_MS;

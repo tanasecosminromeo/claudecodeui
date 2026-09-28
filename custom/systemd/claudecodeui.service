@@ -11,8 +11,11 @@ Environment=NODE_ENV=production
 # Extra runtime modules kept outside the app tree so `npm ci` never touches them (playwright)
 Environment=NODE_PATH=%h/.local/share/cloudcli-extra/node_modules
 Environment=PATH=%h/.nvm/versions/node/v24.14.0/bin:%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+Environment=CLOUDCLI_SERVICE=1
 ExecStartPre=-%h/Work/claudecodeui/custom/ui-cleanup/inject.sh
-ExecStart=%h/.nvm/versions/node/v24.14.0/bin/node dist-server/server/index.js
+# HOST on the command line: EnvironmentFile would override an Environment= line, and the app's
+# default is 0.0.0.0 (every interface). Tunnel-only means loopback only.
+ExecStart=/usr/bin/env HOST=127.0.0.1 %h/.nvm/versions/node/v24.14.0/bin/node dist-server/server/index.js
 Restart=always
 RestartSec=3
 
