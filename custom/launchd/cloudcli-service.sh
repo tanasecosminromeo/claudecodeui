@@ -39,4 +39,14 @@ fi
 
 cd "$APP"
 "$APP/custom/ui-cleanup/inject.sh" "$APP" || true
+
+# Plugins are npm-installed with --ignore-scripts and node-pty 1.1.0 ships its macOS spawn-helper
+# without the exec bit: every Terminal-plugin shell then fails with "posix_spawnp failed" and leaks a
+# pty, until macOS runs out of them system-wide (iTerm: "forkpty: Device not configured").
+PLUGINS_DIR="$HOME/.claude-code-ui/plugins"
+if [ -d "$PLUGINS_DIR" ]; then
+  find "$PLUGINS_DIR" -path '*/node-pty/*' -name spawn-helper -type f ! -perm -u+x \
+    -exec chmod +x {} + -exec echo "[cloudcli-service] made node-pty spawn-helper executable:" {} + || true
+fi
+
 exec node dist-server/server/index.js
