@@ -352,9 +352,21 @@ export function createFileTreeService(dependencies: FileTreeServiceDependencies)
       if (readOnlyPath) {
         return readOnlyPath;
       }
+      return resolvePathInsideProject(projectRoot, targetPath);
     }
 
-    return resolvePathInsideProject(projectRoot, targetPath);
+    try {
+      return resolvePathInsideProject(projectRoot, targetPath);
+    } catch (error) {
+      // A relative reference can climb out of the project too, e.g. a report an
+      // agent wrote to `../_play/report.html`; anchored at the project root it
+      // gets the same read-only root check as an absolute one.
+      const readOnlyPath = await dependencies.workspace.resolveReadOnlyRootPath(path.resolve(projectRoot, targetPath));
+      if (readOnlyPath) {
+        return readOnlyPath;
+      }
+      throw error;
+    }
   }
 
   async function cleanupTemporaryFiles(files: FileTreeUploadedFile[]): Promise<void> {

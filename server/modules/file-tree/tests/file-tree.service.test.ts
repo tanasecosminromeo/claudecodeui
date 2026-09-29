@@ -531,3 +531,42 @@ test('reading through a symlink out of the temp directory is still refused', asy
     await fsPromises.rm(outsideDirectory, { recursive: true, force: true });
   }
 });
+
+test('a relative path out of the project reads from a configured read-only root, and never writes there', async () => {
+  // Beside this file rather than under the temp directory, so no built-in read-only root covers it.
+  const base = await fsPromises.mkdtemp(path.join(testDirectory, 'file-tree-play-'));
+  const projectRoot = path.join(base, 'repo');
+  const playRoot = path.join(base, '_play');
+  const elsewhere = path.join(base, 'elsewhere');
+  await Promise.all([projectRoot, playRoot, elsewhere].map((directory) => fsPromises.mkdir(directory)));
+  const report = '<!doctype html><title>report</title>';
+  await fsPromises.writeFile(path.join(playRoot, 'report.html'), report, 'utf8');
+  await fsPromises.writeFile(path.join(elsewhere, 'secret.txt'), 'secret', 'utf8');
+  const previousRoots = process.env.CLOUDCLI_READ_ONLY_ROOTS;
+  process.env.CLOUDCLI_READ_ONLY_ROOTS = playRoot;
+
+  try {
+    const service = createRealFileSystemService(projectRoot);
+
+    // The shape a transcript quotes when an agent writes its report next to the repository.
+    assert.equal((await service.readTextFile('project-1', '../_play/report.html')).content, report);
+    (await service.openFile('project-1', '../_play/report.html')).stream.destroy();
+
+    await assert.rejects(
+      service.readTextFile('project-1', '../elsewhere/secret.txt'),
+      (error: unknown) => (error as AppError).code === 'PATH_OUTSIDE_PROJECT',
+    );
+    await assert.rejects(
+      service.saveTextFile('project-1', '../_play/report.html', 'overwritten'),
+      (error: unknown) => (error as AppError).code === 'PATH_OUTSIDE_PROJECT',
+    );
+    assert.equal(await fsPromises.readFile(path.join(playRoot, 'report.html'), 'utf8'), report);
+  } finally {
+    if (previousRoots === undefined) {
+      delete process.env.CLOUDCLI_READ_ONLY_ROOTS;
+    } else {
+      process.env.CLOUDCLI_READ_ONLY_ROOTS = previousRoots;
+    }
+    await fsPromises.rm(base, { recursive: true, force: true });
+  }
+});
