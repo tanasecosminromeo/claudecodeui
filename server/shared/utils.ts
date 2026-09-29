@@ -191,6 +191,10 @@ export const FORBIDDEN_WORKSPACE_PATHS = [
  * separately by `validateWorkspacePath` — the temp directories are on
  * `FORBIDDEN_WORKSPACE_PATHS`; the Claude projects directory is not, it is
  * simply wherever `WORKSPACES_ROOT` puts it.
+ *
+ * The owner can add more with `CLOUDCLI_READ_ONLY_ROOTS` (see
+ * `readConfiguredReadOnlyRoots`), e.g. a folder where agents write HTML reports
+ * next to, rather than inside, the repositories they work in.
  */
 const READ_ONLY_ROOTS = [...new Set([
   '/tmp',
@@ -238,11 +242,31 @@ export async function resolvePathUnderRoots(targetPath: string, roots: string[])
 }
 
 /**
- * Resolves a path that is readable because it lives under a read-only root,
- * or `null` when it does not.
+ * Extra read-only roots from `CLOUDCLI_READ_ONLY_ROOTS`: absolute directories
+ * separated by the platform path delimiter (`:`, or `;` on Windows), where a
+ * leading `~/` means the home directory. Relative entries are ignored so a typo
+ * cannot expose the server's working directory. Read on every call, so it is
+ * whatever the server's environment holds.
+ */
+function readConfiguredReadOnlyRoots(): string[] {
+  const configured = process.env.CLOUDCLI_READ_ONLY_ROOTS;
+  if (!configured) {
+    return [];
+  }
+
+  return configured
+    .split(path.delimiter)
+    .map((entry) => entry.trim())
+    .map((entry) => (entry === '~' || entry.startsWith('~/') ? path.join(os.homedir(), entry.slice(1)) : entry))
+    .filter((entry) => entry && path.isAbsolute(entry));
+}
+
+/**
+ * Resolves a path that is readable because it lives under a read-only root
+ * (the built-in ones plus `CLOUDCLI_READ_ONLY_ROOTS`), or `null` when it does not.
  */
 export function resolveReadOnlyRootPath(targetPath: string): Promise<string | null> {
-  return resolvePathUnderRoots(targetPath, READ_ONLY_ROOTS);
+  return resolvePathUnderRoots(targetPath, [...READ_ONLY_ROOTS, ...readConfiguredReadOnlyRoots()]);
 }
 
 function stripWindowsLongPathPrefix(inputPath: string): string {

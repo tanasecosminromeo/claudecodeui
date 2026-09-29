@@ -137,3 +137,29 @@ test('a root that does not exist does not stop later roots from matching', async
 test('traversal out of the temp directory does not resolve', async () => {
   assert.equal(await resolveReadOnlyRootPath(`${os.tmpdir()}/../etc/passwd`), null);
 });
+
+test('CLOUDCLI_READ_ONLY_ROOTS adds roots, expands ~/ and ignores relative entries', async () => {
+  const playRoot = path.join(fixtureHome, 'play');
+  await mkdir(playRoot, { recursive: true });
+  const reportPath = path.join(playRoot, 'report.html');
+  await writeFile(reportPath, '<!doctype html>', 'utf8');
+  const previousRoots = process.env.CLOUDCLI_READ_ONLY_ROOTS;
+
+  try {
+    assert.equal(await resolveReadOnlyRootPath(reportPath), null);
+
+    process.env.CLOUDCLI_READ_ONLY_ROOTS = ['~/play', outsideDirectory].join(path.delimiter);
+    assert.equal(await resolveReadOnlyRootPath(reportPath), reportPath);
+    assert.equal(await resolveReadOnlyRootPath(outsideDirectory), outsideDirectory);
+
+    // "." would otherwise make the server's working directory (this repo, which holds the fixture) readable.
+    process.env.CLOUDCLI_READ_ONLY_ROOTS = '.';
+    assert.equal(await resolveReadOnlyRootPath(outsideDirectory), null);
+  } finally {
+    if (previousRoots === undefined) {
+      delete process.env.CLOUDCLI_READ_ONLY_ROOTS;
+    } else {
+      process.env.CLOUDCLI_READ_ONLY_ROOTS = previousRoots;
+    }
+  }
+});
