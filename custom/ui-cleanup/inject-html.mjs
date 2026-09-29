@@ -54,7 +54,7 @@ export function injectBlock(html, block) {
   return stripped.replace('</head>', `${block}\n</head>`);
 }
 
-// assets: { cleanupCss, cleanupJs, fonts, switcherCss, switcherJs } as served hrefs (or null)
+// assets: { cleanupCss, cleanupJs, voiceJs, fonts, switcherCss, switcherJs } as served hrefs (or null)
 export function renderBlock(assets, envs) {
   const parts = [START];
   if (assets.fonts) {
@@ -63,6 +63,7 @@ export function renderBlock(assets, envs) {
     }
   }
   parts.push(`<link rel="stylesheet" href="${assets.cleanupCss}" />`, `<script defer src="${assets.cleanupJs}"></script>`);
+  if (assets.voiceJs) parts.push(`<script defer src="${assets.voiceJs}"></script>`);
   if (envs && envs.length > 0 && assets.switcherCss && assets.switcherJs) {
     parts.push(
       `<link rel="stylesheet" href="${assets.switcherCss}" />`,
@@ -111,7 +112,9 @@ export function run(appDir, customDir) {
   const href = (name) => `/ui-cleanup/${name}`;
   const css = copyHashed(path.join(cleanupDir, 'cleanup.css'), outDir);
   const js = copyHashed(path.join(cleanupDir, 'cleanup.js'), outDir);
-  const assets = { cleanupCss: href(css.name), cleanupJs: href(js.name), fonts: null, switcherCss: null, switcherJs: null };
+  const assets = { cleanupCss: href(css.name), cleanupJs: href(js.name), voiceJs: null, fonts: null, switcherCss: null, switcherJs: null };
+  const voiceFile = path.join(cleanupDir, 'voice-shortcut.js');
+  if (fs.existsSync(voiceFile)) assets.voiceJs = href(copyHashed(voiceFile, outDir).name);
   const fontsDir = path.join(cleanupDir, 'fonts');
   if (fs.existsSync(fontsDir)) {
     fs.cpSync(fontsDir, path.join(outDir, 'fonts'), { recursive: true });

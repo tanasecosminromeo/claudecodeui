@@ -51,6 +51,12 @@ describe('html', () => {
     expect(block).toContain('<script id="envsw-config" type="application/json">');
     expect(block).toContain('<script async src="/s.js"></script>');
   });
+
+  it('adds the voice shortcut script only when present', () => {
+    const assets = { cleanupCss: '/c.css', cleanupJs: '/c.js', voiceJs: null, fonts: null };
+    expect(renderBlock(assets, [])).not.toContain('/v.js');
+    expect(renderBlock({ ...assets, voiceJs: '/v.js' }, [])).toContain('<script defer src="/v.js"></script>');
+  });
 });
 
 describe('run', () => {
@@ -74,6 +80,7 @@ describe('run', () => {
     const html = fs.readFileSync(path.join(app, 'dist', 'index.html'), 'utf8');
     expect(html.match(/ui-cleanup:start/g)).toHaveLength(1);
     expect(html).toMatch(/<script defer src="\/ui-cleanup\/cleanup\.[0-9a-f]{10}\.js"><\/script>/);
+    expect(html).toMatch(/<script defer src="\/ui-cleanup\/voice-shortcut\.[0-9a-f]{10}\.js"><\/script>/);
     expect(html).toMatch(/<script async src="\/ui-cleanup\/switcher\.[0-9a-f]{10}\.js"><\/script>/);
     expect(html).toContain('{"envs":[{"name":"Dev","origin":"https://dev.example.com"},{"name":"M4","origin":"https://m4.example.com"}]}');
     const files = fs.readdirSync(path.join(app, 'dist', 'ui-cleanup'));
