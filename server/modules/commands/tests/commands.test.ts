@@ -5,7 +5,10 @@ import test from 'node:test';
 
 import express from 'express';
 
+import type { LLMProvider, SideQuestionOptions, SideQuestionOutcome } from '@/shared/types.js';
+
 import { createCommandsRouter } from '../commands.routes.js';
+import { createSideQuestionService } from '../side-question.service.js';
 
 /**
  * Stands in for `providerModelsService`. `resolveSessionModel` mirrors the real
@@ -38,12 +41,38 @@ function createModelsService(sessionModels: Record<string, string> = {}) {
   };
 }
 
+type SideQuestionCall = { provider: LLMProvider; sessionId: string; question: string; options: SideQuestionOptions };
+
+/**
+ * The real side-question service over a fake session index and runtime, which
+ * records what reached the runtime and answers with `outcome`.
+ */
+function createSideQuestions(
+  sessions: Record<string, { provider: LLMProvider; projectPath: string | null }> = {},
+  outcome: SideQuestionOutcome = { status: 'answered', answer: '**yes**', source: 'live' },
+) {
+  const calls: SideQuestionCall[] = [];
+  const service = createSideQuestionService({
+    findSession: (sessionId) => sessions[sessionId] ?? null,
+    askProvider: async (provider, sessionId, question, options) => {
+      calls.push({ provider, sessionId, question, options });
+      return outcome;
+    },
+  });
+  return { service, calls };
+}
+
 async function executeCommand(
   commandName: string,
   context: Record<string, unknown>,
   sessionModels: Record<string, string> = {},
+  { args = [], sideQuestions = createSideQuestions().service }: {
+    args?: string[];
+    sideQuestions?: ReturnType<typeof createSideQuestionService>;
+  } = {},
 ): Promise<Record<string, unknown>> {
   const router = createCommandsRouter({
+    sideQuestions,
     fileSystem: {
       readFile: async () => JSON.stringify({ name: 'claude-code-ui', version: '0.0.0-test' }),
     } as unknown as typeof import('node:fs/promises'),
@@ -63,7 +92,7 @@ async function executeCommand(
     const address = server.address() as AddressInfo;
     const response = await fetch(`http://127.0.0.1:${address.port}/api/commands/execute`, {
       method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ commandName, context }),
+      body: JSON.stringify({ commandName, args, context }),
     });
     assert.equal(response.status, 200);
     return await response.json() as Record<string, unknown>;
@@ -111,4 +140,62 @@ test('cost and status commands report the same resolved model as /models', async
 
   assert.equal((cost.data as { model: string }).model, 'haiku');
   assert.equal((status.data as { model: string }).model, 'haiku');
+});
+
+test('btw asks the session row\'s provider in its project folder, with the words rejoined', async () => {
+  const { service, calls } = createSideQuestions({ 'session-1': { provider: 'claude', projectPath: '/work/app' } });
+
+  const result = await executeCommand(
+    '/btw',
+    { provider: 'codex', sessionId: 'session-1', projectPath: '/client/path', model: 'haiku' },
+    {},
+    { args: ['what', 'is', 'it', 'doing?'], sideQuestions: service },
+  );
+
+  assert.deepEqual(calls, [{
+    provider: 'claude',
+    sessionId: 'session-1',
+    question: 'what is it doing?',
+    options: { cwd: '/work/app', model: 'haiku' },
+  }]);
+  assert.equal(result.action, 'btw');
+  assert.deepEqual(result.data, {
+    question: 'what is it doing?', status: 'answered', answer: '**yes**', source: 'live',
+  });
+});
+
+test('btw falls back to the client\'s provider and folder for an unindexed session', async () => {
+  const { service, calls } = createSideQuestions();
+
+  await executeCommand(
+    '/btw',
+    { provider: 'claude', sessionId: 'native-id', projectPath: '/client/path' },
+    {},
+    { args: ['why?'], sideQuestions: service },
+  );
+
+  assert.equal(calls[0]?.provider, 'claude');
+  assert.deepEqual(calls[0]?.options, { cwd: '/client/path', model: null });
+});
+
+test('btw without a question or a session never reaches the runtime', async () => {
+  const { service, calls } = createSideQuestions();
+
+  const empty = await executeCommand('/btw', { sessionId: 'session-1' }, {}, { sideQuestions: service });
+  const noSession = await executeCommand('/btw', { provider: 'claude' }, {}, { args: ['hi'], sideQuestions: service });
+
+  assert.equal(calls.length, 0);
+  assert.equal((empty.data as { status: string }).status, 'empty_question');
+  assert.equal((noSession.data as { status: string }).status, 'no_context');
+  assert.match((noSession.data as { message: string }).message, /no conversation yet/);
+});
+
+test('btw reports a provider without side questions as unsupported', async () => {
+  const { service } = createSideQuestions({}, { status: 'unsupported' });
+
+  const result = await executeCommand('/btw', { provider: 'codex', sessionId: 's' }, {}, { args: ['hi'], sideQuestions: service });
+
+  const data = result.data as { status: string; message: string };
+  assert.equal(data.status, 'unsupported');
+  assert.equal(data.message, '/btw is only available in Claude sessions.');
 });

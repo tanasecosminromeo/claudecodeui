@@ -15,6 +15,7 @@ import {
   TerminalSquare,
   Timer,
   Loader2,
+  MessageCircleQuestion,
   X,
 } from 'lucide-react';
 
@@ -23,9 +24,11 @@ import type {
   LLMProvider,
   ProviderModelActions,
   ProviderModelOption,
-  ProviderModelsDefinition,CommandModalPayload,CostCommandData,HelpCommandData,ModelCommandData,StatusCommandData
+  ProviderModelsDefinition,CommandModalPayload,CostCommandData,HelpCommandData,ModelCommandData,SideQuestionCommandData,StatusCommandData
 } from '@/shared/types';
 import ModelLibraryPanel from '@/modules/chat/modals/ModelLibraryPanel';
+import { Markdown } from '@/modules/chat/transcript/Markdown';
+import MessageCopyControl from '@/modules/chat/transcript/MessageCopyControl';
 
 type CommandResultModalProps = {
   payload: CommandModalPayload | null;
@@ -65,6 +68,7 @@ const FALLBACK_COMMANDS: CommandEntry[] = [
   { name: '/status', descriptionKey: 'chat:misc.fallbackCommands.status' },
   { name: '/memory', descriptionKey: 'chat:misc.fallbackCommands.memory' },
   { name: '/config', descriptionKey: 'chat:misc.fallbackCommands.config' },
+  { name: '/btw', descriptionKey: 'chat:misc.fallbackCommands.btw' },
   { name: '/help', descriptionKey: 'chat:misc.fallbackCommands.help' },
 ];
 
@@ -534,9 +538,55 @@ function StatusContent({ data }: { data: StatusCommandData }) {
   );
 }
 
+function SideQuestionContent({ data }: { data: SideQuestionCommandData }) {
+  const { t } = useTranslation();
+  const answer = data.status === 'answered' ? data.answer || '' : '';
+  // Non-answers are translated here; the server's English text covers errors
+  // and any status this client does not know.
+  const notice = data.status === 'empty_question' || data.status === 'no_context' || data.status === 'unsupported'
+    ? t(`chat:misc.sideQuestion.${data.status}`)
+    : data.message || t('chat:misc.sideQuestion.error');
+
+  return (
+    <div className="flex h-full min-h-0 flex-col gap-3">
+      {data.question && (
+        <div className="shrink-0 rounded-2xl border border-border/70 bg-muted/20 px-3.5 py-2.5">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+            {t('chat:misc.sideQuestion.questionLabel')}
+          </p>
+          <p className="mt-0.5 whitespace-pre-wrap break-words text-sm text-foreground">{data.question}</p>
+        </div>
+      )}
+
+      {data.status === 'pending' ? (
+        <div className="flex items-center gap-2 px-1 text-sm text-muted-foreground" role="status">
+          <Loader2 className="h-4 w-4 animate-spin text-primary" />
+          {t('chat:misc.sideQuestion.pending')}
+        </div>
+      ) : answer ? (
+        <div className="flex min-h-0 flex-1 flex-col gap-2">
+          <div className="scrollbar-thin min-h-0 flex-1 overflow-y-auto pr-1">
+            <Markdown className="prose prose-sm prose-gray max-w-none font-serif dark:prose-invert">
+              {answer}
+            </Markdown>
+          </div>
+          <div className="flex shrink-0 justify-end text-xs">
+            <MessageCopyControl content={answer} messageType="assistant" />
+          </div>
+        </div>
+      ) : (
+        <div className="rounded-2xl border border-dashed border-border bg-background/60 px-4 py-6 text-sm text-muted-foreground">
+          {notice}
+        </div>
+      )}
+    </div>
+  );
+}
+
 /**
  * Rendered by chat's ChatInterface to present the result of a slash command
- * (help, model picker, cost or status) in a modal over the transcript.
+ * (help, model picker, cost, status or a /btw side question) in a modal over
+ * the transcript.
  */
 function CommandResultModal({
   payload,
@@ -577,6 +627,12 @@ function CommandResultModal({
       title: t('chat:misc.modalMeta.statusTitle'),
       subtitle: t('chat:misc.modalMeta.statusSubtitle'),
       icon: Activity,
+    },
+    btw: {
+      eyebrow: t('chat:misc.modalMeta.btwEyebrow'),
+      title: t('chat:misc.modalMeta.btwTitle'),
+      subtitle: t('chat:misc.modalMeta.btwSubtitle'),
+      icon: MessageCircleQuestion,
     },
   } as const;
 
@@ -641,6 +697,7 @@ function CommandResultModal({
           )}
           {payload?.kind === 'cost' && <CostContent data={payload.data as CostCommandData} />}
           {payload?.kind === 'status' && <StatusContent data={payload.data as StatusCommandData} />}
+          {payload?.kind === 'btw' && <SideQuestionContent data={payload.data as SideQuestionCommandData} />}
         </div>
 
         <div className="flex shrink-0 flex-col gap-3 border-t border-border/70 bg-muted/20 px-4 py-3 text-xs text-muted-foreground sm:flex-row sm:items-center sm:justify-between sm:px-6">

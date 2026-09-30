@@ -577,6 +577,11 @@ export type ProviderPermissionDecision = {
   updatedInput?: unknown;
   message?: string;
   rememberEntry?: unknown;
+  /**
+   * Permission mode to continue in once an approved plan leaves plan mode.
+   * Only read for a plan approval; without it the provider picks its own.
+   */
+  permissionMode?: string;
 };
 
 export type ProviderRuntimePermissionGateway = {
@@ -604,11 +609,41 @@ export type ProviderRuntimeContext = {
    * runtime uses the SDK's own; tests supply a scripted stream so the hold
    * and background-work paths can be driven without a CLI process.
    */
-  createQuery?: (input: { prompt: AsyncIterable<unknown>; options: AnyRecord }) => AsyncIterable<unknown> & {
+  createQuery?: (input: { prompt: string | AsyncIterable<unknown>; options: AnyRecord }) => AsyncIterable<unknown> & {
     interrupt(): Promise<void>;
     stopTask?(taskId: string): Promise<void>;
+    /** Side-question control request; see `IProviderRuntime.askSideQuestion`. */
+    askSideQuestion?(question: string): Promise<{ response: string; synthetic: boolean } | null>;
   };
 };
+
+/**
+ * Per-call hints a runtime needs to answer a `/btw` side question when the
+ * session has no live process to ask.
+ *
+ * `cwd` is the session's project path (providers scope their transcripts by
+ * it) and `model` the model the composer would send right now; both are
+ * optional because a live process already knows them.
+ */
+export type SideQuestionOptions = {
+  cwd?: string | null;
+  model?: string | null;
+};
+
+/**
+ * Result of asking a side question about a session without touching it.
+ *
+ * - `answered`: `answer` is the model's markdown reply; `source` says whether
+ *   the running process answered (`live`) or a throwaway, unsaved fork of the
+ *   transcript did (`fork`).
+ * - `no_context`: the session has no conversation yet, so there is nothing to
+ *   ask about.
+ * - `unsupported`: the session's provider cannot answer side questions.
+ */
+export type SideQuestionOutcome =
+  | { status: 'answered'; answer: string; source: 'live' | 'fork' }
+  | { status: 'no_context' }
+  | { status: 'unsupported' };
 
 export type ProviderRunFunction = (
   command: string,

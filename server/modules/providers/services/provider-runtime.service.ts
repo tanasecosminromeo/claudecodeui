@@ -9,6 +9,8 @@ import type {
   ProviderRunFunction,
   ProviderRuntimeContext,
   ProviderRuntimeWriter,
+  SideQuestionOptions,
+  SideQuestionOutcome,
 } from '@/shared/types.js';
 
 type ProviderRuntimeServiceDependencies = {
@@ -91,10 +93,36 @@ export function createProviderRuntimeService(
       return Boolean(await dependencies.resolveProvider(providerName).runtime.abort(sessionId));
     },
 
+    async sendInput(providerName: LLMProvider, sessionId: string, command: string, options: AnyRecord): Promise<boolean> {
+      // A runtime that runs one process per turn has nothing to feed mid-turn.
+      const { runtime } = dependencies.resolveProvider(providerName);
+      return Boolean(await runtime.sendInput?.(sessionId, command, options));
+    },
+
+    async setPermissionMode(providerName: LLMProvider, sessionId: string, mode: string): Promise<boolean> {
+      // A runtime without a live process to switch applies the mode on its next turn.
+      const { runtime } = dependencies.resolveProvider(providerName);
+      return Boolean(await runtime.setPermissionMode?.(sessionId, mode));
+    },
+
     async stopBackgroundTask(providerName: LLMProvider, sessionId: string, taskId: string): Promise<boolean> {
       // A runtime that never holds background work has no task to stop.
       const { runtime } = dependencies.resolveProvider(providerName);
       return Boolean(await runtime.stopBackgroundTask?.(sessionId, taskId));
+    },
+
+    async askSideQuestion(
+      providerName: LLMProvider,
+      sessionId: string,
+      question: string,
+      options: SideQuestionOptions = {},
+    ): Promise<SideQuestionOutcome> {
+      // Only runtimes that can answer without touching the session opt in.
+      const provider = dependencies.resolveProvider(providerName);
+      if (!provider.runtime.askSideQuestion) {
+        return { status: 'unsupported' };
+      }
+      return provider.runtime.askSideQuestion(sessionId, question, options, createRuntimeContext(provider));
     },
 
     hasBackgroundWork(sessionId: string): boolean {

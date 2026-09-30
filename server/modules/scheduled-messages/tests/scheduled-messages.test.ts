@@ -308,3 +308,38 @@ test('scheduling validates its input', async () => {
     );
   });
 });
+
+test('a due message joins a run in progress that takes input mid-turn', async () => {
+  await withIsolatedDatabase(async (userId) => {
+    scheduledMessagesService.schedule({
+      userId,
+      sessionId: SESSION_ID,
+      content: 'and check the logs',
+      scheduledFor: new Date(Date.now() - 1_000).toISOString(),
+    });
+    chatRunRegistry.startRun({
+      appSessionId: SESSION_ID,
+      provider: 'claude',
+      providerSessionId: null,
+      connection: null,
+      userId,
+    });
+
+    const runs: RunCall[] = [];
+    const aborts: string[] = [];
+    const inputs: string[] = [];
+    const runtime = Object.assign(createRuntime(runs, 'ok', aborts) as Record<string, unknown>, {
+      sendInput: async (_provider: string, _sessionId: string, command: string) => {
+        inputs.push(command);
+        return true;
+      },
+    });
+    assert.equal(await dispatchDueScheduledMessages(runtime as never), 1);
+
+    // The running turn is not thrown away for it.
+    assert.deepEqual(aborts, []);
+    assert.equal(runs.length, 0);
+    assert.deepEqual(inputs, ['and check the logs']);
+    assert.equal(scheduledMessagesDb.listForSession(userId, SESSION_ID)[0].status, 'sent');
+  });
+});

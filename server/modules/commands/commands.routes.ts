@@ -10,6 +10,7 @@ type CommandsRouterDependencies = {
   homeDirectory(): string;
   appRoot: string;
   models: typeof import('../providers/index.js').providerModelsService;
+  sideQuestions: ReturnType<typeof import('./side-question.service.js').createSideQuestionService>;
   runtime: {
     uptime(): number;
     memoryUsage(): NodeJS.MemoryUsage;
@@ -25,6 +26,7 @@ const fs = dependencies.fileSystem;
 const os = { homedir: dependencies.homeDirectory };
 const APP_ROOT = dependencies.appRoot;
 const providerModelsService = dependencies.models;
+const sideQuestionService = dependencies.sideQuestions;
 const process = dependencies.runtime;
 const router = express.Router();
 
@@ -204,7 +206,21 @@ const builtInCommands = [
     namespace: "builtin",
     metadata: { type: "builtin" },
   },
+  {
+    name: "/btw",
+    description: "Ask a quick side question about this session without interrupting it",
+    namespace: "builtin",
+    metadata: { type: "builtin" },
+  },
 ];
+
+// Fallback wording for each `/btw` outcome that is not an answer; the client
+// shows its own translated text and uses these only when it has none.
+const SIDE_QUESTION_MESSAGES = {
+  empty_question: "Usage: /btw <question>",
+  no_context: "This session has no conversation yet. Send a message first, then ask /btw.",
+  unsupported: "/btw is only available in Claude sessions.",
+};
 
 /**
  * Built-in command handlers
@@ -424,6 +440,27 @@ Custom commands can be created in:
         message: exists
           ? `Opening CLAUDE.md at ${claudeMdPath}`
           : `CLAUDE.md not found at ${claudeMdPath}. Create it to store project-specific instructions.`,
+      },
+    };
+  },
+
+  "/btw": async (args, context) => {
+    const question = args.join(" ");
+    const result = await sideQuestionService.ask({
+      sessionId: context?.sessionId || null,
+      question,
+      provider: readModelProvider(context?.provider),
+      projectPath: context?.projectPath || null,
+      model: context?.model || null,
+    });
+
+    return {
+      type: "builtin",
+      action: "btw",
+      data: {
+        question: question.trim(),
+        ...result,
+        ...(result.status === "answered" ? {} : { message: SIDE_QUESTION_MESSAGES[result.status] }),
       },
     };
   },

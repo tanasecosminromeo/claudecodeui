@@ -11,6 +11,7 @@ import { TranscriptSessionContext } from '@/modules/chat/context/TranscriptSessi
 import { api } from '@/shared/api';
 import type {
   ChatMessage,
+  PermissionMode,
   Project,
   ProjectSession,
   SessionEstablishedContext,
@@ -93,6 +94,17 @@ function ChatInterface({
   // server replays only the events this client actually missed.
   const lastSeqRef = useRef(new Map<string, number>());
 
+  // A mode picked in the composer also switches a session that is already
+  // running; the next message would carry it anyway, but only then. Sent for
+  // any open session — the server ignores one with no live process.
+  const selectedSessionId = selectedSession?.id ?? null;
+  const applyPermissionModeToLiveSession = useCallback((mode: PermissionMode) => {
+    if (!selectedSessionId) {
+      return;
+    }
+    sendMessage({ type: 'chat.set-permission-mode', sessionId: selectedSessionId, permissionMode: mode });
+  }, [selectedSessionId, sendMessage]);
+
   const resetStreamingState = useCallback(() => {
     if (streamTimerRef.current) {
       clearTimeout(streamTimerRef.current);
@@ -116,6 +128,7 @@ function ChatInterface({
     availablePermissionModes,
     selectPermissionMode,
     cyclePermissionMode,
+    getModeAfterPlan,
     providerModelCatalog,
     providerModelsLoading,
     providerModelActions,
@@ -127,6 +140,7 @@ function ChatInterface({
   } = useChatProviderState({
     selectedSession,
     selectedProject,
+    onPermissionModeSelected: applyPermissionModeToLiveSession,
   });
 
   const {
@@ -246,7 +260,6 @@ function ChatInterface({
     currentProviderModel,
     currentProviderEffort,
     isLoading: isProcessing,
-    processingSessions,
     canAbortSession,
     tokenBudget,
     sendMessage,
@@ -391,10 +404,19 @@ function ChatInterface({
     }
   }, [currentProviderEffort, currentProviderModel, input, permissionMode, scheduleMessage, setInput]);
 
+  // Approving a plan leaves plan mode for the mode the user wants; the
+  // approval switches the live session, so the selector only follows.
+  const approvePlan = useCallback((requestId: string) => {
+    const nextMode = getModeAfterPlan();
+    selectPermissionMode(nextMode, { applyToLiveSession: false });
+    handlePermissionDecision(requestId, { allow: true, permissionMode: nextMode });
+  }, [getModeAfterPlan, handlePermissionDecision, selectPermissionMode]);
+
   const permissionContextValue = useMemo(() => ({
     pendingPermissionRequests,
     handlePermissionDecision,
-  }), [pendingPermissionRequests, handlePermissionDecision]);
+    approvePlan,
+  }), [pendingPermissionRequests, handlePermissionDecision, approvePlan]);
 
   // Lets markdown image paths in the transcript resolve against this project.
   const markdownWorkspaceValue = useMemo(() => ({

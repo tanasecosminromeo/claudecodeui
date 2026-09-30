@@ -33,7 +33,7 @@ Benefits:
 |---|---|
 | `services/websocket-server.service.ts` | Creates `WebSocketServer`, binds `verifyClient`, routes connection by pathname |
 | `services/websocket-auth.service.ts` | Authenticates upgrade requests and attaches `request.user` |
-| `services/chat-websocket.service.ts` | Handles the `/ws` chat protocol (`chat.send` / `chat.abort` / `chat.stop-task` / `chat.subscribe` / `chat.permission-response`) |
+| `services/chat-websocket.service.ts` | Handles the `/ws` chat protocol (`chat.send` / `chat.abort` / `chat.stop-task` / `chat.subscribe` / `chat.permission-response` / `chat.set-permission-mode`) |
 | `services/chat-run-registry.service.ts` | Tracks live provider runs per app session id: seq numbering, event replay buffer, provider-id mapping, completion state |
 | `services/chat-session-writer.service.ts` | Gateway writer handed to provider runtimes: remaps provider session ids to app ids, swallows `session_created`, assigns `seq` |
 | `services/shell-websocket.service.ts` | Handles `/shell` PTY lifecycle, reconnect buffering, auth URL detection |
@@ -130,11 +130,13 @@ flowchart TD
   B -->|ok| D{data.type}
 
   D -->|chat.send| E[resolve session row -> startRun -> providerRuntimeService.run]
+  D -->|chat.send during a run| E3[providerRuntimeService.sendInput into the running turn, else wait for the run to end]
   D -->|chat.edit-send| E2[history_truncated -> rewind or resume at the anchor -> same as chat.send]
   D -->|chat.abort| F[providerRuntimeService.abort + synthetic complete]
   D -->|chat.stop-task| F2[providerRuntimeService.stopBackgroundTask]
   D -->|chat.subscribe| G[chat_subscribed ack + attach socket + replay events seq > lastSeq]
   D -->|chat.permission-response| H[providerRuntimeService.resolveToolApproval]
+  D -->|chat.set-permission-mode| H2[providerRuntimeService.setPermissionMode on the live process]
   D -->|other| I[send kind:protocol_error]
 ```
 
@@ -143,7 +145,8 @@ flowchart TD
 1. **Unified envelope**: every server-to-client frame carries a `kind` — either a provider `NormalizedMessage` kind or a gateway kind (`chat_subscribed`, `session_upserted`, `loading_progress`, `protocol_error`). There is no second `type`-based protocol.
 2. **Unified terminal lifecycle**: every provider run ends with exactly one `complete` message built by `createCompleteMessage()` (`server/shared/utils.ts`): `{ kind: "complete", sessionId, actualSessionId, exitCode, success, aborted }`. The chat handler emits a synthetic `complete` for runs that crash or get aborted, and the run registry drops duplicate completes.
 3. **Per-run event log**: every live event gets a monotonically increasing `seq`. `chat.subscribe { sessions: [{ sessionId, lastSeq }] }` re-attaches the live stream to the requesting socket (any provider, not just Claude) and replays events with `seq > lastSeq`. If the buffer no longer covers `lastSeq`, the client refreshes over REST.
-4. `chat_subscribed` includes `isProcessing` (replaces `check-session-status`) and `pendingPermissions` (replaces `get-pending-permissions`).
+4. **Sending during a run**: a `chat.send` for a session whose run is in progress is never refused. A runtime that keeps one live process per session (Claude) takes it into the running turn through `sendInput`, the way typing while the agent works does in its CLI; otherwise the message waits in memory and becomes the next turn when the run ends, in the order sent. `chat.edit-send` during a run is still refused with `RUN_IN_PROGRESS`.
+5. `chat_subscribed` includes `isProcessing` (replaces `check-session-status`) and `pendingPermissions` (replaces `get-pending-permissions`).
 
 ## `/shell` Terminal Flow
 

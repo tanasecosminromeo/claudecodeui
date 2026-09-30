@@ -17,7 +17,7 @@ import type { NormalizedMessage, ProviderRuntimeContext } from '@/shared/types.j
  * The runtime keeps the CLI's stdin open after a turn's `result` while the
  * turn's background work is outstanding, and lets go when that work has
  * reported. These drive `queryClaudeSDK` with a scripted SDK stream — the
- * seam is `context.createQuery` — and watch the held prompt stream: the CLI
+ * seam is `context.createQuery` — and watch the prompt channel: the CLI
  * exits when it ends, so "released" is the whole outcome.
  */
 

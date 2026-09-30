@@ -136,3 +136,68 @@ test('routes permission decisions through provider-owned runtime capabilities', 
     { requestId: 'request-1', sessionId: 'session-1' },
   ]);
 });
+
+test('feeds mid-turn input only to runtimes that take it', async () => {
+  const inputs: unknown[][] = [];
+  const claudeRuntime = createRuntime({
+    async sendInput(sessionId, command, options) {
+      inputs.push([sessionId, command, options]);
+      return true;
+    },
+  });
+  const service = createService([
+    createProvider('claude', claudeRuntime),
+    createProvider('codex', createRuntime()),
+  ]);
+
+  assert.equal(await service.sendInput('claude', 'session-1', 'also this', { cwd: '/p' }), true);
+  // One process per turn: nothing to feed, so the message has to wait.
+  assert.equal(await service.sendInput('codex', 'session-1', 'also this', {}), false);
+  assert.deepEqual(inputs, [['session-1', 'also this', { cwd: '/p' }]]);
+});
+
+test('applies a mid-run permission mode only through runtimes that can switch a live process', async () => {
+  const switched: unknown[][] = [];
+  const service = createService([
+    createProvider('claude', createRuntime({
+      async setPermissionMode(sessionId, mode) {
+        switched.push([sessionId, mode]);
+        return true;
+      },
+    })),
+    createProvider('codex', createRuntime()),
+  ]);
+
+  assert.equal(await service.setPermissionMode('claude', 'session-1', 'auto'), true);
+  assert.equal(await service.setPermissionMode('codex', 'session-1', 'auto'), false);
+  assert.deepEqual(switched, [['session-1', 'auto']]);
+});
+
+test('passes side questions to runtimes that answer them, and reports the rest unsupported', async () => {
+  const calls: unknown[][] = [];
+  const claudeRuntime = createRuntime({
+    async askSideQuestion(sessionId, question, options, context) {
+      calls.push([sessionId, question, options, context.resolveProviderSessionId(sessionId)]);
+      return { status: 'answered', answer: 'yes', source: 'fork' };
+    },
+  });
+  const service = createService([
+    createProvider('claude', claudeRuntime),
+    createProvider('codex', createRuntime()),
+  ]);
+
+  assert.deepEqual(
+    await service.askSideQuestion('claude', 'session-1', 'why?', { cwd: '/work' }),
+    { status: 'answered', answer: 'yes', source: 'fork' },
+  );
+  assert.deepEqual(calls, [['session-1', 'why?', { cwd: '/work' }, 'native-session-1']]);
+  assert.deepEqual(await service.askSideQuestion('codex', 'session-2', 'why?'), { status: 'unsupported' });
+});
+
+test('only the Claude runtime answers side questions', () => {
+  const answering = providerRegistry.listProviders()
+    .filter((provider) => typeof provider.runtime.askSideQuestion === 'function')
+    .map((provider) => provider.id);
+
+  assert.deepEqual(answering, ['claude']);
+});

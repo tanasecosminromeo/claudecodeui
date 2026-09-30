@@ -77,6 +77,11 @@ type ProviderCapabilitiesApiResponse = {
 type UseChatProviderStateArgs = {
   selectedSession: ProjectSession | null;
   selectedProject: Project | null;
+  /**
+   * Told when the user picks a permission mode, so a session that is already
+   * running can switch to it now instead of on its next message.
+   */
+  onPermissionModeSelected?: (mode: PermissionMode) => void;
 };
 
 type ProviderModelsApiResponse = {
@@ -124,8 +129,20 @@ const getSessionSelectionKey = (provider: LLMProvider, sessionId: string): strin
   `${provider}:${sessionId}`
 );
 
-export function useChatProviderState({ selectedSession, selectedProject: _selectedProject }: UseChatProviderStateArgs) {
+export function useChatProviderState({
+  selectedSession,
+  selectedProject: _selectedProject,
+  onPermissionModeSelected,
+}: UseChatProviderStateArgs) {
   const [permissionMode, setPermissionMode] = useState<PermissionMode>('default');
+  // The last mode in use that was not plan: an approved plan returns to it
+  // when the selector still says plan. A ref, since only the approval reads it.
+  const modeBeforePlanRef = useRef<PermissionMode | null>(null);
+  useEffect(() => {
+    if (permissionMode !== 'plan') {
+      modeBeforePlanRef.current = permissionMode;
+    }
+  }, [permissionMode]);
   const [pendingPermissionRequests, setPendingPermissionRequests] = useState<PendingPermissionRequest[]>([]);
   // The provider the composer sends under. Held here rather than read from
   // storage per render because switching it has to reset the model menu, the
@@ -439,8 +456,16 @@ export function useChatProviderState({ selectedSession, selectedProject: _select
     );
   }, [selectedSession?.id]);
 
-  const selectPermissionMode = useCallback((nextMode: PermissionMode) => {
+  const selectPermissionMode = useCallback((
+    nextMode: PermissionMode,
+    options: { applyToLiveSession?: boolean } = {},
+  ) => {
     setPermissionMode(nextMode);
+    // A plan approval switches the live session itself; it only brings the
+    // selector in line and must not send a second, racing switch.
+    if (options.applyToLiveSession !== false) {
+      onPermissionModeSelected?.(nextMode);
+    }
 
     // Persist per provider as well as per session: a brand-new chat has no
     // session id yet, and the per-provider key keeps the choice sticky when
@@ -449,7 +474,21 @@ export function useChatProviderState({ selectedSession, selectedProject: _select
     if (selectedSession?.id) {
       localStorage.setItem(`permissionMode-${selectedSession.id}`, nextMode);
     }
-  }, [provider, selectedSession?.id]);
+  }, [provider, selectedSession?.id, onPermissionModeSelected]);
+
+  /**
+   * The mode an approved plan continues in: the one the selector shows, or —
+   * while it still says plan — the mode used before plan mode. Never plan
+   * itself: leaving it without a mode drops the CLI to asking before every
+   * edit and command.
+   */
+  const getModeAfterPlan = useCallback((): PermissionMode => {
+    if (permissionMode !== 'plan') {
+      return permissionMode;
+    }
+    const fallback = modeBeforePlanRef.current ?? getDefaultPermissionModeForProvider(provider);
+    return fallback === 'plan' ? 'default' : fallback;
+  }, [permissionMode, provider, getDefaultPermissionModeForProvider]);
 
   const cyclePermissionMode = useCallback(() => {
     const modes = getPermissionModesForProvider(provider);
@@ -822,6 +861,7 @@ export function useChatProviderState({ selectedSession, selectedProject: _select
     availablePermissionModes,
     selectPermissionMode,
     cyclePermissionMode,
+    getModeAfterPlan,
     providerModelCatalog,
     providerModelsLoading,
     providerModelActions,

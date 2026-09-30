@@ -731,10 +731,19 @@ export type HelpCommandData = {
   }>;
 };
 
+/** State of the chat `/btw` side question shown in the command modal: `pending` while the request is in flight, `answered` with the model's markdown `answer` (and whether the live process or a throwaway fork gave it), `error` when the request failed, or one of the server's non-answer statuses, each carrying an English fallback `message`. */
+export type SideQuestionCommandData = {
+  question?: string;
+  status: 'pending' | 'answered' | 'error' | 'empty_question' | 'no_context' | 'unsupported';
+  answer?: string;
+  source?: 'live' | 'fork';
+  message?: string;
+};
+
 /** Wrapper pairing a CommandModalKind with its matching command result data; pass it as the single payload prop that tells the chat command modal which slash-command result to render, or null to close it. */
 export type CommandModalPayload = {
   kind: CommandModalKind;
-  data: HelpCommandData | ModelCommandData | CostCommandData | StatusCommandData;
+  data: HelpCommandData | ModelCommandData | CostCommandData | StatusCommandData | SideQuestionCommandData;
 };
 
 /** A composer message queued while its session is still busy, holding the text, the in-memory and already-uploaded attachments and the send options snapshotted at queue time so it can be auto-sent unchanged once the session goes idle. */
@@ -771,8 +780,8 @@ export type SlashCommand = {
   [key: string]: unknown;
 };
 
-/** Discriminator naming which slash-command result the chat command modal is showing: 'help', 'models', 'cost' or 'status'. */
-type CommandModalKind = 'help' | 'models' | 'cost' | 'status';
+/** Discriminator naming which slash-command result the chat command modal is showing: 'help', 'models', 'cost', 'status' or 'btw' (a side question). */
+type CommandModalKind = 'help' | 'models' | 'cost' | 'status' | 'btw';
 
 // ---------------------------
 

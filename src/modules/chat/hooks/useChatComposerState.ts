@@ -15,7 +15,7 @@ import { useTranslation } from 'react-i18next';
 import { api } from '@/shared/api';
 import { PROVIDER_PERMISSION_PREFERENCE_KEYS } from '@/shared/constants';
 import { readUserPreference } from '@/shared/userSettings';
-import type { CommandModalPayload, CostCommandData, HelpCommandData, MarkSessionProcessing, ModelCommandData, QueuedDraft, SessionActivityMap, StatusCommandData,QueuedSendOptions,ChatAttachment,ChatMessage,PendingPermissionRequest,PermissionMode,SessionEstablishedContext,Project,ProjectSession,LLMProvider,SlashCommand } from '@/shared/types';
+import type { CommandModalPayload, CostCommandData, HelpCommandData, MarkSessionProcessing, ModelCommandData, QueuedDraft, SideQuestionCommandData, StatusCommandData,QueuedSendOptions,ChatAttachment,ChatMessage,PendingPermissionRequest,PermissionMode,SessionEstablishedContext,Project,ProjectSession,LLMProvider,SlashCommand } from '@/shared/types';
 import { grantClaudeToolPermission } from '@/modules/chat/utils/chatPermissions';
 import {
   clearQueuedMessage,
@@ -27,7 +27,6 @@ import {
   writeQueuedMessage,
 } from '@/shared/chatDrafts';
 import { escapeRegExp } from '@/modules/chat/utils/chatFormatting';
-import { describeBackgroundTask, ownBackgroundTasks } from '@/modules/chat/utils/backgroundTasks';
 import { useFileMentions } from '@/modules/chat/hooks/useFileMentions';
 import { useInputHistory } from '@/modules/chat/hooks/useInputHistory';
 import { useSlashCommands } from '@/modules/chat/hooks/useSlashCommands';
@@ -47,7 +46,6 @@ type UseChatComposerStateArgs = {
   currentProviderModel: string;
   currentProviderEffort: string;
   isLoading: boolean;
-  processingSessions?: SessionActivityMap;
   canAbortSession: boolean;
   tokenBudget: Record<string, unknown> | null;
   sendMessage: (message: unknown) => void;
@@ -88,9 +86,20 @@ type CommandExecutionResult = {
 
 
 
+// Answers a side question without entering the running turn, so unlike every
+// other command it is never queued behind a busy session.
+const SIDE_QUESTION_COMMAND_NAME = '/btw';
+
 const createFakeSubmitEvent = () => {
   return { preventDefault: () => undefined } as unknown as FormEvent<HTMLFormElement>;
 };
+
+/**
+ * Providers whose session keeps one live CLI process that takes a message
+ * mid-turn (the server feeds it into the running turn). The others run one
+ * process per turn, so a message sent mid-turn is queued until it ends.
+ */
+const PROVIDERS_TAKING_INPUT_MID_TURN: ReadonlySet<LLMProvider> = new Set<LLMProvider>(['claude']);
 
 const MAX_ATTACHMENT_COUNT = 10;
 const MAX_ATTACHMENT_SIZE = 10 * 1024 * 1024;
@@ -178,7 +187,6 @@ export function useChatComposerState({
   currentProviderModel,
   currentProviderEffort,
   isLoading,
-  processingSessions,
   canAbortSession,
   tokenBudget,
   sendMessage,
@@ -347,6 +355,13 @@ export function useChatComposerState({
           break;
         }
 
+        case 'btw':
+          setCommandModalPayload({
+            kind: 'btw',
+            data: (data || { status: 'error' }) as SideQuestionCommandData,
+          });
+          break;
+
         case 'memory':
           if (data.error) {
             addMessage({
@@ -416,11 +431,20 @@ export function useChatComposerState({
         return;
       }
 
+      const isSideQuestion = command.name === SIDE_QUESTION_COMMAND_NAME;
       try {
         const effectiveInput = rawInput ?? input;
-        const commandMatch = effectiveInput.match(new RegExp(`${escapeRegExp(command.name)}\\s*(.*)`));
+        // A side question keeps every line of the question, not just the first.
+        const argumentsPattern = isSideQuestion ? '([\\s\\S]*)' : '(.*)';
+        const commandMatch = effectiveInput.match(new RegExp(`${escapeRegExp(command.name)}\\s*${argumentsPattern}`));
         const args =
           commandMatch && commandMatch[1] ? commandMatch[1].trim().split(/\s+/) : [];
+
+        // A side question can take a while to answer; open its modal now so
+        // the wait is visible.
+        if (isSideQuestion) {
+          setCommandModalPayload({ kind: 'btw', data: { question: args.join(' '), status: 'pending' } });
+        }
 
         // The `/api/commands/execute` context sends `projectId` now instead of
         // a folder-derived project name; the path is still included verbatim.
@@ -464,6 +488,18 @@ export function useChatComposerState({
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Unknown error';
         console.error('Error executing command:', error);
+        // The side question's failure belongs in its own modal, not the chat.
+        if (isSideQuestion) {
+          setCommandModalPayload((current) => ({
+            kind: 'btw',
+            data: {
+              question: (current?.kind === 'btw' ? (current.data as SideQuestionCommandData).question : undefined),
+              status: 'error',
+              message,
+            },
+          }));
+          return;
+        }
         addMessage({
           type: 'assistant',
           content: `Error executing command: ${message}`,
@@ -657,11 +693,6 @@ export function useChatComposerState({
 
   // Read at send time through a ref: the map changes on every poll, and a
   // submit handler rebuilt that often would re-render the whole composer.
-  const processingSessionsRef = useRef(processingSessions);
-  useEffect(() => {
-    processingSessionsRef.current = processingSessions;
-  }, [processingSessions]);
-
   const handleSubmit = useCallback(
     async (
       event: FormEvent<HTMLFormElement> | MouseEvent | TouchEvent | KeyboardEvent<HTMLTextAreaElement>,
@@ -682,10 +713,52 @@ export function useChatComposerState({
         return;
       }
 
-      // A turn is already in flight: stash this message instead of sending it.
-      // Upload attached files now so the queued record contains durable image
+      // Intercept slash commands only when "/" is the first input character.
+      // Also accept exact "help" as a convenience alias for users who expect CLI-style help.
+      const commandInput = currentInput.trimEnd();
+      const isHelpAlias = commandInput.trim().toLowerCase() === 'help';
+      let matchedCommand: SlashCommand | undefined;
+      if (commandInput.startsWith('/') || isHelpAlias) {
+        const commandName = isHelpAlias ? '/help' : commandInput.split(/\s/, 1)[0];
+        matchedCommand =
+          slashCommands.find((cmd: SlashCommand) => cmd.name === commandName) ||
+          (commandName === '/help'
+            ? ({
+                name: '/help',
+                description: 'Show help documentation for Claude Code',
+                namespace: 'builtin',
+                metadata: { type: 'builtin' },
+              } as SlashCommand)
+            : undefined);
+      }
+      const runMatchedCommand = (command: SlashCommand) => {
+        executeCommand(command, isHelpAlias ? '/help' : commandInput);
+        recordSentMessage(currentInput);
+        setInput('');
+        inputValueRef.current = '';
+        setAttachedFiles([]);
+        setFileErrors(new Map());
+        resetCommandMenuState();
+        setIsTextareaExpanded(false);
+        if (textareaRef.current) {
+          textareaRef.current.style.height = 'auto';
+        }
+      };
+
+      // A side question never enters the running turn, so it runs right away
+      // instead of waiting in the busy-session queue below.
+      if (matchedCommand?.name === SIDE_QUESTION_COMMAND_NAME && !queuedSubmission) {
+        runMatchedCommand(matchedCommand);
+        return;
+      }
+
+      // A turn is already in flight. A provider whose session keeps one live
+      // process takes the message into that turn, as typing while it works
+      // does in its CLI. Any other provider — and an edit, which rewinds the
+      // conversation — waits: stash the message instead of sending it. Upload
+      // attached files now so the queued record contains durable image
       // descriptors that can be sent even if another session is open later.
-      if (isLoading) {
+      if (isLoading && (!PROVIDERS_TAKING_INPUT_MID_TURN.has(provider) || editingAnchorId)) {
         // A run can restart in the tiny gap between scheduling and flushing a
         // queued submission. Put the same durable draft back without uploading
         // its files again.
@@ -756,39 +829,9 @@ export function useChatComposerState({
         return;
       }
 
-      // Intercept slash commands only when "/" is the first input character.
-      // Also accept exact "help" as a convenience alias for users who expect CLI-style help.
-      const commandInput = currentInput.trimEnd();
-      const isHelpAlias = commandInput.trim().toLowerCase() === 'help';
-      if (commandInput.startsWith('/') || isHelpAlias) {
-        const firstSpace = commandInput.indexOf(' ');
-        const commandName = isHelpAlias
-          ? '/help'
-          : firstSpace > 0 ? commandInput.slice(0, firstSpace) : commandInput;
-        const matchedCommand =
-          slashCommands.find((cmd: SlashCommand) => cmd.name === commandName) ||
-          (commandName === '/help'
-            ? ({
-                name: '/help',
-                description: 'Show help documentation for Claude Code',
-                namespace: 'builtin',
-                metadata: { type: 'builtin' },
-              } as SlashCommand)
-            : undefined);
-        if (matchedCommand && matchedCommand.type !== 'skill') {
-          executeCommand(matchedCommand, isHelpAlias ? '/help' : commandInput);
-          recordSentMessage(currentInput);
-          setInput('');
-          inputValueRef.current = '';
-          setAttachedFiles([]);
-          setFileErrors(new Map());
-          resetCommandMenuState();
-          setIsTextareaExpanded(false);
-          if (textareaRef.current) {
-            textareaRef.current.style.height = 'auto';
-          }
-          return;
-        }
+      if (matchedCommand && matchedCommand.type !== 'skill') {
+        runMatchedCommand(matchedCommand);
+        return;
       }
 
       const messageContent = currentInput;
@@ -863,24 +906,6 @@ export function useChatComposerState({
           project: selectedProject,
           summary: createdSessionName,
         });
-      }
-
-      // A new turn replaces the CLI process a session's background work runs
-      // under: the agents, workflows and commands it still has going are
-      // stopped, or finish where nothing is listening. Sending is the user's
-      // call, but not one to make for them.
-      const backgroundActivity = processingSessionsRef.current?.get(targetSessionId);
-      if (backgroundActivity?.background) {
-        const work = ownBackgroundTasks(backgroundActivity.tasks ?? [])
-          .map((task) => `• ${describeBackgroundTask(task, t)}`)
-          .join('\n');
-        const confirmed = window.confirm(t('claudeStatus.backgroundTask.sendAnyway', {
-          work,
-          defaultValue: 'This session still has background work running:\n{{work}}\n\nA new message starts a new turn, which stops that work; anything it has not reported yet is lost. Send anyway?',
-        }));
-        if (!confirmed) {
-          return;
-        }
       }
 
       const attachmentRecords = uploadedAttachments as ChatAttachment[];
@@ -1240,7 +1265,7 @@ export function useChatComposerState({
   const handlePermissionDecision = useCallback(
     (
       requestIds: string | string[],
-      decision: { allow?: boolean; message?: string; rememberEntry?: string | null; updatedInput?: unknown },
+      decision: { allow?: boolean; message?: string; rememberEntry?: string | null; updatedInput?: unknown; permissionMode?: PermissionMode },
     ) => {
       const ids = Array.isArray(requestIds) ? requestIds : [requestIds];
       const validIds = ids.filter(Boolean);
@@ -1256,6 +1281,7 @@ export function useChatComposerState({
           updatedInput: decision?.updatedInput,
           message: decision?.message,
           rememberEntry: decision?.rememberEntry,
+          permissionMode: decision?.permissionMode,
         });
       });
 

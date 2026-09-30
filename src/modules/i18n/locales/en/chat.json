@@ -252,8 +252,7 @@
       "workflow": "Workflow {{name}}",
       "agent": "Agent {{description}}",
       "command": "Command {{description}}",
-      "count": "{{count}} tasks",
-      "sendAnyway": "This session still has background work running:\n{{work}}\n\nA new message starts a new turn, which stops that work; anything it has not reported yet is lost. Send anyway?"
+      "count": "{{count}} tasks"
     },
     "controls": {
       "stopGeneration": "Stop Generation",
@@ -335,7 +334,8 @@
       "status": "Inspect runtime, version, provider, and environment status.",
       "memory": "Open the project CLAUDE.md memory file.",
       "config": "Open settings and configuration.",
-      "help": "Show command documentation and syntax."
+      "help": "Show command documentation and syntax.",
+      "btw": "Ask a quick side question about this session without interrupting it."
     },
     "modalMeta": {
       "helpEyebrow": "Command center",
@@ -350,7 +350,18 @@
       "statusEyebrow": "Runtime health",
       "statusTitle": "System Status",
       "statusSubtitle": "Version, provider, runtime, and environment details in one place.",
+      "btwEyebrow": "Side question",
+      "btwTitle": "By the Way",
+      "btwSubtitle": "Answered from this session's conversation. The session keeps working and nothing is added to it.",
       "commandResult": "Command Result"
+    },
+    "sideQuestion": {
+      "questionLabel": "You asked",
+      "pending": "Asking Claude...",
+      "error": "The side question could not be answered.",
+      "empty_question": "Type a question after the command, for example: /btw what are you working on?",
+      "no_context": "This session has no conversation yet. Send a message first, then ask /btw.",
+      "unsupported": "/btw is only available in Claude sessions."
     },
     "choiceSavedSession": "Your choice is saved for this session and becomes the default for new chats.",
     "choiceSavedDefault": "Your choice becomes the default model for new chats.",

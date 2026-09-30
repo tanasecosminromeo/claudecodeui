@@ -73,6 +73,15 @@ export type ProviderRuntimeGateway = {
     writer: ProviderRuntimeWriter,
   ): Promise<unknown>;
   abort(provider: LLMProvider, sessionId: string): Promise<boolean>;
+  /**
+   * Feeds a message into the turn the session's live process is running.
+   * Resolves false when the provider cannot take input mid-turn (its CLI runs
+   * one process per turn) or no process is taking it; optional for gateways
+   * with no provider that can.
+   */
+  sendInput?(provider: LLMProvider, sessionId: string, command: string, options: AnyRecord): Promise<boolean>;
+  /** Applies a permission mode picked mid-run to the session's live process. */
+  setPermissionMode?(provider: LLMProvider, sessionId: string, mode: string): Promise<boolean>;
   stopBackgroundTask(provider: LLMProvider, sessionId: string, taskId: string): Promise<boolean>;
   /** Whether a provider runtime still holds background work for the session after its turn ended. */
   hasBackgroundWork(sessionId: string): boolean;
@@ -157,7 +166,82 @@ async function handleChatSend(
     return;
   }
 
+  if (chatRunRegistry.isProcessing(resolved.sessionId)) {
+    await deliverDuringRun(ws, userId, resolved, data, dependencies);
+    return;
+  }
+
   await dispatchRun(ws, userId, resolved.sessionId, resolved.session, data, dependencies);
+}
+
+/** A message sent during a run that has to wait for the run to end. */
+type WaitingSend = {
+  ws: WebSocket | null;
+  userId: string | number | null;
+  data: AnyRecord;
+};
+
+/**
+ * Messages waiting for their session's run to end, in the order they were
+ * sent, keyed by app session id. Each becomes its own turn once the run
+ * before it finishes. In memory only: the sender already shows the message,
+ * and a restart loses the run it was waiting on as well.
+ */
+const waitingSends = new Map<string, WaitingSend[]>();
+
+/**
+ * Handles a `chat.send` for a session whose run is in progress. Like typing
+ * while Claude works in the CLI, the message is never refused: a provider
+ * that takes input mid-turn gets it in the running turn, and otherwise it
+ * waits and becomes the next turn.
+ */
+async function deliverDuringRun(
+  ws: WebSocket,
+  userId: string | number | null,
+  target: ResolvedSendTarget,
+  data: AnyRecord,
+  dependencies: ChatWebSocketDependencies,
+): Promise<void> {
+  const { sessionId, session, provider } = target;
+  const { command, runtimeOptions } = buildRuntimeOptions(sessionId, session, data);
+
+  const delivered = await dependencies.runtime.sendInput?.(provider, sessionId, command, runtimeOptions) ?? false;
+  if (delivered) {
+    return;
+  }
+
+  const queue = waitingSends.get(sessionId) ?? [];
+  queue.push({ ws, userId, data });
+  waitingSends.set(sessionId, queue);
+  // The run may have ended while the provider was being asked, in which case
+  // no run is left to start the message when it finishes.
+  startNextWaitingSend(sessionId, dependencies);
+}
+
+/**
+ * Starts the oldest message waiting on a session, once the session has no
+ * run in progress. Every run calls this when it ends, so waiting messages go
+ * in one at a time, in order.
+ */
+function startNextWaitingSend(sessionId: string, dependencies: ChatWebSocketDependencies): void {
+  const queue = waitingSends.get(sessionId);
+  if (!queue || queue.length === 0 || chatRunRegistry.isProcessing(sessionId)) {
+    return;
+  }
+
+  const next = queue.shift() as WaitingSend;
+  if (queue.length === 0) {
+    waitingSends.delete(sessionId);
+  }
+
+  const session = sessionsDb.getSessionById(sessionId);
+  if (!session) {
+    // Deleted while the message waited; nothing is left to send it to.
+    waitingSends.delete(sessionId);
+    return;
+  }
+
+  void dispatchRun(next.ws, next.userId, sessionId, session, next.data, dependencies);
 }
 
 type ResolvedSendTarget = {
@@ -240,8 +324,7 @@ async function dispatchRun(
     return { started: false, error: 'A run is already in progress for this session.' };
   }
 
-  const clientOptions = (data.options ?? {}) as AnyRecord;
-  const command = typeof data.content === 'string' ? data.content : '';
+  const { command, clientOptions, runtimeOptions } = buildRuntimeOptions(sessionId, session, data, extraRuntimeOptions);
 
   // Record what this turn runs with so reopening the session later restores the
   // same model and reasoning effort, and so the resume path has a
@@ -252,6 +335,44 @@ async function dispatchRun(
   if (typeof clientOptions.effort === 'string' && clientOptions.effort.trim()) {
     providerModelsService.setSessionEffort(provider, sessionId, clientOptions.effort);
   }
+
+  let failure: string | null = null;
+  try {
+    // Runs only now that the session is reserved, because an edit rewinds the
+    // conversation here and a rewind for a run that was never admitted cannot
+    // be taken back. Inside the try so a rewind that throws still releases the
+    // run instead of leaving the session processing forever.
+    await beforeRun?.(run);
+    await dependencies.runtime.run(provider, command, runtimeOptions, run.writer);
+  } catch (error) {
+    failure = error instanceof Error ? error.message : String(error);
+    console.error(`[Chat] Provider runtime "${provider}" failed`, { sessionId, error: failure });
+  } finally {
+    // Safety net: a runtime that crashed (or resolved) without emitting its
+    // terminal `complete` would otherwise leave the session stuck in
+    // "processing" forever on every connected client. Scoped to THIS run —
+    // a queued message can start the session's next run before this promise
+    // settles, and the session-keyed completeRun would kill that new run.
+    chatRunRegistry.completeRunIfCurrent(run, { exitCode: 1 });
+    startNextWaitingSend(sessionId, dependencies);
+  }
+
+  return { started: true, error: failure };
+}
+
+/**
+ * Turns a send frame into what a provider runtime receives: the message text
+ * and the run options, with the working directory and project taken from the
+ * session row and attachments re-validated against the upload store.
+ */
+function buildRuntimeOptions(
+  sessionId: string,
+  session: NonNullable<ReturnType<typeof sessionsDb.getSessionById>>,
+  data: AnyRecord,
+  extraRuntimeOptions: AnyRecord = {},
+): { command: string; clientOptions: AnyRecord; runtimeOptions: AnyRecord } {
+  const clientOptions = (data.options ?? {}) as AnyRecord;
+  const command = typeof data.content === 'string' ? data.content : '';
 
   const attachmentCandidates = [
     ...normalizeAttachmentDescriptors(clientOptions.images),
@@ -282,27 +403,7 @@ async function dispatchRun(
     projectPath: session.project_path ?? clientOptions.projectPath,
   };
 
-  let failure: string | null = null;
-  try {
-    // Runs only now that the session is reserved, because an edit rewinds the
-    // conversation here and a rewind for a run that was never admitted cannot
-    // be taken back. Inside the try so a rewind that throws still releases the
-    // run instead of leaving the session processing forever.
-    await beforeRun?.(run);
-    await dependencies.runtime.run(provider, command, runtimeOptions, run.writer);
-  } catch (error) {
-    failure = error instanceof Error ? error.message : String(error);
-    console.error(`[Chat] Provider runtime "${provider}" failed`, { sessionId, error: failure });
-  } finally {
-    // Safety net: a runtime that crashed (or resolved) without emitting its
-    // terminal `complete` would otherwise leave the session stuck in
-    // "processing" forever on every connected client. Scoped to THIS run —
-    // a queued message can start the session's next run before this promise
-    // settles, and the session-keyed completeRun would kill that new run.
-    chatRunRegistry.completeRunIfCurrent(run, { exitCode: 1 });
-  }
-
-  return { started: true, error: failure };
+  return { command, clientOptions, runtimeOptions };
 }
 
 /**
@@ -571,7 +672,39 @@ function handlePermissionResponse(data: AnyRecord, dependencies: ChatWebSocketDe
     updatedInput: data.updatedInput,
     message: typeof data.message === 'string' ? data.message : undefined,
     rememberEntry: data.rememberEntry,
+    permissionMode: typeof data.permissionMode === 'string' ? data.permissionMode : undefined,
   });
+}
+
+/**
+ * Handles `chat.set-permission-mode`: the user picked a permission mode in the
+ * composer. The next message carries it anyway; this applies it to a process
+ * that is already running, so the choice takes effect now. A session with no
+ * live process has nothing to switch, which is not an error.
+ */
+async function handleSetPermissionMode(
+  ws: WebSocket,
+  data: AnyRecord,
+  dependencies: ChatWebSocketDependencies,
+): Promise<void> {
+  const sessionId = readRequiredSessionId(data);
+  if (!sessionId) {
+    sendProtocolError(ws, 'SESSION_ID_REQUIRED', 'chat.set-permission-mode requires a sessionId.');
+    return;
+  }
+
+  const mode = typeof data.permissionMode === 'string' ? data.permissionMode.trim() : '';
+  if (!mode) {
+    sendProtocolError(ws, 'PERMISSION_MODE_REQUIRED', 'chat.set-permission-mode requires a permissionMode.', sessionId);
+    return;
+  }
+
+  const session = sessionsDb.getSessionById(sessionId);
+  if (!session) {
+    return;
+  }
+
+  await dependencies.runtime.setPermissionMode?.(session.provider as LLMProvider, sessionId, mode);
 }
 
 /**
@@ -582,7 +715,8 @@ function handlePermissionResponse(data: AnyRecord, dependencies: ChatWebSocketDe
  * - `chat.abort`               { sessionId }
  * - `chat.stop-task`           { sessionId, taskId }
  * - `chat.subscribe`           { sessions: [{ sessionId, lastSeq? }] }
- * - `chat.permission-response` { requestId, allow, updatedInput?, message?, rememberEntry? }
+ * - `chat.permission-response` { requestId, allow, updatedInput?, message?, rememberEntry?, permissionMode? }
+ * - `chat.set-permission-mode` { sessionId, permissionMode }
  *
  * Outbound protocol (server to client): every frame is `kind`-based — either
  * a provider `NormalizedMessage` (with `seq`) or a gateway event
@@ -609,9 +743,10 @@ export async function runDetachedChatTurn(
     content: string;
     options?: AnyRecord;
     /**
-     * Aborts a run already in progress instead of refusing to start. A
-     * scheduled message sets this: the user picked the time knowing it might
-     * land mid-run, so the timer outranks whatever is running.
+     * Aborts a run already in progress instead of refusing to start, when
+     * its provider cannot take the message mid-turn. A scheduled message sets
+     * this: the user picked the time knowing it might land mid-run, so the
+     * timer outranks whatever is running.
      */
     interruptActiveRun?: boolean;
   },
@@ -629,6 +764,16 @@ export async function runDetachedChatTurn(
 
   const activeRun = chatRunRegistry.getRun(input.sessionId);
   if (activeRun && activeRun.status === 'running') {
+    // A provider that takes input mid-turn gets the message in the running
+    // turn, the way a message typed during the run would — nothing is lost.
+    const { command, runtimeOptions } = buildRuntimeOptions(
+      input.sessionId,
+      session,
+      { content: input.content, options: input.options ?? {} },
+    );
+    if (await dependencies.runtime.sendInput?.(provider, input.sessionId, command, runtimeOptions)) {
+      return { started: true, error: null };
+    }
     if (!input.interruptActiveRun) {
       return { started: false, error: 'A run was already in progress for this session.' };
     }
@@ -692,6 +837,9 @@ export function handleChatConnection(
           return;
         case 'chat.permission-response':
           handlePermissionResponse(data, dependencies);
+          return;
+        case 'chat.set-permission-mode':
+          await handleSetPermissionMode(ws, data, dependencies);
           return;
         default:
           sendProtocolError(ws, 'UNKNOWN_MESSAGE_TYPE', `Unknown message type "${messageType}".`);

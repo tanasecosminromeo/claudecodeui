@@ -17,6 +17,8 @@ import type {
   ProviderRuntimeContext,
   ProviderRuntimePermissionGateway,
   ProviderRuntimeWriter,
+  SideQuestionOptions,
+  SideQuestionOutcome,
   UpsertProviderMcpServerInput,
   WorkflowAgentActivity,
 } from '@/shared/types.js';
@@ -37,6 +39,20 @@ export interface IProviderRuntime {
     context: ProviderRuntimeContext,
   ): Promise<unknown>;
   abort(sessionId: string): boolean | Promise<boolean>;
+  /**
+   * Feeds a message into the turn the session's live process is running, the
+   * way typing while the agent works does in its CLI. Resolves false when no
+   * live process is taking input. Only a runtime that keeps one process
+   * across a session's turns implements it; for the others a message sent
+   * mid-run waits for the run to end.
+   */
+  sendInput?(sessionId: string, command: string, options: AnyRecord): Promise<boolean>;
+  /**
+   * Applies a permission mode the user picked mid-run to the session's live
+   * process, instead of only to its next turn. Resolves false when no process
+   * is live or the mode is unknown to the provider.
+   */
+  setPermissionMode?(sessionId: string, mode: string): Promise<boolean>;
   permissions?: ProviderRuntimePermissionGateway;
   /**
    * Sessions with background tasks still outstanding, whether or not their
@@ -51,6 +67,18 @@ export interface IProviderRuntime {
    * settled, or the id was never one of its own.
    */
   stopBackgroundTask?(sessionId: string, taskId: string): Promise<boolean>;
+  /**
+   * Answers a `/btw` side question from the session's conversation so far,
+   * without interrupting a running turn and without adding anything to the
+   * session's transcript. Only runtimes that can do both implement it; the
+   * others leave it undefined and the dispatcher reports `unsupported`.
+   */
+  askSideQuestion?(
+    sessionId: string,
+    question: string,
+    options: SideQuestionOptions,
+    context: ProviderRuntimeContext,
+  ): Promise<SideQuestionOutcome>;
 }
 
 /**
