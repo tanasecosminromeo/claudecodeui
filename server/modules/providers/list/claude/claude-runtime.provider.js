@@ -42,6 +42,7 @@ import {
   isDetachedClaudeEnabled,
   listDetachedClaudeRecords,
   spawnDetachedClaude,
+  stopDetachedClaude,
 } from '@/modules/providers/list/claude/claude-detached-process.js';
 import { findOtherLiveClaudeProcesses, stopClaudeProcesses } from '@/modules/providers/list/claude/claude-live-processes.js';
 import { createCompleteMessage, createNormalizedMessage } from '@/shared/utils.js';
@@ -80,16 +81,23 @@ const TOOL_APPROVAL_TIMEOUT_MS = parseInt(process.env.CLAUDE_TOOL_APPROVAL_TIMEO
 // new turn supersedes the previous hold. This ceiling only catches background work
 // that never reports at all, so an abandoned session cannot leak a CLI process
 // forever. The timer resets on every message, so it measures silence, not total time.
-const BG_WAIT_CEILING_MS = 30 * 60 * 1000;
+const BG_WAIT_CEILING_MS = parseInt(process.env.CLOUDCLI_BG_WAIT_CEILING_MS, 10) || 30 * 60 * 1000;
 
 // The same backstop when the tracker still lists tasks the stream reported
 // starting. Silence is expected there: a watch that only reports a crash stays
 // quiet for hours by design, and closing stdin on it kills the watch without a
 // word. The user can stop such a task any time; this only catches a tracker
 // that missed the task's end.
-const TRACKED_BACKGROUND_HOLD_CEILING_MS = 24 * 60 * 60 * 1000;
+const TRACKED_BACKGROUND_HOLD_CEILING_MS = parseInt(process.env.CLOUDCLI_TRACKED_BG_HOLD_CEILING_MS, 10) || 24 * 60 * 60 * 1000;
 
 const TOOLS_REQUIRING_INTERACTION = new Set(['AskUserQuestion', 'ExitPlanMode']);
+
+// How long a new turn waits for the `result` of a turn the user just stopped
+// (the interrupt makes the CLI answer promptly; this only caps a CLI that never does).
+const INTERRUPTED_TURN_RESULT_WAIT_MS = 10 * 1000;
+// How long a run stays open after a `result` that a mid-turn push had overtaken,
+// waiting for the turn that push starts, before it is ended anyway.
+const TRAILING_PUSH_WAIT_MS = 20 * 1000;
 
 // Permission modes a Claude session can be put in from the composer.
 const CLAUDE_PERMISSION_MODES = new Set(['default', 'auto', 'acceptEdits', 'bypassPermissions', 'plan']);
@@ -817,7 +825,7 @@ async function buildPromptMessages(command, images, files, cwd) {
  * transcript next to it.
  *
  * @param {Array<Object>} messages - SDKUserMessage records for the first turn
- * @returns {{ stream: AsyncIterable, push: (messages: Array<Object>) => boolean, release: () => void }}
+ * @returns {{ stream: AsyncIterable, push: (messages: Array<Object>) => boolean, release: () => void, isReleased: () => boolean }}
  */
 function createPromptChannel(messages) {
   const pending = [...messages];
@@ -853,6 +861,7 @@ function createPromptChannel(messages) {
       released = true;
       wake?.();
     },
+    isReleased: () => released,
   };
 }
 
@@ -935,7 +944,7 @@ async function loadMcpConfig(cwd) {
  */
 async function queryClaudeSDK(command, options = {}, ws, context) {
   const live = options.sessionId ? getSession(options.sessionId) : null;
-  if (live?.status === 'active' && live.controls) {
+  if (live?.status === 'active' && live.controls?.acceptsInput()) {
     if (options.resumeAnchorId || options.resumeFromScratch) {
       // An edit re-runs the conversation from an earlier message, which a
       // live process cannot do — it only ever continues from its own tip. The
@@ -951,6 +960,8 @@ async function queryClaudeSDK(command, options = {}, ws, context) {
       // is on its way out, so this turn gets a process of its own.
     }
   }
+  // A live process that no longer takes input is winding down: it gets no
+  // settings changes, and this turn gets a process of its own.
 
   await startClaudeProcess(command, options, ws, context);
 }
@@ -1037,8 +1048,13 @@ async function startClaudeProcess(command, options = {}, ws, context, reattachRe
 
   // The CLI's stdin. Replaced once the prompt exists; the finally block
   // releases it no matter how the process ends.
-  let prompt = { push: () => false, release: () => {} };
-  const releasePromptStream = () => prompt.release();
+  let prompt = { push: () => false, release: () => {}, isReleased: () => false };
+  const releasePromptStream = () => {
+    prompt.release();
+    // A released process is on its way out. A server that restarts before it
+    // has gone must not reattach to it — nor leave it running for good.
+    updateRecord({ released: true });
+  };
   let idleReleaseTimer = null;
 
   // The turn in progress. `completeSent` is set once the client was told the
@@ -1068,6 +1084,16 @@ async function startClaudeProcess(command, options = {}, ws, context, reattachRe
   // Set once a turn publishes a budget read from an assistant message, so the
   // turn-ending `result` is only mined for usage when nothing better arrived.
   let assistantBudgetSent = false;
+  // A message was pushed into the turn and the CLI has not answered anything
+  // since. A `result` arriving in that state was already written before the
+  // push reached the CLI, which then takes the message as the start of a new
+  // turn: the run must not end on that result, and the process must not be
+  // released under it.
+  let pushedSinceLastOutput = false;
+  // Guards the wait for the turn that follows such a result: a CLI that,
+  // against expectation, folded the message without a word of output would
+  // otherwise leave the run open for good.
+  let trailingPushTimer = null;
 
   // A new process supersedes any earlier one still holding this session open,
   // so held processes cannot stack up across a conversation.
@@ -1179,6 +1205,19 @@ async function startClaudeProcess(command, options = {}, ws, context, reattachRe
      */
     async startTurn(turnCommand, turnOptions, turnWriter) {
       const messages = await buildPromptMessages(turnCommand, turnOptions.images, turnOptions.files, turnOptions.cwd);
+      // A turn the user stopped: the abort ended its run at once, but its
+      // `result` may still be on its way. Swapping turns before it lands
+      // would let that result end this new turn instead. Wait for it (the
+      // interrupt makes the CLI answer promptly; the cap only guards a CLI
+      // that never does).
+      if (!turn.completeSent) {
+        let capTimer = null;
+        await Promise.race([
+          turn.done,
+          new Promise((resolve) => { capTimer = setTimeout(resolve, INTERRUPTED_TURN_RESULT_WAIT_MS); }),
+        ]);
+        clearTimeout(capTimer);
+      }
       await applyTurnSettings(turnOptions);
 
       const previousTurn = turn;
@@ -1210,18 +1249,39 @@ async function startClaudeProcess(command, options = {}, ws, context, reattachRe
       return { done: nextTurn.done };
     },
 
+    /** Switches the process to a permission mode the user picked mid-run. */
+    setPermissionMode: (mode) => switchPermissionMode(mode),
+
     /**
      * Feeds a message into the turn in progress. No priority: the CLI folds
      * it in at the turn's next step, where `now` would abort the step and
      * redo it.
      */
-    /** Switches the process to a permission mode the user picked mid-run. */
-    setPermissionMode: (mode) => switchPermissionMode(mode),
-
     async pushInput(turnCommand, turnOptions) {
       const messages = await buildPromptMessages(turnCommand, turnOptions.images, turnOptions.files, turnOptions.cwd);
-      return prompt.push(messages);
+      // The turn can end while the message was being built. Pushed then, it
+      // would start a turn no run is registered for: streamed through the
+      // finished run's writer, never marked processing, its `complete`
+      // dropped. Refused instead, so the caller starts a proper turn.
+      if (turn.completeSent) {
+        return false;
+      }
+      if (!prompt.push(messages)) {
+        return false;
+      }
+      // Until the CLI says something, this push may be trailing a `result`
+      // already on its way (see the result handling): the turn is then not
+      // over when that result lands.
+      pushedSinceLastOutput = true;
+      return true;
     },
+
+    /**
+     * Whether the process still takes messages. A process that was let go
+     * stays registered while it winds down, but it is no longer the
+     * session's: the next message starts another one.
+     */
+    acceptsInput: () => !prompt.isReleased(),
 
     /** Settles when the process has exited. Set once the run loop exists. */
     exited: null,
@@ -1277,7 +1337,9 @@ async function startClaudeProcess(command, options = {}, ws, context, reattachRe
         effortModels,
       });
       permissionMode = sdkOptions.permissionMode || 'default';
-      launchedInBypass = permissionMode === 'bypassPermissions';
+      // The record holds the mode the process is in now, which may have been
+      // switched since launch; what it was launched with is recorded apart.
+      launchedInBypass = reattachRecord?.launchedInBypass ?? permissionMode === 'bypassPermissions';
 
       const mcpServers = await loadMcpConfig(options.cwd);
       if (mcpServers) {
@@ -1402,6 +1464,7 @@ async function startClaudeProcess(command, options = {}, ws, context, reattachRe
           // the user had picked; the approval names the mode to continue in.
           if (toolName === 'ExitPlanMode' && CLAUDE_PERMISSION_MODES.has(decision.permissionMode) && decision.permissionMode !== 'plan') {
             permissionMode = decision.permissionMode;
+            updateRecord({ options: recordedRunOptions() });
             const cliMode = cliModeFor(decision.permissionMode) ?? 'default';
             return {
               behavior: 'allow',
@@ -1453,11 +1516,88 @@ async function startClaudeProcess(command, options = {}, ws, context, reattachRe
 
       if (reattachRecord) {
         resumeReattachedState(reattachRecord);
+      } else {
+        updateRecord({ launchedInBypass });
       }
+
+      // Ends the turn on its `result` (or, for a result a mid-turn push had
+      // overtaken and nothing followed, on the wait running out): tells the
+      // client, settles the run, and decides whether the process is held for
+      // background work or let go.
+      const settleTurn = () => {
+        clearTimeout(trailingPushTimer);
+        trailingPushTimer = null;
+        // An aborted turn's terminal `complete` (aborted: true) already went
+        // out from the abort handler. The flag is spent on this result: the
+        // process can outlive the abort, and the next turn is not aborted.
+        const abortPending = sessionKey() ? abortedSessionIds.delete(sessionKey()) : false;
+
+        const stillOutstanding = backgroundWork.hasOutstanding(sessionKey());
+        if (!turn.completeSent && !abortPending) {
+          // The turn is done as far as the client is concerned.
+          writer.send(createCompleteMessage({ provider: 'claude', sessionId: capturedSessionId || sessionId || null, exitCode: 0 }));
+          notifyRunStopped({
+            userId: writer?.userId || null,
+            provider: 'claude',
+            sessionId: sessionId || capturedSessionId || null,
+            sessionName: sessionSummary,
+            stopReason: 'completed'
+          });
+        } else if (heldForBackgroundWork && !abortPending && !stillOutstanding) {
+          // A result after the turn already reported complete means the work we
+          // held the process open for has finished and pushed a follow-up turn
+          // — the last of it, when nothing else is still running.
+          notifyBackgroundWorkCompleted({
+            userId: writer?.userId || null,
+            provider: 'claude',
+            sessionId: sessionId || capturedSessionId || null,
+            sessionName: sessionSummary
+          });
+        }
+        turn.completeSent = true;
+        turn.resolve();
+        updateRecord({ turnActive: false, awaitingPermission: false, tasks: outstandingTasks() });
+        // Work started during this turn, or work from an earlier turn that
+        // has not settled yet (a follow-up turn reports one task in while
+        // another is still going), is still running. Hold the process open
+        // so it can finish and report back in a follow-up turn, and so the
+        // next message joins this process instead of starting another; the
+        // ceiling is only a backstop for work that never reports.
+        //
+        // The release when the last task settles is this same branch on the
+        // follow-up turn the CLI pushes for it, not the settling event
+        // itself: closing stdin at that moment would cut the turn that
+        // relays the task's result.
+        //
+        // When the turn reported its tasks, the tracker is the whole truth: an
+        // Agent call without `run_in_background` is scored as background by
+        // `startsBackgroundWork`, but the CLI runs it in the foreground and
+        // it has settled before this `result` — holding for it kept a process
+        // alive for the full ceiling with nothing outstanding.
+        const holdForTurn = sawTaskEventThisTurn ? stillOutstanding : backgroundWorkPending || stillOutstanding;
+        backgroundWorkPending = false;
+        sawTaskEventThisTurn = false;
+        if (holdForTurn) {
+          heldForBackgroundWork = true;
+          scheduleRelease();
+        } else {
+          // Either nothing was backgrounded, or the background work just
+          // reported in — let the CLI exit now, as it always has.
+          heldForBackgroundWork = false;
+          releasePromptStream();
+        }
+      };
 
       // Process streaming messages
       console.log('Starting async generator loop for session:', capturedSessionId || 'NEW');
       for await (const message of queryInstance) {
+        // Anything the CLI says after a pushed message means the message
+        // reached it (folded into the turn, or starting the next one).
+        if (message.type !== 'result') {
+          pushedSinceLastOutput = false;
+          clearTimeout(trailingPushTimer);
+          trailingPushTimer = null;
+        }
         // Capture session ID from first message
         if (message.session_id && !capturedSessionId) {
 
@@ -1540,65 +1680,20 @@ async function startClaudeProcess(command, options = {}, ws, context, reattachRe
           releasePromptStream();
         }
 
-        if (message.type === 'result') {
-          // An aborted turn's terminal `complete` (aborted: true) already went
-          // out from the abort handler. The flag is spent on this result: the
-          // process can outlive the abort, and the next turn is not aborted.
-          const abortPending = sessionKey() ? abortedSessionIds.delete(sessionKey()) : false;
-          const stillOutstanding = backgroundWork.hasOutstanding(sessionKey());
-          if (!turn.completeSent && !abortPending) {
-            // The turn is done as far as the client is concerned.
-            writer.send(createCompleteMessage({ provider: 'claude', sessionId: capturedSessionId || sessionId || null, exitCode: 0 }));
-            notifyRunStopped({
-              userId: writer?.userId || null,
-              provider: 'claude',
-              sessionId: sessionId || capturedSessionId || null,
-              sessionName: sessionSummary,
-              stopReason: 'completed'
-            });
-          } else if (heldForBackgroundWork && !abortPending && !stillOutstanding) {
-            // A result after the turn already reported complete means the work we
-            // held the process open for has finished and pushed a follow-up turn
-            // — the last of it, when nothing else is still running.
-            notifyBackgroundWorkCompleted({
-              userId: writer?.userId || null,
-              provider: 'claude',
-              sessionId: sessionId || capturedSessionId || null,
-              sessionName: sessionSummary
-            });
-          }
-          turn.completeSent = true;
-          turn.resolve();
-          updateRecord({ turnActive: false, awaitingPermission: false, tasks: outstandingTasks() });
-          // Work started during this turn, or work from an earlier turn that
-          // has not settled yet (a follow-up turn reports one task in while
-          // another is still going), is still running. Hold the process open
-          // so it can finish and report back in a follow-up turn, and so the
-          // next message joins this process instead of starting another; the
-          // ceiling is only a backstop for work that never reports.
-          //
-          // The release when the last task settles is this same branch on the
-          // follow-up turn the CLI pushes for it, not the settling event
-          // itself: closing stdin at that moment would cut the turn that
-          // relays the task's result.
-          //
-          // When the turn reported its tasks, the tracker is the whole truth: an
-          // Agent call without `run_in_background` is scored as background by
-          // `startsBackgroundWork`, but the CLI runs it in the foreground and
-          // it has settled before this `result` — holding for it kept a process
-          // alive for the full ceiling with nothing outstanding.
-          const holdForTurn = sawTaskEventThisTurn ? stillOutstanding : backgroundWorkPending || stillOutstanding;
-          backgroundWorkPending = false;
-          sawTaskEventThisTurn = false;
-          if (holdForTurn) {
-            heldForBackgroundWork = true;
-            scheduleRelease();
-          } else {
-            // Either nothing was backgrounded, or the background work just
-            // reported in — let the CLI exit now, as it always has.
-            heldForBackgroundWork = false;
-            releasePromptStream();
-          }
+        if (message.type === 'result' && pushedSinceLastOutput) {
+          // The CLI wrote this result before the pushed message reached it;
+          // that message now starts a new turn, which will end this run. Only
+          // if nothing at all follows is the run ended from here.
+          console.log(`[Claude SDK] Result overtaken by a message pushed mid-turn; waiting for the turn it starts (session ${sessionKey()})`);
+          clearTimeout(trailingPushTimer);
+          trailingPushTimer = setTimeout(() => {
+            trailingPushTimer = null;
+            pushedSinceLastOutput = false;
+            settleTurn();
+          }, TRAILING_PUSH_WAIT_MS);
+          trailingPushTimer.unref?.();
+        } else if (message.type === 'result') {
+          settleTurn();
         } else if (idleReleaseTimer) {
           // Background activity after the turn — push the countdown back out.
           scheduleRelease();
@@ -1796,16 +1891,37 @@ export async function setClaudeSDKPermissionMode(sessionId, mode) {
  * @returns {Promise<number>} How many sessions were reattached
  */
 export async function reattachClaudeSDKSessions(context, openWriter) {
-  if (!isDetachedClaudeEnabled()) {
-    return 0;
-  }
-  let reattached = 0;
-  for (const record of listDetachedClaudeRecords()) {
-    if (getSession(record.appSessionId)) {
+  // Whatever the flag says now, processes a previous server left behind are
+  // dealt with: reattached, or stopped when nothing can drive them again.
+  const records = listDetachedClaudeRecords();
+  const bySession = new Map();
+  for (const record of records) {
+    // Released processes were on their way out when the old server went;
+    // its SIGTERM never came. Nothing will drive them again.
+    if (record.released) {
+      console.log(`[Claude detached] Stopping released process ${record.pid} (session ${record.appSessionId})`);
+      void stopDetachedClaude(record);
       continue;
     }
-    const writer = openWriter(record.appSessionId, { processing: record.turnActive });
+    // Newest last: with two live processes on one session (a replacement
+    // that raced the old one's exit), the newest is the session's.
+    bySession.set(record.appSessionId, record);
+    for (const older of records) {
+      if (older !== record && older.appSessionId === record.appSessionId && !older.released && older.startedAt < record.startedAt) {
+        console.warn(`[Claude detached] Stopping duplicate process ${older.pid} for session ${record.appSessionId}`);
+        void stopDetachedClaude(older);
+      }
+    }
+  }
+
+  let reattached = 0;
+  for (const record of bySession.values()) {
+    const writer = getSession(record.appSessionId) ? null : openWriter(record.appSessionId, { processing: record.turnActive });
     if (!writer) {
+      // The session is gone (or, against expectation, already live here):
+      // a process nobody can reach must not run on for good.
+      console.warn(`[Claude detached] No session to reattach process ${record.pid} to (${record.appSessionId}); stopping it`);
+      void stopDetachedClaude(record);
       continue;
     }
     console.log(`[Claude detached] Reattaching session ${record.appSessionId} (pid ${record.pid})`);
@@ -1827,7 +1943,8 @@ export async function reattachClaudeSDKSessions(context, openWriter) {
  * @returns {Array<import('@/modules/providers/list/claude/claude-live-processes.js').LiveClaudeProcess>}
  */
 export function findClaudeSessionElsewhere(sessionId, context) {
-  if (getSession(sessionId)?.status === 'active') {
+  const own = getSession(sessionId);
+  if (own?.status === 'active' && own.controls?.acceptsInput()) {
     return [];
   }
   const providerSessionId = context.resolveProviderSessionId(sessionId);

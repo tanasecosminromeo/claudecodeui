@@ -11,6 +11,8 @@
 #   make deploy    build + restart (after your own changes)
 #   make remote    run a target on another machine over ssh: make remote HOST=dev TARGET=status
 #   make claude-guard  make terminal `claude --resume` ask before opening a session already running elsewhere
+#   make e2e       end-to-end tests: an isolated copy of this checkout, real Claude CLI, real browser
+#                  (E2E_ARGS="--only=restart --keep"; see custom/e2e/README.md)
 #
 # Claude sessions survive `make restart`: with CLOUDCLI_DETACHED_CLAUDE=1 (set in the systemd unit) each
 # Claude process runs in its own scope and the restarted server reattaches to it.
@@ -50,7 +52,7 @@ endif
 
 .DEFAULT_GOAL := help
 .PHONY: help remotes fetch status clean-check update sync install browser build restart deploy upgrade rollback \
-        logs service push test-custom plugins plugins-status verify remote claude-guard
+        logs service push test-custom plugins plugins-status verify remote claude-guard e2e
 
 help:
 	@sed -n '/^$$/q;p' Makefile | sed 's/^# \{0,1\}//'
@@ -240,6 +242,10 @@ claude-guard:
 	  else printf '\n# CloudCLI: ask before resuming a Claude session already running elsewhere\n%s\n' "$$line" >> "$$rc"; echo "claude-guard: added to $$rc"; fi; \
 	done; \
 	echo "claude-guard: open a new terminal (or source your rc) to use it"
+
+# End-to-end scenarios against an isolated instance (port 3101, own database); never touches the live service.
+e2e:
+	node custom/e2e/run.mjs $(E2E_ARGS)
 
 # Unit tests for the custom layer (env-switcher, inject-html); the app's own suites are npm test / test:client.
 test-custom:

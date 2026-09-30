@@ -144,3 +144,22 @@ test('a server that is shutting down never kills a detached process', async () =
     handle.stdout.destroy();
   });
 });
+
+test('a launch that fails is an error for the caller, not a crash of the server', async () => {
+  await withProcessesDir(async () => {
+    let uncaught: unknown = null;
+    const onUncaught = (error: unknown) => { uncaught = error; };
+    process.on('uncaughtException', onUncaught);
+    try {
+      assert.throws(
+        () => spawnDetachedClaude('app-bad-cwd', { ...ECHO_CLI, cwd: '/nonexistent/project/folder', env: { ...process.env } }, {}, null),
+        /Could not start the Claude process/,
+      );
+      await new Promise((resolve) => { setTimeout(resolve, 200); });
+      assert.equal(uncaught, null, 'the spawn error was handled');
+      assert.deepEqual(listDetachedClaudeRecords(), []);
+    } finally {
+      process.off('uncaughtException', onUncaught);
+    }
+  });
+});

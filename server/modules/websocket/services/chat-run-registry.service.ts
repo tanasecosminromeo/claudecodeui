@@ -33,6 +33,13 @@ type ChatRun = {
   writer: ChatSessionWriter;
   startedAt: number;
   completedAt: number | null;
+  /**
+   * Errors raised while no browser was watching — a run a restarted server
+   * reattached, a scheduled turn. What the agent writes is in its transcript
+   * and reloads with the history; these are not, so the first browser that
+   * subscribes is shown them once.
+   */
+  unseenErrors: NormalizedMessage[];
 };
 
 /**
@@ -49,6 +56,9 @@ const COMPLETED_RUN_RETENTION_MS = 5 * 60 * 1000;
  * REST history refresh, which is always the authoritative source.
  */
 const MAX_BUFFERED_EVENTS_PER_RUN = 5000;
+
+/** Errors kept for a subscriber that was not there when they were raised; a run in an error loop keeps the latest. */
+const MAX_UNSEEN_ERRORS_PER_RUN = 50;
 
 /**
  * Active and recently-completed runs keyed by app session id.
@@ -67,6 +77,15 @@ const runs = new Map<string, ChatRun>();
  * subscribes meanwhile needs the run to attach to.
  */
 let retainCompletedRun: (appSessionId: string) => boolean = () => false;
+
+/**
+ * Told when a run ends, whoever ended it: the runtime's own `complete`, the
+ * abort path, a safety-net complete, or a run a restarted server reattached
+ * and never dispatched. The chat gateway starts a session's waiting messages
+ * from here. Deferred, so a listener that starts a new run never does so from
+ * inside the finishing run's own event handling.
+ */
+const runCompletedListeners = new Set<(appSessionId: string) => void>();
 
 /**
  * Schedules one run's eviction. The timer is bound to the run it was armed
@@ -124,6 +143,16 @@ function decorateAndRecordEvent(run: ChatRun, message: NormalizedMessage): Norma
     run.status = 'completed';
     run.completedAt = Date.now();
     evictRunLater(run);
+    for (const listener of runCompletedListeners) {
+      setImmediate(() => listener(run.appSessionId));
+    }
+  }
+
+  if (outbound.kind === 'error' && !run.writer?.hasOpenConnection()) {
+    run.unseenErrors.push(outbound);
+    if (run.unseenErrors.length > MAX_UNSEEN_ERRORS_PER_RUN) {
+      run.unseenErrors.shift();
+    }
   }
 
   run.events.push(outbound);
@@ -184,6 +213,12 @@ export const chatRunRegistry = {
     retainCompletedRun = guard;
   },
 
+  /** Registers a listener for every run's end (see `runCompletedListeners`). Returns the unsubscribe. */
+  onRunCompleted(listener: (appSessionId: string) => void): () => void {
+    runCompletedListeners.add(listener);
+    return () => { runCompletedListeners.delete(listener); };
+  },
+
   /**
    * Starts tracking a run and returns it, or `null` when a run is already in
    * progress for the session (callers must reject the duplicate send).
@@ -216,6 +251,7 @@ export const chatRunRegistry = {
       writer: null as unknown as ChatSessionWriter,
       startedAt: Date.now(),
       completedAt: null,
+      unseenErrors: [],
     };
 
     run.writer = new ChatSessionWriter({
@@ -293,6 +329,20 @@ export const chatRunRegistry = {
     }
 
     return run.events.filter((event) => typeof event.seq === 'number' && event.seq > afterSeq);
+  },
+
+  /**
+   * Hands over the errors nobody has seen yet (see `ChatRun.unseenErrors`),
+   * leaving none behind: each is shown to one subscriber, once.
+   */
+  takeUnseenErrors(appSessionId: string): NormalizedMessage[] {
+    const run = runs.get(appSessionId);
+    if (!run || run.unseenErrors.length === 0) {
+      return [];
+    }
+    const errors = run.unseenErrors;
+    run.unseenErrors = [];
+    return errors;
   },
 
   /**

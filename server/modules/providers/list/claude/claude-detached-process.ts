@@ -58,6 +58,10 @@ export type DetachedClaudeRecord = {
   /** The process was waiting for a tool approval, an answer the new server never saw asked. */
   awaitingPermission: boolean;
   tasks: DetachedTask[];
+  /** The runtime let the process go; it is exiting and must not be reattached. */
+  released?: boolean;
+  /** Launched with bypass: the only way the CLI itself can be switched into it later. */
+  launchedInBypass?: boolean;
 };
 
 /** The SDK's process contract (`SpawnedProcess`), plus the record the process belongs to. */
@@ -95,6 +99,20 @@ const RECORD_FILE = 'record.json';
  */
 const RELEASE_GRACE_MS = 2000;
 const EXIT_POLL_MS = 500;
+const EXIT_DRAIN_MS = 250;
+/** How much of a gone process's stderr is worth logging. */
+const STDERR_REPORT_BYTES = 4000;
+
+function reportStderr(record: DetachedClaudeRecord): void {
+  try {
+    const text = fs.readFileSync(path.join(record.dir, 'stderr.log'), 'utf8').trim();
+    if (text) {
+      console.warn(`[Claude detached] stderr of exited process ${record.pid} (session ${record.appSessionId}):\n${text.slice(-STDERR_REPORT_BYTES)}`);
+    }
+  } catch {
+    // No stderr log.
+  }
+}
 
 /**
  * Set once this server is exiting. From then on nothing here kills a detached
@@ -144,6 +162,20 @@ function readRecord(dir: string): DetachedClaudeRecord | null {
     return JSON.parse(fs.readFileSync(path.join(dir, RECORD_FILE), 'utf8')) as DetachedClaudeRecord;
   } catch {
     return null;
+  }
+}
+
+/**
+ * A folder with no record is one being set up right now (pipes made, record
+ * not yet written) — unless it has been like that for a while, which means
+ * the server died in between. Then only the pipes are left.
+ */
+const ABANDONED_DIR_AGE_MS = 60 * 1000;
+function isAbandonedProcessDir(dir: string): boolean {
+  try {
+    return Date.now() - fs.statSync(dir).mtimeMs > ABANDONED_DIR_AGE_MS;
+  } catch {
+    return true;
   }
 }
 
@@ -221,10 +253,15 @@ function createProcessHandle(record: DetachedClaudeRecord): DetachedSpawnedProce
       return;
     }
     clearInterval(exitPoll);
+    // Not this server's child: its exit status is unknowable. What it wrote
+    // to stderr is the only clue to a crash, so it is kept in the log.
     exitCode = 0;
+    reportStderr(record);
     removeProcessDir(record.dir);
-    // Nothing else ends the read side reliably once the process is gone.
-    stdout.destroy();
+    // Nothing else ends the pipes reliably once the process is gone. The read
+    // side first drains what the process wrote last.
+    stdin.destroy();
+    setTimeout(() => stdout.destroy(), EXIT_DRAIN_MS).unref();
     events.emit('exit', 0, null);
   }, EXIT_POLL_MS);
   exitPoll.unref();
@@ -295,11 +332,16 @@ export function spawnDetachedClaude(
     detached: true,
     stdio: ['ignore', 'ignore', stderr],
   });
+  // A launch failure (the project folder is gone, say) arrives as an 'error'
+  // event a tick later; unhandled, it would take the whole server down.
+  child.on('error', (error) => {
+    console.error(`[Claude detached] Could not start the Claude process for session ${appSessionId}:`, error.message);
+  });
   child.unref();
   fs.closeSync(stderr);
   if (!child.pid) {
     removeProcessDir(dir);
-    throw new Error('Could not start the Claude process');
+    throw new Error(`Could not start the Claude process (working directory ${request.cwd ?? 'unset'})`);
   }
 
   const record: DetachedClaudeRecord = {
@@ -316,6 +358,27 @@ export function spawnDetachedClaude(
   };
   writeRecord(record);
   return createProcessHandle(record);
+}
+
+/** How long a process asked to stop gets before it is killed. */
+const STOP_GRACE_MS = 5000;
+
+/**
+ * Ends a detached process no server will drive again — one that was released
+ * as the previous server went away (its SIGTERM never came), or a duplicate —
+ * and removes its record. Used by the Claude runtime's reattach.
+ */
+export async function stopDetachedClaude(record: DetachedClaudeRecord): Promise<void> {
+  try { process.kill(record.pid, 'SIGTERM'); } catch { /* already gone */ }
+  const deadline = Date.now() + STOP_GRACE_MS;
+  while (isRecordedProcessAlive(record) && Date.now() < deadline) {
+    await new Promise((resolve) => { setTimeout(resolve, 100); });
+  }
+  if (isRecordedProcessAlive(record)) {
+    try { process.kill(record.pid, 'SIGKILL'); } catch { /* gone */ }
+  }
+  reportStderr(record);
+  removeProcessDir(record.dir);
 }
 
 /**
@@ -346,7 +409,7 @@ export function listDetachedClaudeRecords(): DetachedClaudeRecord[] {
     const record = readRecord(dir);
     if (record && isRecordedProcessAlive(record)) {
       live.push(record);
-    } else if (record || !fs.existsSync(path.join(dir, 'in'))) {
+    } else if (record || isAbandonedProcessDir(dir)) {
       removeProcessDir(dir);
     }
   }

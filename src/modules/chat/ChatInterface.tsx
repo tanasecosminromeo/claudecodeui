@@ -367,6 +367,13 @@ function ChatInterface({
       if (event.key !== 'Escape' || event.repeat || event.defaultPrevented) {
         return;
       }
+      // Escape closes an open popup, menu or list first. This listener runs
+      // in the capture phase, ahead of theirs, so without this check closing
+      // the /btw answer — asked precisely while Claude works — also stopped
+      // Claude's turn.
+      if (document.querySelector('[role="dialog"], [role="menu"], [role="listbox"]')) {
+        return;
+      }
 
       event.preventDefault();
       handleAbortSession();

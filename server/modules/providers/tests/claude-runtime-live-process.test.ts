@@ -322,3 +322,104 @@ test('editing an earlier message replaces the live process instead of joining it
     await editTurn;
   });
 });
+
+test('a process that was let go does not hide a terminal on the session', async () => {
+  const { spawn } = await import('node:child_process');
+  const { mkdir, writeFile } = await import('node:fs/promises');
+  const { findClaudeSessionElsewhere } = await import('@/modules/providers/list/claude/claude-runtime.provider.js');
+  await withHarness(async ({ processes, context, cwd, writer }) => {
+    const sessionId = 'app-live-released';
+    const turn = queryClaudeSDK('hello', { sessionId, cwd }, writer() as never, context);
+    await settle();
+    processes[0].emit({ type: 'system', subtype: 'init', session_id: NATIVE_ID });
+    processes[0].emit(result());
+    await turn;
+    await settle();
+    assert.equal(processes[0].released(), true, 'nothing outstanding: the process was let go');
+
+    // Meanwhile a terminal resumes the session — a process that is not this
+    // server's child (its own children count as CloudCLI's).
+    const launcher = spawn('sh', ['-c', 'sleep 60 & echo $!'], { stdio: ['ignore', 'pipe', 'ignore'], detached: true });
+    const terminalPid = await new Promise<number>((resolve) => { launcher.stdout?.once('data', (data) => resolve(Number(String(data).trim()))); });
+    const terminal = { pid: terminalPid, kill: (signal: NodeJS.Signals) => { try { process.kill(terminalPid, signal); } catch { /* gone */ } } };
+    const previous = process.env.CLAUDE_CONFIG_DIR;
+    process.env.CLAUDE_CONFIG_DIR = cwd;
+    try {
+      await mkdir(path.join(cwd, 'sessions'));
+      await writeFile(path.join(cwd, 'sessions', `${terminal.pid}.json`), JSON.stringify({ pid: terminal.pid, sessionId: NATIVE_ID, entrypoint: 'cli' }));
+      const elsewhere = findClaudeSessionElsewhere(sessionId, { resolveProviderSessionId: () => NATIVE_ID } as never);
+      assert.deepEqual(elsewhere.map((entry) => entry.pid), [terminal.pid]);
+    } finally {
+      terminal.kill('SIGKILL');
+      if (previous === undefined) {
+        delete process.env.CLAUDE_CONFIG_DIR;
+      } else {
+        process.env.CLAUDE_CONFIG_DIR = previous;
+      }
+    }
+  });
+});
+
+test('a message sent right after Stop waits for the stopped turn\'s result', async () => {
+  await withHarness(async ({ processes, context, cwd, writer }) => {
+    const sessionId = 'app-live-stop-then-send';
+    const firstTurn = queryClaudeSDK('start', { sessionId, cwd }, writer() as never, context);
+    await settle();
+    emitTurnWithBackgroundCommand(processes[0], 'keep1');
+    await firstTurn;
+
+    // A turn the user stops: the chat gateway ends its run at once, but the
+    // CLI's `result` for it is still on its way.
+    const stoppedTurn = queryClaudeSDK('long task', { sessionId, cwd }, writer() as never, context);
+    await settle();
+    processes[0].emit(init());
+    processes[0].emit(toolUse('toolu_2', 'Bash', { command: 'sleep 5' }));
+    await settle();
+    assert.equal(await abortClaudeSDKSession(sessionId), true);
+
+    // The next message arrives before that result.
+    const nextWriter = writer();
+    const nextTurn = queryClaudeSDK('and now this', { sessionId, cwd }, nextWriter as never, context);
+    await settle();
+    assert.equal(processes[0].prompts.length, 2, 'the new message is held back until the stopped turn has ended');
+
+    processes[0].emit({ type: 'result', subtype: 'error_during_execution', session_id: NATIVE_ID, duration_ms: 1, num_turns: 1 });
+    await stoppedTurn;
+    await settle();
+    assert.equal(processes[0].prompts.length, 3, 'then it goes in');
+    assert.equal(nextWriter.sent.filter((message) => message.kind === 'complete').length, 0, 'the stopped turn\'s result did not end the new turn');
+
+    processes[0].emit(init());
+    processes[0].emit(text('Done with this.'));
+    processes[0].emit(result());
+    await nextTurn;
+    assert.equal(nextWriter.sent.filter((message) => message.kind === 'complete').length, 1, 'the new turn ends on its own result');
+  });
+});
+
+test('a push that a result had already overtaken keeps the run open until the next result', async () => {
+  await withHarness(async ({ processes, context, cwd, writer }) => {
+    const sessionId = 'app-live-trailing-push';
+    const turnWriter = writer();
+    const turn = queryClaudeSDK('do it', { sessionId, cwd }, turnWriter as never, context);
+    await settle();
+    processes[0].emit(init());
+    processes[0].emit(toolUse('toolu_1', 'Bash', { command: 'true' }));
+    await settle();
+
+    // The CLI had already written its result when this message went in.
+    assert.equal(await sendClaudeSDKInput(sessionId, 'one more thing', { cwd }), true);
+    processes[0].emit(result());
+    await settle();
+    assert.equal(turnWriter.sent.filter((message) => message.kind === 'complete').length, 0, 'the overtaken result does not end the run');
+    assert.equal(processes[0].released(), false, 'and the process is not let go under the message');
+
+    // The CLI takes the message as a new turn; that turn's result ends the run.
+    processes[0].emit(init());
+    processes[0].emit(text('One more thing done.'));
+    processes[0].emit(result());
+    await turn;
+    assert.equal(turnWriter.sent.filter((message) => message.kind === 'complete').length, 1);
+    assert.ok(turnWriter.sent.some((message) => message.kind === 'text' && message.content === 'One more thing done.'), 'streamed into the same run');
+  });
+});

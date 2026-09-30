@@ -187,6 +187,8 @@ type WaitingSend = {
   ws: WebSocket | null;
   userId: string | number | null;
   data: AnyRecord;
+  /** The gateway's dependencies at the time of sending; a run's end starts the message with them. */
+  dependencies: ChatWebSocketDependencies;
 };
 
 /**
@@ -196,6 +198,18 @@ type WaitingSend = {
  * and a restart loses the run it was waiting on as well.
  */
 const waitingSends = new Map<string, WaitingSend[]>();
+
+// Whatever ends a run — the runtime, an abort, a reattached run a restarted
+// server never dispatched — the session's next waiting message follows it.
+// Registered on first use, not at load: the registry and this module sit in
+// one import cycle, so at load time the registry is not initialised yet.
+let followingRunEnds = false;
+function followRunEnds(): void {
+  if (!followingRunEnds) {
+    followingRunEnds = true;
+    chatRunRegistry.onRunCompleted((sessionId) => startNextWaitingSend(sessionId));
+  }
+}
 
 /**
  * Handles a `chat.send` for a session whose run is in progress. Like typing
@@ -218,12 +232,13 @@ async function deliverDuringRun(
     return;
   }
 
+  followRunEnds();
   const queue = waitingSends.get(sessionId) ?? [];
-  queue.push({ ws, userId, data });
+  queue.push({ ws, userId, data, dependencies });
   waitingSends.set(sessionId, queue);
   // The run may have ended while the provider was being asked, in which case
   // no run is left to start the message when it finishes.
-  startNextWaitingSend(sessionId, dependencies);
+  startNextWaitingSend(sessionId);
 }
 
 /**
@@ -231,7 +246,7 @@ async function deliverDuringRun(
  * run in progress. Every run calls this when it ends, so waiting messages go
  * in one at a time, in order.
  */
-function startNextWaitingSend(sessionId: string, dependencies: ChatWebSocketDependencies): void {
+function startNextWaitingSend(sessionId: string): void {
   const queue = waitingSends.get(sessionId);
   if (!queue || queue.length === 0 || chatRunRegistry.isProcessing(sessionId)) {
     return;
@@ -249,7 +264,15 @@ function startNextWaitingSend(sessionId: string, dependencies: ChatWebSocketDepe
     return;
   }
 
-  void dispatchRun(next.ws, next.userId, sessionId, session, next.data, dependencies);
+  // A message the gateway refuses to run (the session is open in a terminal,
+  // a run slipped in first) starts no run whose end would call back here, so
+  // the ones behind it are tried right away.
+  void dispatchRun(next.ws, next.userId, sessionId, session, next.data, next.dependencies)
+    .then((outcome) => {
+      if (!outcome.started) {
+        startNextWaitingSend(sessionId);
+      }
+    });
 }
 
 type ResolvedSendTarget = {
@@ -389,7 +412,6 @@ async function dispatchRun(
     // a queued message can start the session's next run before this promise
     // settles, and the session-keyed completeRun would kill that new run.
     chatRunRegistry.completeRunIfCurrent(run, { exitCode: 1 });
-    startNextWaitingSend(sessionId, dependencies);
   }
 
   return { started: true, error: failure };
@@ -663,11 +685,15 @@ function handleChatSubscribe(
     }
 
     const lastSeqRaw = (target as AnyRecord).lastSeq;
-    const lastSeq = typeof lastSeqRaw === 'number' && Number.isFinite(lastSeqRaw)
+    const run = chatRunRegistry.getRun(sessionId);
+    // A number beyond the run's own counts events of an earlier run — the
+    // previous server's, after a restart. It says nothing about this run, so
+    // this run replays from its start.
+    const requestedLastSeq = typeof lastSeqRaw === 'number' && Number.isFinite(lastSeqRaw)
       ? Math.max(0, Math.floor(lastSeqRaw))
       : 0;
+    const lastSeq = requestedLastSeq > (run?.lastSeq ?? 0) ? 0 : requestedLastSeq;
 
-    const run = chatRunRegistry.getRun(sessionId);
     const isProcessing = chatRunRegistry.isProcessing(sessionId);
 
     // Future live events for this run should land on the socket that asked —
@@ -697,9 +723,16 @@ function handleChatSubscribe(
     // are fully persisted to the provider transcript and served over REST —
     // replaying them (e.g. after a page reload where the client's lastSeq is
     // 0) would duplicate messages the history fetch already returned.
-    if (isProcessing) {
-      for (const event of chatRunRegistry.replayEvents(sessionId, lastSeq)) {
-        sendJson(ws, event);
+    const replayed = isProcessing ? chatRunRegistry.replayEvents(sessionId, lastSeq) : [];
+    for (const event of replayed) {
+      sendJson(ws, event);
+    }
+
+    // Errors raised while nobody watched are not in the transcript the
+    // browser reloads; show them unless the replay just did.
+    for (const error of chatRunRegistry.takeUnseenErrors(sessionId)) {
+      if (!replayed.includes(error)) {
+        sendJson(ws, error);
       }
     }
   }

@@ -14,9 +14,10 @@ import {
     closeSessionsWatcher,
     findOtherLiveClaudeProcesses,
     initializeSessionsWatcher,
+    markDetachedClaudeShutdown,
     providerRuntimeService,
 } from '@/modules/providers/index.js';
-import { chatRunRegistry, createWebSocketServer } from '@/modules/websocket/index.js';
+import { chatRunRegistry, createWebSocketServer, stopAllShellSessions } from '@/modules/websocket/index.js';
 
 import { getConnectableHost } from '../shared/networkHosts.js';
 
@@ -121,7 +122,10 @@ createWebSocketServer(server, {
 
             return null;
         },
-        findLiveSessionProcesses: (providerSessionId) => findOtherLiveClaudeProcesses(providerSessionId),
+        // To a terminal the chat's own process is "elsewhere" too, detached or
+        // not — a resume next to it would fork the conversation just the same.
+        findLiveSessionProcesses: (providerSessionId) =>
+            findOtherLiveClaudeProcesses(providerSessionId, new Set(), { includeOwnChildren: true }),
     },
     getPluginPort,
 });
@@ -352,7 +356,31 @@ async function startServer() {
         }
 
         console.log(`${terminalTextStyles.info('[INFO]')} To run in development mode with hot-module replacement, go to http://${DISPLAY_HOST}:${VITE_PORT}`);
-   
+
+        // Carry on with the agent processes the previous server left running
+        // (detached Claude processes survive a restart): each gets a run to
+        // stream through, which clients subscribe to as usual. A session idle
+        // between turns gets a run too: its background work reports through
+        // it, and the runtime ends it straight away. Before listening, so no
+        // client can send to such a session and start a second process first.
+        const reattached = await providerRuntimeService.reattachDetachedSessions((sessionId, provider) => {
+            const session = sessionsDb.getSessionById(sessionId);
+            if (!session) {
+                return null;
+            }
+            const run = chatRunRegistry.startRun({
+                appSessionId: sessionId,
+                provider,
+                providerSessionId: session.provider_session_id,
+                connection: null,
+                userId: null,
+            });
+            return run?.writer ?? null;
+        });
+        if (reattached > 0) {
+            console.log(`${terminalTextStyles.info('[INFO]')} Reattached to ${reattached} running Claude session(s)`);
+        }
+
         server.listen(SERVER_PORT, HOST, async () => {
             const appInstallPath = APP_ROOT;
             await writeLocalServerMarker().catch((error) => {
@@ -371,28 +399,6 @@ async function startServer() {
 
             // Start watching the projects folder for changes
             await initializeSessionsWatcher();
-            // Carry on with the agent processes the previous server left
-            // running (detached Claude processes survive a restart): each gets
-            // a run to stream through, which clients subscribe to as usual.
-            // A session idle between turns gets a run too: its background work
-            // reports through it, and the runtime ends it straight away.
-            const reattached = await providerRuntimeService.reattachDetachedSessions((sessionId, provider) => {
-                const session = sessionsDb.getSessionById(sessionId);
-                if (!session) {
-                    return null;
-                }
-                const run = chatRunRegistry.startRun({
-                    appSessionId: sessionId,
-                    provider,
-                    providerSessionId: session.provider_session_id,
-                    connection: null,
-                    userId: null,
-                });
-                return run?.writer ?? null;
-            });
-            if (reattached > 0) {
-                console.log(`${terminalTextStyles.info('[INFO]')} Reattached to ${reattached} running Claude session(s)`);
-            }
             // Sends anything that came due while the server was not running,
             // then keeps polling.
             initializeScheduledMessageDispatcher(providerRuntimeService);
@@ -407,6 +413,13 @@ async function startServer() {
         closeScheduledMessageDispatcher();
         // Clean up plugin processes on shutdown
         const shutdownRuntimeServices = async () => {
+            // Detached Claude processes outlive this server on purpose: from
+            // here on nothing may signal them (a release timer, the SDK's own
+            // exit handler) while the shutdown steps below run.
+            markDetachedClaudeShutdown();
+            // Open terminals would otherwise outlive the server inside its
+            // cgroup and hold systemd's restart up for the whole stop timeout.
+            stopAllShellSessions();
             try {
                 await browserUseService.stopAllSessions();
             } catch (err) {

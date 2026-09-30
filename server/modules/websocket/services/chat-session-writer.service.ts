@@ -136,6 +136,16 @@ export class ChatSessionWriter {
    * method it stands in for, so runtime adapters keep working unchanged —
    * but it adds rather than replaces.
    */
+  /** Whether any browser is watching this run right now. */
+  hasOpenConnection(): boolean {
+    for (const connection of this.connections) {
+      if (connection.readyState === WS_OPEN_STATE) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   updateWebSocket(newConnection: RealtimeClientConnection): void {
     this.connections.add(newConnection);
   }

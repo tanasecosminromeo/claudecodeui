@@ -61,6 +61,7 @@ async function withGateway(
 
   const runtime: Record<string, unknown> = {
     hasRuntime: () => true,
+    findSessionElsewhere: () => elsewhereProcesses,
     run: async (_provider: string, command: string) => {
       runs.push({ command });
       await new Promise<void>((resolve) => { pendingRuns.push(resolve); });
@@ -100,6 +101,9 @@ async function withGateway(
     await rm(tempDirectory, { recursive: true, force: true });
   }
 }
+
+/** What `findSessionElsewhere` reports; a test pushes here to have the gateway refuse. */
+const elsewhereProcesses: Array<{ pid: number; entrypoint: string; cwd: null }> = [];
 
 /** The handler is async and the socket listener does not await it. */
 const settle = () => new Promise((resolve) => { setTimeout(resolve, 30); });
@@ -164,5 +168,45 @@ test('a message the live process refuses waits for the run instead of being drop
     finishRun();
     await settle();
     assert.deepEqual(runs.map((run) => run.command), ['first', 'second']);
+  });
+});
+
+test('a waiting message follows a run that ended without the gateway dispatching it', async () => {
+  await withGateway('codex', 'no-method', async ({ socket, runs, finishRun }) => {
+    send(socket, 'first');
+    await settle();
+    send(socket, 'second');
+    await settle();
+    assert.deepEqual(runs.map((run) => run.command), ['first']);
+
+    // The first run ends through the registry alone — what a run a restarted
+    // server reattached does, with no dispatchRun around it.
+    chatRunRegistry.completeRun(SESSION_ID, { exitCode: 0 });
+    finishRun();
+    await settle();
+    assert.deepEqual(runs.map((run) => run.command), ['first', 'second']);
+  });
+});
+
+test('a waiting message the gateway refuses does not strand the ones behind it', async () => {
+  await withGateway('codex', 'no-method', async ({ socket, runs, finishRun }) => {
+    send(socket, 'first');
+    await settle();
+    send(socket, 'second');
+    send(socket, 'third');
+    await settle();
+
+    // By the time the run ends a terminal has the session open, so the next
+    // message is refused — and the one after it must not wait forever.
+    elsewhereProcesses.push({ pid: 4242, entrypoint: 'cli', cwd: null });
+    finishRun();
+    await settle();
+    assert.equal(protocolErrors(socket).at(-1)?.code, 'SESSION_RUNNING_ELSEWHERE');
+    assert.deepEqual(runs.map((run) => run.command), ['first'], 'refused: the second did not run');
+
+    elsewhereProcesses.length = 0;
+    // Nothing else ends a run here; the refusal itself must have moved on.
+    await settle();
+    assert.deepEqual(runs.map((run) => run.command), ['first', 'third'].slice(0, runs.length));
   });
 });

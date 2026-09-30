@@ -33,6 +33,17 @@ type RegistryEntry = {
   startedAt?: unknown;
 };
 
+/** The parent of a process (field 4 of /proc/<pid>/stat), or null where /proc is unavailable. */
+function readParentPid(pid: number): number | null {
+  try {
+    const stat = fs.readFileSync(`/proc/${pid}/stat`, 'utf8');
+    const parent = Number(stat.slice(stat.lastIndexOf(')') + 2).split(' ')[1]);
+    return Number.isFinite(parent) ? parent : null;
+  } catch {
+    return null;
+  }
+}
+
 function sessionsRegistryDir(): string {
   const configDir = process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude');
   return path.join(configDir, 'sessions');
@@ -48,11 +59,16 @@ function sessionsRegistryDir(): string {
  * the shell tab before it resumes one.
  *
  * @param providerSessionId - The CLI's own session id (the transcript file name)
- * @param ownPids - Processes to leave out: CloudCLI's own
+ * @param ownPids - Processes to leave out: CloudCLI's own detached ones
+ * @param options.includeOwnChildren - Also report this server's own child
+ *   processes (its chat's, when not detached). The chat's guard leaves them
+ *   out — they are the session's own process — while the shell tab's guard
+ *   wants them: to a terminal, the chat is "elsewhere".
  */
 export function findOtherLiveClaudeProcesses(
   providerSessionId: string,
   ownPids: ReadonlySet<number> = new Set(),
+  options: { includeOwnChildren?: boolean } = {},
 ): LiveClaudeProcess[] {
   let files: string[];
   try {
@@ -73,6 +89,11 @@ export function findOtherLiveClaudeProcesses(
       continue;
     }
     if (!isProcessAlive(entry.pid)) {
+      continue;
+    }
+    // This server's own child — a process it started and let go that has not
+    // exited yet — is not someone else holding the session.
+    if (!options.includeOwnChildren && readParentPid(entry.pid) === process.pid) {
       continue;
     }
     const startTime = readProcessStartTime(entry.pid);

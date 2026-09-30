@@ -323,6 +323,23 @@ function prioritizeUserNpmGlobalBin(env: NodeJS.ProcessEnv): { key: string; valu
  * Used by this module's websocket gateway to connect the standalone Shell UI
  * to a retained PTY while keeping process lifecycle ownership on the server.
  */
+/**
+ * Ends every terminal this server spawned. Used by the server's shutdown:
+ * an interactive shell ignores the SIGTERM systemd sends the service's
+ * processes, so a restart with a Shell tab open otherwise waits out
+ * systemd's stop timeout (90s) before the shell is killed.
+ */
+export function stopAllShellSessions(): void {
+  for (const [key, session] of ptySessionsMap) {
+    try {
+      session.pty.kill();
+    } catch {
+      // Already gone.
+    }
+    ptySessionsMap.delete(key);
+  }
+}
+
 export function handleShellConnection(
   ws: WebSocket,
   dependencies: ShellWebSocketDependencies

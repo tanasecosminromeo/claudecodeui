@@ -41,18 +41,25 @@ function startStandIn() {
   return child;
 }
 
+/** A stand-in for a terminal `claude` started elsewhere: not this process's child. */
+async function startForeignStandIn(): Promise<{ pid: number; kill: () => void }> {
+  const launcher = spawn('sh', ['-c', 'sleep 60 & echo $!'], { stdio: ['ignore', 'pipe', 'ignore'], detached: true });
+  const pid = await new Promise<number>((resolve) => { launcher.stdout?.once('data', (data) => resolve(Number(String(data).trim()))); });
+  return { pid, kill: () => { try { process.kill(pid, 'SIGKILL'); } catch { /* gone */ } } };
+}
+
 test('a live terminal process on the session is found', async () => {
-  const terminal = startStandIn();
+  const terminal = await startForeignStandIn();
   try {
     await withRegistry(async (write) => {
-      await write({ pid: terminal.pid, sessionId: 'native-1', procStart: readProcessStartTime(terminal.pid as number), entrypoint: 'cli', cwd: '/p' });
+      await write({ pid: terminal.pid, sessionId: 'native-1', procStart: readProcessStartTime(terminal.pid), entrypoint: 'cli', cwd: '/p' });
       await write({ pid: process.pid, sessionId: 'native-other', entrypoint: 'cli' });
 
       const found = findOtherLiveClaudeProcesses('native-1');
       assert.deepEqual(found.map((entry) => [entry.pid, entry.entrypoint, entry.cwd]), [[terminal.pid, 'cli', '/p']]);
     });
   } finally {
-    terminal.kill('SIGKILL');
+    terminal.kill();
   }
 });
 
@@ -77,4 +84,29 @@ test('taking a session over stops the other process', async () => {
   await stopClaudeProcesses([{ pid: terminal.pid as number, sessionId: 'native-1', entrypoint: 'cli', cwd: null, startedAt: null }]);
   await exited;
   assert.notEqual(terminal.exitCode ?? terminal.signalCode, null);
+});
+
+test('this server\'s own child process is not someone else on the session', async () => {
+  const child = startStandIn();
+  try {
+    await withRegistry(async (write) => {
+      await write({ pid: child.pid, sessionId: 'native-1', entrypoint: 'sdk-ts' });
+      assert.deepEqual(findOtherLiveClaudeProcesses('native-1'), []);
+    });
+  } finally {
+    child.kill('SIGKILL');
+  }
+});
+
+test('the shell tab\'s guard also sees this server\'s own process on the session', async () => {
+  const child = startStandIn();
+  try {
+    await withRegistry(async (write) => {
+      await write({ pid: child.pid, sessionId: 'native-1', entrypoint: 'sdk-ts' });
+      const found = findOtherLiveClaudeProcesses('native-1', new Set(), { includeOwnChildren: true });
+      assert.deepEqual(found.map((entry) => [entry.pid, entry.entrypoint]), [[child.pid, 'sdk-ts']]);
+    });
+  } finally {
+    child.kill('SIGKILL');
+  }
 });

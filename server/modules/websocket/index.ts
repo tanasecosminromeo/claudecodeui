@@ -9,3 +9,6 @@ export { broadcastSessionUpserted, broadcastSessionUpsertedBatch } from './servi
 // from a timer, with no socket to stream to or report errors on.
 export { runDetachedChatTurn } from './services/chat-websocket.service.js';
 export type { ProviderRuntimeGateway } from './services/chat-websocket.service.js';
+
+// stopAllShellSessions: used by the server entrypoint's shutdown so open terminals do not stall the restart.
+export { stopAllShellSessions } from './services/shell-websocket.service.js';

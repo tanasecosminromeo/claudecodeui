@@ -11,6 +11,7 @@ import { CLAUDE_PREDEFINED_MODELS } from '@/modules/providers/list/claude/claude
 import {
   findClaudeSessionElsewhere,
   listClaudeSDKBackgroundWork,
+  queryClaudeSDK,
   reattachClaudeSDKSessions,
   sendClaudeSDKInput,
 } from '@/modules/providers/list/claude/claude-runtime.provider.js';
@@ -32,6 +33,8 @@ type Harness = {
   released: () => boolean;
   interrupts: () => number;
   prompts: Array<Record<string, unknown>>;
+  context: ProviderRuntimeContext;
+  processesDir: string;
 };
 
 async function withReattached(
@@ -108,7 +111,7 @@ async function withReattached(
     });
     assert.equal(count, 1);
     await new Promise((resolve) => { setTimeout(resolve, 50); });
-    await runTest({ sent, processing, emit, released: () => state.released, interrupts: () => state.interrupts, prompts });
+    await runTest({ sent, processing, emit, released: () => state.released, interrupts: () => state.interrupts, prompts, context, processesDir });
   } finally {
     end();
     standIn.kill('SIGKILL');
@@ -138,7 +141,7 @@ test('a process that was mid-turn streams the rest of the turn into a running ru
 
 test('a process kept for background work keeps it, and takes the next message', async () => {
   const task = { taskId: 'watch1', toolUseId: 'toolu_w', taskType: 'local_bash', description: 'CYD crash watch', startedAt: 1 };
-  await withReattached('app-bg', { turnActive: false, tasks: [task] }, async ({ sent, processing, released, prompts }) => {
+  await withReattached('app-bg', { turnActive: false, tasks: [task] }, async ({ sent, processing, released, prompts, emit, context, processesDir }) => {
     assert.deepEqual(processing, [false]);
     assert.equal(sent.filter((message) => message.kind === 'complete').length, 1, 'the idle run ends at once');
     assert.equal(released(), false, 'the watch keeps its process');
@@ -149,9 +152,14 @@ test('a process kept for background work keeps it, and takes the next message', 
 
     // Same process, no second one: the session is CloudCLI's again.
     assert.deepEqual(findClaudeSessionElsewhere('app-bg', { resolveProviderSessionId: () => 'native-app-bg' } as never), []);
-    assert.equal(await sendClaudeSDKInput('app-bg', 'still watching?', {}), true);
-    await new Promise((resolve) => { setTimeout(resolve, 30); });
-    assert.equal(prompts.length, 1);
+    // Between turns nothing is running to push into; the next message is a
+    // new turn of this same process.
+    assert.equal(await sendClaudeSDKInput('app-bg', 'still watching?', {}), false);
+    const nextTurn = queryClaudeSDK('still watching?', { sessionId: 'app-bg', cwd: processesDir }, { send: () => {}, userId: null } as never, context);
+    await new Promise((resolve) => { setTimeout(resolve, 60); });
+    assert.equal(prompts.length, 1, 'went into the reattached process');
+    emit(result('native-app-bg'));
+    await nextTurn;
   });
 });
 

@@ -256,3 +256,23 @@ test('resuming a session that is already live asks before opening a second copy'
     assert.match(spawnedCommands[0], /then claude --resume "resumed-session-id"; else exec "\$\{SHELL:-bash\}"; fi$/);
   }
 });
+
+test('shutting down ends every open terminal, so a restart does not wait for shells that ignore SIGTERM', async () => {
+  const { stopAllShellSessions } = await import('@/modules/websocket/services/shell-websocket.service.js');
+  const killed: number[] = [];
+  const dependencies = {
+    resolveProviderSessionId: () => null,
+    spawnPty: () => {
+      const fake = createFakePty() as { kill: () => void };
+      const id = killed.length + 100;
+      fake.kill = () => { killed.push(id); };
+      return fake as never;
+    },
+  };
+  const socket = createFakeSocket();
+  handleShellConnection(socket as never, dependencies);
+  socket.emit('message', JSON.stringify({ type: 'init', projectPath: process.cwd(), sessionId: `shutdown-${Date.now()}`, hasSession: false, provider: 'claude' }));
+
+  stopAllShellSessions();
+  assert.deepEqual(killed, [100]);
+});
