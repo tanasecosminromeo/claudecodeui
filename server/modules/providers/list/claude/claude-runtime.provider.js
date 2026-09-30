@@ -37,6 +37,13 @@ import {
   notifyUserIfEnabled
 } from '@/modules/notifications/index.js';
 import { sessionHistoryCache } from '@/modules/providers/services/session-history-cache.service.js';
+import {
+  attachDetachedClaude,
+  isDetachedClaudeEnabled,
+  listDetachedClaudeRecords,
+  spawnDetachedClaude,
+} from '@/modules/providers/list/claude/claude-detached-process.js';
+import { findOtherLiveClaudeProcesses, stopClaudeProcesses } from '@/modules/providers/list/claude/claude-live-processes.js';
 import { createCompleteMessage, createNormalizedMessage } from '@/shared/utils.js';
 
 const activeSessions = new Map();
@@ -742,6 +749,17 @@ export function createBackgroundWorkTracker() {
       ownToolUseIds.delete(sessionKey);
     },
 
+    /**
+     * Puts back the tasks a reattached process still has outstanding — the
+     * stream will not report their start again, only their end.
+     */
+    restore(sessionKey, tasks) {
+      if (!Array.isArray(tasks) || tasks.length === 0) {
+        return;
+      }
+      sessions.set(sessionKey, new Map(tasks.map((task) => [task.taskId, task])));
+    },
+
     list() {
       return Array.from(sessions, ([sessionId, tasks]) => ({
         sessionId,
@@ -991,12 +1009,12 @@ async function closeLiveProcess(sessionId, session) {
  * @param {Object} context - Provider-scoped model, session, and auth lookups
  * @returns {Promise<void>} Settles when the first turn ends
  */
-async function startClaudeProcess(command, options = {}, ws, context) {
+async function startClaudeProcess(command, options = {}, ws, context, reattachRecord = null) {
   const { sessionId } = options;
   let { sessionSummary } = options;
   // Callers pass the stable app session id; the SDK only understands the
   // provider-native id recorded on the session row.
-  const providerSessionId = context.resolveProviderSessionId(sessionId);
+  const providerSessionId = reattachRecord?.providerSessionId ?? context.resolveProviderSessionId(sessionId);
   // Provider-native id as the SDK reports it (starts as the resume id, or is
   // captured from the stream for brand-new sessions).
   let capturedSessionId = providerSessionId;
@@ -1053,9 +1071,15 @@ async function startClaudeProcess(command, options = {}, ws, context) {
 
   // A new process supersedes any earlier one still holding this session open,
   // so held processes cannot stack up across a conversation.
-  if (sessionKey()) {
+  if (sessionKey() && !reattachRecord) {
     getSession(sessionKey())?.releaseInput?.();
   }
+
+  // The detached process's record, when the process is detached: what a
+  // server that starts after this one reattaches from. Kept current with the
+  // turn, the outstanding tasks and any approval being waited on.
+  let detachedProcess = null;
+  const updateRecord = (patch) => { detachedProcess?.updateRecord(patch); };
 
   const clearIdleRelease = () => {
     if (idleReleaseTimer) {
@@ -1097,11 +1121,21 @@ async function startClaudeProcess(command, options = {}, ws, context) {
   let launchedInBypass = false;
   const cliModeFor = (mode) => (mode === 'bypassPermissions' && !launchedInBypass ? null : mode);
 
+  // What a reattached process needs to be driven the way this one is.
+  const recordedRunOptions = () => ({
+    cwd: options.cwd,
+    model: sdkOptions?.model ?? options.model,
+    permissionMode,
+    effort: options.effort,
+    toolsSettings: options.toolsSettings,
+  });
+
   const switchPermissionMode = async (mode) => {
     if (!CLAUDE_PERMISSION_MODES.has(mode)) {
       return false;
     }
     permissionMode = mode;
+    updateRecord({ options: { ...recordedRunOptions(), permissionMode: mode } });
     const cliMode = cliModeFor(mode);
     if (cliMode) {
       try {
@@ -1193,9 +1227,43 @@ async function startClaudeProcess(command, options = {}, ws, context) {
     exited: null,
   };
 
+  const outstandingTasks = () =>
+    backgroundWork.list().find((entry) => entry.sessionId === sessionKey())?.tasks ?? [];
+
+  // Picks up where the previous server left the process: its outstanding
+  // tasks, whether a turn was still running, and an approval it was waiting
+  // on that nobody can answer any more.
+  const resumeReattachedState = (record) => {
+    backgroundWork.restore(sessionKey(), record.tasks);
+    if (!record.turnActive) {
+      // Between turns: the process was only being kept for its background
+      // work, if any. The run opened for it ends at once.
+      turn.completeSent = true;
+      turn.resolve();
+      writer.send(createCompleteMessage({ provider: 'claude', sessionId: capturedSessionId || sessionId || null, exitCode: 0 }));
+      if (backgroundWork.hasOutstanding(sessionKey())) {
+        heldForBackgroundWork = true;
+        scheduleRelease();
+      } else {
+        releasePromptStream();
+      }
+    }
+    if (record.awaitingPermission) {
+      writer.send(createNormalizedMessage({
+        kind: 'error',
+        content: 'Claude was waiting for your approval when CloudCLI restarted, so that step was stopped. Send a message to continue.',
+        sessionId: capturedSessionId || sessionId || null,
+        provider: 'claude',
+      }));
+      queryInstance.interrupt().catch((error) => {
+        console.warn('[Claude detached] Could not stop a turn stuck on a lost approval:', error?.message || error);
+      });
+    }
+  };
+
   const runProcess = async () => {
     try {
-      const resolvedModel = await context.resolveResumeModel(sessionId, options.model);
+      const resolvedModel = reattachRecord ? undefined : await context.resolveResumeModel(sessionId, options.model);
       try {
         effortModels = await context.getProviderModels();
       } catch (error) {
@@ -1219,7 +1287,19 @@ async function startClaudeProcess(command, options = {}, ws, context) {
       // Every turn uses streaming input so stdin stays open past the turn's
       // `result`. The message list is reusable, but each query attempt needs its
       // own stream because an async generator cannot be replayed once consumed.
-      const promptMessages = await buildPromptMessages(command, options.images, options.files, options.cwd);
+      // A reattached process is already running; it gets no first message.
+      const promptMessages = reattachRecord
+        ? []
+        : await buildPromptMessages(command, options.images, options.files, options.cwd);
+
+      // Detached: the process gets its own scope and pipes, so it outlives a
+      // restart of this server, and a later server reattaches to it.
+      if (reattachRecord) {
+        sdkOptions.spawnClaudeCodeProcess = () => (detachedProcess = attachDetachedClaude(reattachRecord));
+      } else if (isDetachedClaudeEnabled() && sessionId) {
+        sdkOptions.spawnClaudeCodeProcess = (request) =>
+          (detachedProcess = spawnDetachedClaude(sessionId, request, recordedRunOptions(), providerSessionId));
+      }
 
       sdkOptions.hooks = {
         Notification: [{
@@ -1284,6 +1364,7 @@ async function startClaudeProcess(command, options = {}, ws, context) {
           dedupeKey: `claude:permission:${sessionId || capturedSessionId || 'none'}:${requestId}`
         }));
 
+        updateRecord({ awaitingPermission: true });
         const decision = await waitForToolApproval(requestId, {
           timeoutMs: requiresInteraction ? 0 : undefined,
           signal: context?.signal,
@@ -1299,6 +1380,7 @@ async function startClaudeProcess(command, options = {}, ws, context) {
             writer.send(createNormalizedMessage({ kind: 'permission_cancelled', requestId, reason, sessionId: capturedSessionId || sessionId || null, provider: 'claude' }));
           }
         });
+        updateRecord({ awaitingPermission: false });
         if (!decision) {
           return { behavior: 'deny', message: 'Permission request timed out' };
         }
@@ -1369,6 +1451,10 @@ async function startClaudeProcess(command, options = {}, ws, context) {
         addSession(sessionKey(), queryInstance, writer, releasePromptStream, controls);
       }
 
+      if (reattachRecord) {
+        resumeReattachedState(reattachRecord);
+      }
+
       // Process streaming messages
       console.log('Starting async generator loop for session:', capturedSessionId || 'NEW');
       for await (const message of queryInstance) {
@@ -1377,6 +1463,7 @@ async function startClaudeProcess(command, options = {}, ws, context) {
 
           capturedSessionId = message.session_id;
           addSession(sessionKey(), queryInstance, writer, releasePromptStream, controls);
+          updateRecord({ providerSessionId: capturedSessionId });
 
           // Set session ID on writer
           if (writer.setSessionId && typeof writer.setSessionId === 'function') {
@@ -1428,6 +1515,13 @@ async function startClaudeProcess(command, options = {}, ws, context) {
           sawTaskEventThisTurn = true;
         }
         backgroundWork.apply(sessionKey(), message);
+        if (message.type === 'system') {
+          if (message.subtype === 'init') {
+            updateRecord({ turnActive: true });
+          } else if (typeof message.subtype === 'string' && message.subtype.startsWith('task_')) {
+            updateRecord({ tasks: outstandingTasks() });
+          }
+        }
 
         // A task the user stopped gets no follow-up turn from the CLI — only its
         // `stopped` notification — so when that was the last outstanding task
@@ -1475,6 +1569,7 @@ async function startClaudeProcess(command, options = {}, ws, context) {
           }
           turn.completeSent = true;
           turn.resolve();
+          updateRecord({ turnActive: false, awaitingPermission: false, tasks: outstandingTasks() });
           // Work started during this turn, or work from an earlier turn that
           // has not settled yet (a follow-up turn reports one task in while
           // another is still going), is still running. Hold the process open
@@ -1689,6 +1784,72 @@ export async function setClaudeSDKPermissionMode(sessionId, mode) {
 }
 
 /**
+ * Reattaches to the detached Claude processes a previous server left running,
+ * so their sessions carry on: output they produced meanwhile streams in, and
+ * the next message goes to the same process.
+ *
+ * Used at server startup (through the provider runtime dispatcher).
+ *
+ * @param {Object} context - Provider-scoped model, session, and auth lookups
+ * @param {(sessionId: string, state: { processing: boolean }) => Object|null} openWriter -
+ *   Opens the run a reattached session streams through
+ * @returns {Promise<number>} How many sessions were reattached
+ */
+export async function reattachClaudeSDKSessions(context, openWriter) {
+  if (!isDetachedClaudeEnabled()) {
+    return 0;
+  }
+  let reattached = 0;
+  for (const record of listDetachedClaudeRecords()) {
+    if (getSession(record.appSessionId)) {
+      continue;
+    }
+    const writer = openWriter(record.appSessionId, { processing: record.turnActive });
+    if (!writer) {
+      continue;
+    }
+    console.log(`[Claude detached] Reattaching session ${record.appSessionId} (pid ${record.pid})`);
+    void startClaudeProcess('', { ...record.options, sessionId: record.appSessionId }, writer, context, record);
+    reattached += 1;
+  }
+  return reattached;
+}
+
+/**
+ * Other Claude processes that have this session open — a terminal
+ * `claude --resume`, typically. Empty while CloudCLI's own process holds the
+ * session: messages then go to that process, never a second one.
+ *
+ * Used by the chat websocket (through the dispatcher) before it starts a run.
+ *
+ * @param {string} sessionId - App session id
+ * @param {Object} context - Provider-scoped lookups
+ * @returns {Array<import('@/modules/providers/list/claude/claude-live-processes.js').LiveClaudeProcess>}
+ */
+export function findClaudeSessionElsewhere(sessionId, context) {
+  if (getSession(sessionId)?.status === 'active') {
+    return [];
+  }
+  const providerSessionId = context.resolveProviderSessionId(sessionId);
+  if (!providerSessionId) {
+    return [];
+  }
+  const ownPids = new Set(listDetachedClaudeRecords().map((record) => record.pid));
+  return findOtherLiveClaudeProcesses(providerSessionId, ownPids);
+}
+
+/**
+ * Stops the other processes on this session so CloudCLI can take it over.
+ * Used by the chat websocket when the user chose to continue here.
+ * @returns {Promise<boolean>} Whether anything had to be stopped
+ */
+export async function takeOverClaudeSession(sessionId, context) {
+  const others = findClaudeSessionElsewhere(sessionId, context);
+  await stopClaudeProcesses(others);
+  return others.length > 0;
+}
+
+/**
  * Sessions whose background tasks are still outstanding, with the tasks.
  *
  * A session stays here after its turn's `result` for as long as the process
@@ -1898,6 +2059,9 @@ function reconnectSessionWriter(sessionId, newRawWs) {
 
 export const claudeRuntime = {
   run: queryClaudeSDK,
+  reattach: (context, openWriter) => reattachClaudeSDKSessions(context, openWriter),
+  findSessionElsewhere: (sessionId, context) => findClaudeSessionElsewhere(sessionId, context),
+  takeOverSession: (sessionId, context) => takeOverClaudeSession(sessionId, context),
   sendInput: (sessionId, command, options) => sendClaudeSDKInput(sessionId, command, options),
   setPermissionMode: (sessionId, mode) => setClaudeSDKPermissionMode(sessionId, mode),
   abort: abortClaudeSDKSession,

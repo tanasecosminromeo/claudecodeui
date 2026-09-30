@@ -12,6 +12,9 @@ Environment=NODE_ENV=production
 Environment=NODE_PATH=%h/.local/share/cloudcli-extra/node_modules
 Environment=PATH=%h/.nvm/versions/node/v24.14.0/bin:%h/.local/bin:/usr/local/bin:/usr/bin:/bin
 Environment=CLOUDCLI_SERVICE=1
+# Claude sessions survive a restart of this service: each Claude process runs in its own
+# systemd scope with named pipes, and the restarted server reattaches to it.
+Environment=CLOUDCLI_DETACHED_CLAUDE=1
 ExecStartPre=-%h/Work/claudecodeui/custom/ui-cleanup/inject.sh
 # HOST on the command line: EnvironmentFile would override an Environment= line, and the app's
 # default is 0.0.0.0 (every interface). Tunnel-only means loopback only.

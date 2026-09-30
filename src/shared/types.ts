@@ -240,6 +240,17 @@ export type SessionActivitySnapshot = {
 //----------------- REALTIME TRANSPORT ------------
 
 /**
+ * The server refused a message because another process (a terminal `claude
+ * --resume`, typically) has the session open. `retry` echoes the message so
+ * the chat can resend it as a take-over without having kept a copy.
+ */
+export type SessionRunningElsewhereEvent = {
+  sessionId: string;
+  error: string;
+  retry: { content?: string; options?: Record<string, unknown> };
+};
+
+/**
  * One frame received from the chat websocket. The server guarantees every
  * frame carries a `kind` (provider message kinds plus gateway kinds such as
  * `chat_subscribed`, `session_upserted`, `loading_progress`,

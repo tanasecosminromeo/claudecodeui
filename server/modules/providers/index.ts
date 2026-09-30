@@ -13,5 +13,9 @@ export { providerModelsService } from './services/provider-models.service.js';
 // by Commands to find a `/btw` session's provider and project path.
 export { sessionsService } from './services/sessions.service.js';
 
+// findOtherLiveClaudeProcesses: used by the server entrypoint to tell the shell
+// tab which Claude processes already have a session open before it resumes one.
+export { findOtherLiveClaudeProcesses } from './list/claude/claude-live-processes.js';
+
 export { initializeSessionsWatcher } from './services/sessions-watcher.service.js';
 export { closeSessionsWatcher } from './services/sessions-watcher.service.js';

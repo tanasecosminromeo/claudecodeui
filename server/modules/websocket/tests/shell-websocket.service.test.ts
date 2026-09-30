@@ -225,3 +225,34 @@ test('a missing project directory is reported as an error frame and starts no pt
     [{ type: 'error', message: 'Invalid project path' }]
   );
 });
+
+test('resuming a session that is already live asks before opening a second copy', () => {
+  const spawnedCommands: string[] = [];
+  const dependencies = {
+    resolveProviderSessionId: () => 'resumed-session-id',
+    findLiveSessionProcesses: (providerSessionId: string) =>
+      providerSessionId === 'resumed-session-id' ? [{ pid: 4242, entrypoint: 'sdk-ts', cwd: null }] : [],
+    spawnPty: (_shell: string, args: string | string[]) => {
+      spawnedCommands.push(Array.isArray(args) ? args[args.length - 1] : args);
+      return createFakePty() as never;
+    },
+  };
+
+  const socket = createFakeSocket();
+  handleShellConnection(socket as never, dependencies);
+  socket.emit('message', JSON.stringify({
+    type: 'init',
+    projectPath: process.cwd(),
+    sessionId: `guarded-resume-${Date.now()}`,
+    hasSession: true,
+    provider: 'claude',
+  }));
+
+  assert.equal(spawnedCommands.length, 1);
+  if (os.platform() !== 'win32') {
+    assert.match(spawnedCommands[0], /already running in the CloudCLI chat \(pid 4242\)/);
+    assert.match(spawnedCommands[0], /Open a second copy anyway\? \[y\/N\]/);
+    // Only on an explicit yes; otherwise a plain shell.
+    assert.match(spawnedCommands[0], /then claude --resume "resumed-session-id"; else exec "\$\{SHELL:-bash\}"; fi$/);
+  }
+});

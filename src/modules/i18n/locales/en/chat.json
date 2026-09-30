@@ -374,5 +374,8 @@
     "tokensLabel_other": "tokens",
     "escClosesModal": "Esc closes the modal.",
     "close": "Close"
+  },
+  "sessionRunningElsewhere": {
+    "takeOver": "{{error}}\n\nStop it there and continue here?"
   }
 }

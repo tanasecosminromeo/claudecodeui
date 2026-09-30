@@ -1343,3 +1343,40 @@ export function findApplicationRoot(startDirectory: string): string {
     ? path.dirname(parentDirectory)
     : parentDirectory;
 }
+
+// ---------------------------
+//----------------- PROCESS IDENTITY UTILITIES ------------
+
+/**
+ * Whether a process with this pid exists and can be signalled by us. Says
+ * nothing about which program it is: pids are recycled, so pair it with
+ * `readProcessStartTime` when a stored pid must still mean the same process.
+ * Used by the Claude detached-process host and the live-session check.
+ */
+export function isProcessAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The kernel's start time for a process (field 22 of `/proc/<pid>/stat`, in
+ * clock ticks since boot) — the same value Claude Code records as `procStart`
+ * in `~/.claude/sessions`. Two readings for one pid match only if it is still
+ * the same process. Null where `/proc` is unavailable (macOS) or the process
+ * is gone; callers then fall back to `isProcessAlive` alone.
+ * Used by the Claude detached-process host and the live-session check.
+ */
+export function readProcessStartTime(pid: number): string | null {
+  try {
+    const stat = fs.readFileSync(`/proc/${pid}/stat`, 'utf8');
+    // The command name (field 2) may hold spaces and parentheses; count from after it.
+    const fields = stat.slice(stat.lastIndexOf(')') + 2).split(' ');
+    return fields[19] ?? null;
+  } catch {
+    return null;
+  }
+}

@@ -18,6 +18,7 @@ import type {
   LLMProvider,
   ProviderPermissionDecision,
   ProviderRuntimeWriter,
+  SessionProcessElsewhere,
 } from '@/shared/types.js';
 import { parseIncomingJsonObject } from '@/shared/utils.js';
 
@@ -80,6 +81,13 @@ export type ProviderRuntimeGateway = {
    * with no provider that can.
    */
   sendInput?(provider: LLMProvider, sessionId: string, command: string, options: AnyRecord): Promise<boolean>;
+  /**
+   * Other processes that have the session open outside the app (a terminal
+   * `claude --resume`); starting a run here would fork the conversation.
+   */
+  findSessionElsewhere?(provider: LLMProvider, sessionId: string): SessionProcessElsewhere[];
+  /** Stops those processes so the app can take the session over. */
+  takeOverSession?(provider: LLMProvider, sessionId: string): Promise<boolean>;
   /** Applies a permission mode picked mid-run to the session's live process. */
   setPermissionMode?(provider: LLMProvider, sessionId: string, mode: string): Promise<boolean>;
   stopBackgroundTask(provider: LLMProvider, sessionId: string, taskId: string): Promise<boolean>;
@@ -304,6 +312,33 @@ async function dispatchRun(
 ): Promise<{ started: boolean; error: string | null }> {
   const provider = session.provider as LLMProvider;
 
+  // Another process — a terminal `claude --resume`, typically — may have this
+  // session open. A run here would start a second process on the same
+  // transcript and fork the conversation, so it only goes ahead when the user
+  // chose to take the session over. A scheduled message never does that on
+  // its own: nobody is there to decide.
+  const elsewhere = dependencies.runtime.findSessionElsewhere?.(provider, sessionId) ?? [];
+  if (elsewhere.length > 0) {
+    const takeOver = ws !== null && (data.options as AnyRecord | undefined)?.takeOver === true;
+    if (!takeOver) {
+      const where = describeElsewhere(elsewhere);
+      const error = `This session is open in ${where}. Close it there, or take it over from here.`;
+      if (ws) {
+        sendJson(ws, {
+          kind: 'protocol_error',
+          code: 'SESSION_RUNNING_ELSEWHERE',
+          error,
+          sessionId,
+          processes: elsewhere,
+          retry: { content: data.content, options: data.options ?? {} },
+          timestamp: new Date().toISOString(),
+        });
+      }
+      return { started: false, error };
+    }
+    await dependencies.runtime.takeOverSession?.(provider, sessionId);
+  }
+
   const run = chatRunRegistry.startRun({
     appSessionId: sessionId,
     provider,
@@ -358,6 +393,19 @@ async function dispatchRun(
   }
 
   return { started: true, error: failure };
+}
+
+/** Names where other processes on a session run, for the sender. */
+function describeElsewhere(processes: SessionProcessElsewhere[]): string {
+  const places = processes.map(({ pid, entrypoint }) => {
+    const place = entrypoint === 'cli'
+      ? 'a terminal'
+      : entrypoint === 'claude-vscode'
+        ? 'VS Code'
+        : 'another Claude app';
+    return `${place} (pid ${pid})`;
+  });
+  return places.join(' and ');
 }
 
 /**

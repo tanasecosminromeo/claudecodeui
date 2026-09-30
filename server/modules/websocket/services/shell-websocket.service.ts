@@ -5,6 +5,7 @@ import path from 'node:path';
 import pty, { type IPty } from 'node-pty';
 import { WebSocket, type RawData } from 'ws';
 
+import type { SessionProcessElsewhere } from '@/shared/types.js';
 import { parseIncomingJsonObject, stripAnsiSequences } from '@/shared/utils.js';
 
 type ShellIncomingMessage = {
@@ -102,6 +103,12 @@ type ShellWebSocketDependencies = {
     provider: string,
   ) => string | null | undefined;
   spawnPty?: typeof pty.spawn;
+  /**
+   * Live Claude processes on a provider session — the chat's own, a terminal's.
+   * A resume only goes ahead unasked when there are none: a second process on
+   * the session would fork the conversation.
+   */
+  findLiveSessionProcesses?: (providerSessionId: string) => SessionProcessElsewhere[];
 };
 
 /**
@@ -169,6 +176,30 @@ function resolveResumeSessionId(
 }
 
 /**
+ * A resume of a session that is already live elsewhere: says where, and only
+ * opens a second copy when the user says so; otherwise they get a plain shell.
+ */
+function buildGuardedResumeCommand(
+  resumeSessionId: string,
+  bypassFlag: string,
+  live: SessionProcessElsewhere[],
+): string {
+  const where = live
+    .map(({ pid, entrypoint }) => {
+      const place = entrypoint === 'sdk-ts' ? 'the CloudCLI chat' : entrypoint === 'cli' ? 'another terminal' : 'another Claude app';
+      return `${place} (pid ${pid})`;
+    })
+    .join(' and ');
+  const notice = `This session is already running in ${where}. A second copy would fork the conversation.`;
+  return [
+    `printf '%s\\n' '${notice.replace(/'/g, `'\\''`)}'`,
+    `printf 'Open a second copy anyway? [y/N] '`,
+    'read -r answer',
+    `if [ "$answer" = y ] || [ "$answer" = Y ]; then claude --resume "${resumeSessionId}"${bypassFlag}; else exec "\${SHELL:-bash}"; fi`,
+  ].join('; ');
+}
+
+/**
  * Resolves provider command line for plain shell and agent-backed shell modes.
  */
 function buildShellCommand(
@@ -220,6 +251,10 @@ function buildShellCommand(
     : '';
   const command = initialCommand || `claude${bypassFlag}`;
   if (resumeSessionId) {
+    const live = os.platform() === 'win32' ? [] : dependencies.findLiveSessionProcesses?.(resumeSessionId) ?? [];
+    if (live.length > 0) {
+      return buildGuardedResumeCommand(resumeSessionId, bypassFlag, live);
+    }
     if (os.platform() === 'win32') {
       return `claude --resume "${resumeSessionId}"${bypassFlag}; if ($LASTEXITCODE -ne 0) { claude${bypassFlag} }`;
     }

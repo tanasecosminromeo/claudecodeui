@@ -9,6 +9,8 @@ import type {
   ProviderRunFunction,
   ProviderRuntimeContext,
   ProviderRuntimeWriter,
+  ReattachedRunOpener,
+  SessionProcessElsewhere,
   SideQuestionOptions,
   SideQuestionOutcome,
 } from '@/shared/types.js';
@@ -103,6 +105,34 @@ export function createProviderRuntimeService(
       // A runtime without a live process to switch applies the mode on its next turn.
       const { runtime } = dependencies.resolveProvider(providerName);
       return Boolean(await runtime.setPermissionMode?.(sessionId, mode));
+    },
+
+    /**
+     * Reattaches every provider's processes left running by a previous server.
+     * Called once at startup, before clients reconnect and subscribe.
+     */
+    async reattachDetachedSessions(openRun: ReattachedRunOpener): Promise<number> {
+      let reattached = 0;
+      for (const provider of dependencies.listProviders()) {
+        if (!provider.runtime.reattach) {
+          continue;
+        }
+        reattached += await provider.runtime.reattach(
+          createRuntimeContext(provider),
+          (sessionId, state) => openRun(sessionId, provider.id, state),
+        );
+      }
+      return reattached;
+    },
+
+    findSessionElsewhere(providerName: LLMProvider, sessionId: string): SessionProcessElsewhere[] {
+      const provider = dependencies.resolveProvider(providerName);
+      return provider.runtime.findSessionElsewhere?.(sessionId, createRuntimeContext(provider)) ?? [];
+    },
+
+    async takeOverSession(providerName: LLMProvider, sessionId: string): Promise<boolean> {
+      const provider = dependencies.resolveProvider(providerName);
+      return Boolean(await provider.runtime.takeOverSession?.(sessionId, createRuntimeContext(provider)));
     },
 
     async stopBackgroundTask(providerName: LLMProvider, sessionId: string, taskId: string): Promise<boolean> {

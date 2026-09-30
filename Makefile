@@ -10,6 +10,10 @@
 #   make rollback  undo the last upgrade/sync (back to the pre-upgrade tag), rebuild, restart
 #   make deploy    build + restart (after your own changes)
 #   make remote    run a target on another machine over ssh: make remote HOST=dev TARGET=status
+#   make claude-guard  make terminal `claude --resume` ask before opening a session already running elsewhere
+#
+# Claude sessions survive `make restart`: with CLOUDCLI_DETACHED_CLAUDE=1 (set in the systemd unit) each
+# Claude process runs in its own scope and the restarted server reattaches to it.
 
 UPSTREAM_URL    ?= https://github.com/siteboon/claudecodeui.git
 UPSTREAM_BRANCH ?= main
@@ -46,7 +50,7 @@ endif
 
 .DEFAULT_GOAL := help
 .PHONY: help remotes fetch status clean-check update sync install browser build restart deploy upgrade rollback \
-        logs service push test-custom plugins plugins-status verify remote
+        logs service push test-custom plugins plugins-status verify remote claude-guard
 
 help:
 	@sed -n '/^$$/q;p' Makefile | sed 's/^# \{0,1\}//'
@@ -226,6 +230,16 @@ service:
 	systemctl --user daemon-reload
 	systemctl --user enable $(SERVICE)
 endif
+
+# Source custom/claude-guard/claude-guard.sh from ~/.zshrc and ~/.bashrc (whichever exist), once.
+claude-guard:
+	@line='[ -f $(CURDIR)/custom/claude-guard/claude-guard.sh ] && . $(CURDIR)/custom/claude-guard/claude-guard.sh'; \
+	for rc in $(HOME)/.zshrc $(HOME)/.bashrc; do \
+	  [ -f "$$rc" ] || continue; \
+	  if grep -qF 'custom/claude-guard/claude-guard.sh' "$$rc"; then echo "claude-guard: already in $$rc"; \
+	  else printf '\n# CloudCLI: ask before resuming a Claude session already running elsewhere\n%s\n' "$$line" >> "$$rc"; echo "claude-guard: added to $$rc"; fi; \
+	done; \
+	echo "claude-guard: open a new terminal (or source your rc) to use it"
 
 # Unit tests for the custom layer (env-switcher, inject-html); the app's own suites are npm test / test:client.
 test-custom:

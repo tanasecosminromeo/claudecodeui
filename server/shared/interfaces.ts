@@ -21,6 +21,7 @@ import type {
   SideQuestionOutcome,
   UpsertProviderMcpServerInput,
   WorkflowAgentActivity,
+  SessionProcessElsewhere,
 } from '@/shared/types.js';
 
 //----------------- PROVIDER CONTRACT INTERFACES ------------
@@ -53,6 +54,22 @@ export interface IProviderRuntime {
    * is live or the mode is unknown to the provider.
    */
   setPermissionMode?(sessionId: string, mode: string): Promise<boolean>;
+  /**
+   * Reattaches to processes a previous server left running (see the Claude
+   * runtime's detached processes). Resolves how many sessions carry on.
+   */
+  reattach?(
+    context: ProviderRuntimeContext,
+    openRun: (sessionId: string, state: { processing: boolean }) => ProviderRuntimeWriter | null,
+  ): Promise<number>;
+  /**
+   * Other processes that have this session open outside the app, so starting
+   * one here would fork the conversation. Empty while the app's own process
+   * holds the session.
+   */
+  findSessionElsewhere?(sessionId: string, context: ProviderRuntimeContext): SessionProcessElsewhere[];
+  /** Stops those other processes so the app can take the session over. */
+  takeOverSession?(sessionId: string, context: ProviderRuntimeContext): Promise<boolean>;
   permissions?: ProviderRuntimePermissionGateway;
   /**
    * Sessions with background tasks still outstanding, whether or not their

@@ -12,6 +12,7 @@ import { api } from '@/shared/api';
 import type {
   ChatMessage,
   PermissionMode,
+  SessionRunningElsewhereEvent,
   Project,
   ProjectSession,
   SessionEstablishedContext,
@@ -292,6 +293,27 @@ function ChatInterface({
     });
   }, [isActive, requestLatestMessages, selectedProject, selectedSession, sendMessage]);
 
+  // A session open in a terminal is never joined by a second process behind
+  // the user's back: they decide whether to take it over, which stops the
+  // terminal's process and sends the message here.
+  const handleSessionRunningElsewhere = useCallback(({ sessionId, error, retry }: SessionRunningElsewhereEvent) => {
+    const takeOver = window.confirm(t('sessionRunningElsewhere.takeOver', {
+      error,
+      defaultValue: '{{error}}\n\nStop it there and continue here?',
+    }));
+    if (!takeOver) {
+      return false;
+    }
+    sendMessage({
+      type: 'chat.send',
+      sessionId,
+      content: retry.content ?? '',
+      options: { ...(retry.options ?? {}), takeOver: true },
+    });
+    onSessionProcessing?.(sessionId, { statusText: null, canInterrupt: true });
+    return true;
+  }, [onSessionProcessing, sendMessage, t]);
+
   useChatRealtimeHandlers({
     isActive,
     subscribe,
@@ -310,6 +332,7 @@ function ChatInterface({
     onSessionBackground,
     getSessionActivity,
     onWebSocketReconnect: handleWebSocketReconnect,
+    onSessionRunningElsewhere: handleSessionRunningElsewhere,
     requestLatestMessages,
     sessionStore,
   });

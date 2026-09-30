@@ -12,6 +12,7 @@ import cors from 'cors';
 import { AppError, findApplicationRoot, getModuleDirectory, IS_PLATFORM, terminalTextStyles } from '@/shared/utils.js';
 import {
     closeSessionsWatcher,
+    findOtherLiveClaudeProcesses,
     initializeSessionsWatcher,
     providerRuntimeService,
 } from '@/modules/providers/index.js';
@@ -120,6 +121,7 @@ createWebSocketServer(server, {
 
             return null;
         },
+        findLiveSessionProcesses: (providerSessionId) => findOtherLiveClaudeProcesses(providerSessionId),
     },
     getPluginPort,
 });
@@ -369,6 +371,28 @@ async function startServer() {
 
             // Start watching the projects folder for changes
             await initializeSessionsWatcher();
+            // Carry on with the agent processes the previous server left
+            // running (detached Claude processes survive a restart): each gets
+            // a run to stream through, which clients subscribe to as usual.
+            // A session idle between turns gets a run too: its background work
+            // reports through it, and the runtime ends it straight away.
+            const reattached = await providerRuntimeService.reattachDetachedSessions((sessionId, provider) => {
+                const session = sessionsDb.getSessionById(sessionId);
+                if (!session) {
+                    return null;
+                }
+                const run = chatRunRegistry.startRun({
+                    appSessionId: sessionId,
+                    provider,
+                    providerSessionId: session.provider_session_id,
+                    connection: null,
+                    userId: null,
+                });
+                return run?.writer ?? null;
+            });
+            if (reattached > 0) {
+                console.log(`${terminalTextStyles.info('[INFO]')} Reattached to ${reattached} running Claude session(s)`);
+            }
             // Sends anything that came due while the server was not running,
             // then keeps polling.
             initializeScheduledMessageDispatcher(providerRuntimeService);

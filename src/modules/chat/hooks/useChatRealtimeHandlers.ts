@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react';
 import type { Dispatch, MutableRefObject, SetStateAction } from 'react';
 
-import type { ServerEvent,MarkSessionIdle,MarkSessionProcessing,PendingPermissionRequest,ProjectSession,LLMProvider,NormalizedMessage,GetSessionActivity,MarkSessionBackground } from '@/shared/types';
+import type { ServerEvent,MarkSessionIdle,MarkSessionProcessing,PendingPermissionRequest,ProjectSession,LLMProvider,NormalizedMessage,GetSessionActivity,MarkSessionBackground,SessionRunningElsewhereEvent } from '@/shared/types';
 import { showCompletionTitleIndicator } from '@/modules/chat/utils/pageTitleNotification';
 import { playChatCompletionSound, playNotificationSound } from '@/shared/utils';
 import type { SessionStore } from '@/modules/chat/hooks/useSessionStore';
@@ -42,6 +42,12 @@ type UseChatRealtimeHandlersArgs = {
   onSessionBackground?: MarkSessionBackground;
   getSessionActivity?: GetSessionActivity;
   onWebSocketReconnect?: () => void;
+  /**
+   * The server refused a message because another process — a terminal
+   * `claude --resume` — has the session open. Returns true when the user took
+   * the session over and the message was resent, so no error row is needed.
+   */
+  onSessionRunningElsewhere?: (event: SessionRunningElsewhereEvent) => boolean;
   requestLatestMessages: (sessionId: string, allowNetwork?: boolean) => Promise<void>;
   sessionStore: SessionStore;
 };
@@ -77,6 +83,7 @@ export function useChatRealtimeHandlers({
   onSessionBackground,
   getSessionActivity,
   onWebSocketReconnect,
+  onSessionRunningElsewhere,
   requestLatestMessages,
   sessionStore,
 }: UseChatRealtimeHandlersArgs) {
@@ -179,6 +186,16 @@ export function useChatRealtimeHandlers({
             // flight on that session.
             if (msg.code !== 'NO_SUCH_TASK' && msg.code !== 'TASK_ID_REQUIRED') {
               onSessionIdle?.(sid);
+            }
+            if (
+              msg.code === 'SESSION_RUNNING_ELSEWHERE'
+              && onSessionRunningElsewhere?.({
+                sessionId: sid,
+                error: String(msg.error || ''),
+                retry: (msg.retry ?? {}) as SessionRunningElsewhereEvent['retry'],
+              })
+            ) {
+              return;
             }
             sessionStore.appendRealtime(sid, {
               id: `protocol_error_${Date.now()}`,
@@ -416,6 +433,7 @@ export function useChatRealtimeHandlers({
     onSessionBackground,
     getSessionActivity,
     onWebSocketReconnect,
+    onSessionRunningElsewhere,
     requestLatestMessages,
     sessionStore,
   ]);

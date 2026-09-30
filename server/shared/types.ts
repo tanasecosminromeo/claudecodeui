@@ -645,6 +645,29 @@ export type SideQuestionOutcome =
   | { status: 'no_context' }
   | { status: 'unsupported' };
 
+/**
+ * Another agent process that has a session open — a terminal `claude
+ * --resume`, typically. Reported to the client so the user can decide whether
+ * to take the session over; `entrypoint` says where it runs (`cli` for a
+ * terminal).
+ */
+export type SessionProcessElsewhere = {
+  pid: number;
+  entrypoint: string | null;
+  cwd: string | null;
+};
+
+/**
+ * Opens the chat run a reattached session streams through after a server
+ * restart, or returns null when the session is gone. `processing` says
+ * whether a turn was still running when the previous server went away.
+ */
+export type ReattachedRunOpener = (
+  sessionId: string,
+  provider: LLMProvider,
+  state: { processing: boolean },
+) => ProviderRuntimeWriter | null;
+
 export type ProviderRunFunction = (
   command: string,
   options: AnyRecord,
