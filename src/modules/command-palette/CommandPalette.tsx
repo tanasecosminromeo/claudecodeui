@@ -2,6 +2,7 @@ import * as React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
+  Archive,
   ArrowDownToLine,
   ArrowUpFromLine,
   ChevronRight,
@@ -28,9 +29,10 @@ import {
   DialogTitle,
 } from '@/shared/ui';
 import { useTheme } from '@/shared/context/ThemeContext';
+import { useBackgroundSessionIdSet, useBusySessionIdSet } from '@/shared/context/SessionProtectionContext';
 import { usePaletteOps } from '@/modules/command-palette/context/PaletteOpsContext';
 import { SETTINGS_MAIN_TABS } from '@/shared/constants';
-import type { AppTab, Project } from '@/shared/types';
+import type { AppTab, Project, ProjectSession } from '@/shared/types';
 import { useSessionsSource } from '@/modules/command-palette/hooks/useSessionsSource';
 import { useFilesSource } from '@/modules/command-palette/hooks/useFilesSource';
 import { useCommitsSource } from '@/modules/command-palette/hooks/useCommitsSource';
@@ -42,6 +44,8 @@ type Page = 'actions' | 'files' | 'sessions' | 'commits' | 'branches';
 
 type CommandPaletteProps = {
   selectedProject: Project | null;
+  /** The open session, offered for archiving from the Actions group. */
+  selectedSession: ProjectSession | null;
   onStartNewChat: (project: Project) => void;
   onOpenSettings: (tab?: string) => void;
   onShowTab?: (tab: AppTab) => void;
@@ -58,6 +62,7 @@ const NAV_TABS: Array<{ id: AppTab; labelKey: string; keywords: string }> = [
 /** Rendered by the project-workspace module to search projects, sessions, files, branches and commits and run their actions. */
 function CommandPalette({
   selectedProject,
+  selectedSession,
   onStartNewChat,
   onOpenSettings,
   onShowTab,
@@ -69,6 +74,14 @@ function CommandPalette({
   const { toggleDarkMode } = useTheme();
   const navigate = useNavigate();
   const ops = usePaletteOps();
+  // Archiving is withheld while a response is in flight, as on the sidebar
+  // row; background-only work does not count.
+  const busySessionIds = useBusySessionIdSet();
+  const backgroundSessionIds = useBackgroundSessionIdSet();
+  const archivableSession = selectedSession
+    && !(busySessionIds.has(selectedSession.id) && !backgroundSessionIds.has(selectedSession.id))
+    ? selectedSession
+    : null;
 
   const page = pages.at(-1);
 
@@ -204,6 +217,15 @@ function CommandPalette({
                     <span className="text-xs text-muted-foreground">{t('commandPalette.selectProjectFirst')}</span>
                   )}
                 </CommandItem>
+                {archivableSession && (
+                  <CommandItem
+                    value={`${t('commandPalette.archiveSession')} archive hide session`}
+                    onSelect={() => run(() => ops.archiveSession(archivableSession))}
+                  >
+                    <Archive className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
+                    <span className="flex-1">{t('commandPalette.archiveSession')}</span>
+                  </CommandItem>
+                )}
                 <CommandItem value={`${t('commandPalette.openSettings')} settings`} onSelect={() => run(() => onOpenSettings())}>
                   <Settings className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
                   <span className="flex-1">{t('commandPalette.openSettings')}</span>

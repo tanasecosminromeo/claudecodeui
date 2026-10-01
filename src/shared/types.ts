@@ -1479,6 +1479,8 @@ export type SessionRowActions = {
   onDeleteSession: (sessionId: string, sessionTitle: string) => void;
   /** Branches a session into an independent one. Rows hide it for providers that cannot. */
   onForkSession?: (session: SessionWithProvider) => void;
+  /** Archives a session in one click, with Undo offered afterwards. Rows hide it while the session is processing. */
+  onArchiveSession?: (session: SessionWithProvider) => void;
 };
 
 export type SidebarProjectListProps = SessionRowActions & {
@@ -1522,6 +1524,14 @@ export type ArchivedProjectListItem = Project & { isArchived: true };
 /** A ProjectSession whose LLM provider has been resolved into the required __provider field, so list rendering never has to re-derive it. */
 export type SessionWithProvider = ProjectSession & {
   __provider: LLMProvider;
+};
+
+/** One session archived through the quick-archive control and still offering Undo; `id` is unique per archive so the same session archived twice gets two notices, and `wasOpen` tells Undo to reopen it. */
+export type QuickArchiveNotice = {
+  id: number;
+  session: SessionWithProvider;
+  title: string;
+  wasOpen: boolean;
 };
 
 /** One archived session as returned by the archive API, carrying its own project identity because the owning project may itself be archived. */

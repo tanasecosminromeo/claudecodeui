@@ -5,6 +5,7 @@ import { api } from '@/shared/api';
 import { subscribeToUserPreferences } from '@/shared/userSettings';
 import { usePaletteOps } from '@/modules/command-palette';
 import type { ArchivedProjectListItem, ArchivedSessionListItem, ConversationProjectResult, ConversationSearchResults, LLMProvider, Project, ProjectSession, ProjectSortOrder, RecentConversationListItem, SearchProgress, ActiveSidebarRename, PendingSidebarDeletion, SessionTitleSearchResult, SessionWithProvider, SidebarSearchMode } from '@/shared/types';
+import { useQuickArchive } from '@/modules/sidebar/hooks/useQuickArchive';
 import {
   filterProjects,
   getAllSessions,
@@ -63,7 +64,7 @@ type UseSidebarControllerArgs = {
 export function useSidebarController({
   projects,
   selectedProject,
-  selectedSession: _selectedSession,
+  selectedSession,
   activeSessions,
   isLoading,
   isMobile,
@@ -809,6 +810,19 @@ export function useSidebarController({
     [],
   );
 
+  // Same gap as rename: nothing refetches the recents feed, so a row the user
+  // just archived would stay in the list. Archiving keeps the session, so only
+  // the non-archived total moves.
+  const removeRecentConversation = useCallback((sessionId: string) => {
+    setRecentConversations((previous) => {
+      const remaining = previous.filter((conversation) => conversation.sessionId !== sessionId);
+      if (remaining.length !== previous.length) {
+        setRecentConversationsTotal((total) => Math.max(0, total - 1));
+      }
+      return remaining;
+    });
+  }, []);
+
   const confirmDeleteSession = useCallback(async (hardDelete = false) => {
     if (pendingDeletion?.kind !== 'session') {
       return;
@@ -822,16 +836,7 @@ export function useSidebarController({
 
       if (response.ok) {
         onSessionDelete?.(sessionId);
-        // Same gap as rename: nothing refetched the recents feed, so the row the
-        // user just archived stayed in the list. Archiving keeps the session, so
-        // only the non-archived total moves.
-        setRecentConversations((previous) => {
-          const remaining = previous.filter((conversation) => conversation.sessionId !== sessionId);
-          if (remaining.length !== previous.length) {
-            setRecentConversationsTotal((total) => Math.max(0, total - 1));
-          }
-          return remaining;
-        });
+        removeRecentConversation(sessionId);
         await fetchArchivedSessions();
       } else {
         const errorText = await response.text();
@@ -845,7 +850,7 @@ export function useSidebarController({
       console.error('[Sidebar] Error deleting session:', error);
       alert(t('messages.deleteSessionError'));
     }
-  }, [fetchArchivedSessions, onSessionDelete, pendingDeletion, t]);
+  }, [fetchArchivedSessions, onSessionDelete, pendingDeletion, removeRecentConversation, t]);
 
   const requestProjectDelete = useCallback(
     (project: Project) => {
@@ -988,6 +993,61 @@ export function useSidebarController({
     }
   }, [fetchArchivedSessions, fetchRecentConversationsPage, onRefresh, searchMode]);
 
+  const handleQuickArchived = useCallback((sessionId: string) => {
+    onSessionDelete?.(sessionId);
+    removeRecentConversation(sessionId);
+    void fetchArchivedSessions();
+  }, [fetchArchivedSessions, onSessionDelete, removeRecentConversation]);
+
+  const handleQuickRestored = useCallback((session: SessionWithProvider, reopen: boolean) => {
+    void refreshProjects();
+    if (!reopen) {
+      return;
+    }
+
+    // The archive closed the session and left the project selected; select
+    // the project again only if the user moved elsewhere meanwhile, since
+    // selecting it also navigates away from whatever is open.
+    const owningProject = session.__projectId
+      ? projects.find((candidate) => candidate.projectId === session.__projectId)
+      : null;
+    if (owningProject && selectedProject?.projectId !== owningProject.projectId) {
+      handleProjectSelect(owningProject);
+    }
+    onSessionSelect(session);
+  }, [handleProjectSelect, onSessionSelect, projects, refreshProjects, selectedProject?.projectId]);
+
+  const {
+    notices: quickArchiveNotices,
+    archiveSession: archiveSessionWithUndo,
+    undoArchive: undoQuickArchiveById,
+    dismissNotice: dismissQuickArchiveNotice,
+  } = useQuickArchive({
+    selectedSessionId: selectedSession?.id ?? null,
+    onArchived: handleQuickArchived,
+    onRestored: handleQuickRestored,
+  });
+
+  // One entry point for every quick-archive control: the row's icon and menu
+  // item, the mobile sheet, the workspace header and the command palette.
+  const quickArchiveSession = useCallback((session: ProjectSession) => {
+    // The same name the row showed, so the notice reads as what was just clicked.
+    const title = session.summary || session.name || t('projects.newSession');
+    void archiveSessionWithUndo(session, title).then((archived) => {
+      if (!archived) {
+        alert(t('messages.deleteSessionFailed'));
+      }
+    });
+  }, [archiveSessionWithUndo, t]);
+
+  const undoQuickArchive = useCallback((noticeId: number) => {
+    void undoQuickArchiveById(noticeId).then((restored) => {
+      if (!restored) {
+        alert(t('messages.restoreSessionFailed', 'Failed to restore session. Please try again.'));
+      }
+    });
+  }, [t, undoQuickArchiveById]);
+
   const updateSessionSummary = useCallback(
     // `_projectId` and `_provider` are preserved for compatibility with
     // existing sidebar callback signatures; backend rename only needs sessionId.
@@ -1110,6 +1170,10 @@ export function useSidebarController({
     restoreArchivedProject,
     restoreArchivedSession,
     refreshProjects,
+    quickArchiveNotices,
+    quickArchiveSession,
+    undoQuickArchive,
+    dismissQuickArchiveNotice,
     updateSessionSummary,
     collapseSidebar,
     expandSidebar,

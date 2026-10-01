@@ -7,6 +7,7 @@ import { CommandPalette } from '@/modules/command-palette';
 function ProjectCommandPalette() {
   const {
     selectedProject,
+    selectedSession,
     handleNewSession,
     openSettings,
     setActiveTab,
@@ -15,6 +16,7 @@ function ProjectCommandPalette() {
   return (
     <CommandPalette
       selectedProject={selectedProject}
+      selectedSession={selectedSession}
       onStartNewChat={handleNewSession}
       onOpenSettings={openSettings}
       onShowTab={setActiveTab}

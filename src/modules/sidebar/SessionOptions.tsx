@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { Check, Edit2, GitBranch, MoreHorizontal, Trash2, X } from 'lucide-react';
+import { Archive, Check, Edit2, GitBranch, MoreHorizontal, Trash2, X } from 'lucide-react';
 import type { TFunction } from 'i18next';
 
 import { ActionMenu } from '@/shared/ui';
@@ -29,6 +29,8 @@ type SessionOptionsProps = {
   onDeleteSession: (sessionId: string, sessionTitle: string) => void;
   /** Bound by the caller, which owns the session object the fork needs. */
   onFork?: () => void;
+  /** Archives in one click, Undo offered afterwards; withheld while processing like delete. */
+  onArchive?: () => void;
   /** Withheld where the row has nowhere to send a delete. */
   canDelete?: boolean;
   className?: string;
@@ -58,6 +60,7 @@ export default function SessionOptions({
   onSaveEditingSession,
   onDeleteSession,
   onFork,
+  onArchive,
   canDelete = true,
   className,
   t,
@@ -71,6 +74,8 @@ export default function SessionOptions({
   // provider id here; the request is cached module-side, so every row shares one.
   const forkableProviders = useSessionForkingProviders();
   const canFork = Boolean(onFork) && forkableProviders.has(provider) && !isProcessing;
+  const canArchive = Boolean(onArchive) && !isProcessing;
+  const archiveLabel = t('sessions.archiveSession', 'Archive session');
 
   // While editing, dismiss only when the click lands outside the rename panel,
   // matching Escape and the cancel button.
@@ -140,6 +145,23 @@ export default function SessionOptions({
           </button>
         </>
       ) : (
+        <>
+        {canArchive && (
+          // Shown on the row's hover (and while anything in it has focus); the
+          // row reserves its width so the title never runs underneath it.
+          <button
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              onArchive?.();
+            }}
+            title={archiveLabel}
+            aria-label={`${archiveLabel}: ${sessionName}`}
+            className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground opacity-0 transition-opacity hover:bg-muted hover:text-foreground focus-visible:opacity-100 group-focus-within:opacity-100 group-hover:opacity-100"
+          >
+            <Archive className="h-3.5 w-3.5" />
+          </button>
+        )}
         <ActionMenu
           label="Session options"
           ariaLabel={`Session options for ${sessionName}`}
@@ -182,16 +204,25 @@ export default function SessionOptions({
               icon: GitBranch,
               onSelect: onFork,
             }] : []),
+            ...(canArchive && onArchive ? [{
+              key: 'archive',
+              label: archiveLabel,
+              description: t('quickArchive.menuDescription', 'Hide it from the list; Undo is offered for a few seconds.'),
+              icon: Archive,
+              showDividerBefore: true,
+              onSelect: onArchive,
+            }] : []),
             ...(canDelete && !isProcessing ? [{
               key: 'delete',
               label: 'Archive or delete session',
               icon: Trash2,
               isDanger: true,
-              showDividerBefore: true,
+              showDividerBefore: !canArchive,
               onSelect: () => onDeleteSession(sessionId, sessionName),
             }] : []),
           ]}
         />
+        </>
       )}
     </div>
   );

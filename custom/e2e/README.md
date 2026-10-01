@@ -51,6 +51,7 @@ scenarios use Haiku); time: about 6 minutes plus the build.
 | `16-restart-idle-with-background` | Restart while idle but holding a process for background work: same process, session not shown busy, work still tracked, and it outlives the (test-shortened, 20s) ceiling for *untracked* work — the distinction that a real crash watch died of. |
 | `17-crash-survival` | The server SIGKILLed mid-turn (no shutdown handler runs): the process survives, the turn finishes, the session works. |
 | `18-bypass-picked-mid-run` | Bypass picked while a process launched in default runs: the CLI cannot switch, the app approves for the user, the next edit does not ask. |
+| `19-quick-archive-undo` | One click on the sidebar row's archive icon (and on the header's, for the open session) archives on the server, closes the session, drops its row and shows an "Archived …" notice; Undo restores through the server, puts the row back and reopens the session. |
 
 ### Bugs these scenarios found (all fixed)
 

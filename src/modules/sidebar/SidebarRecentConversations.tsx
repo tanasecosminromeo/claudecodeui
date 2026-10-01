@@ -117,6 +117,14 @@ export default function SidebarRecentConversations({
           const rename = sessionActions.activeRename;
           const sessionRename =
             rename?.target === 'session' && rename.id === conversation.sessionId ? rename : null;
+          // What the row knows about the session is all fork and archive read.
+          const sessionPayload = {
+            id: conversation.sessionId,
+            summary: conversation.sessionTitle,
+            __provider: conversation.provider,
+            __projectId: conversation.projectId ?? undefined,
+          };
+          const canArchive = Boolean(sessionActions.onArchiveSession) && !isProcessing;
 
           const handleClick = (event: MouseEvent<HTMLAnchorElement>) => {
             if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
@@ -157,7 +165,9 @@ export default function SidebarRecentConversations({
                 onClick={handleClick}
                 data-testid="recent-conversation-row"
                 className={cn(
-                  'flex min-w-0 items-center gap-2 rounded-lg px-2 py-2 pr-11 text-left transition-colors',
+                  'flex min-w-0 items-center gap-2 rounded-lg px-2 py-2 text-left transition-colors',
+                  // Room for the options menu, plus the hover-revealed archive icon.
+                  canArchive ? 'pr-[4.5rem]' : 'pr-11',
                   isSelected
                     ? 'bg-primary/10 text-foreground'
                     : 'text-foreground hover:bg-accent/60',
@@ -222,15 +232,11 @@ export default function SidebarRecentConversations({
                 onCancelEditingSession={sessionActions.onCancelEditingSession}
                 onSaveEditingSession={sessionActions.onSaveEditingSession}
                 onDeleteSession={sessionActions.onDeleteSession}
-                // The fork path reads only the id, provider and owning project,
-                // which is all a recents row knows about the session.
                 onFork={sessionActions.onForkSession
-                  ? () => sessionActions.onForkSession?.({
-                    id: conversation.sessionId,
-                    summary: conversation.sessionTitle,
-                    __provider: conversation.provider,
-                    __projectId: conversation.projectId ?? undefined,
-                  })
+                  ? () => sessionActions.onForkSession?.(sessionPayload)
+                  : undefined}
+                onArchive={sessionActions.onArchiveSession
+                  ? () => sessionActions.onArchiveSession?.(sessionPayload)
                   : undefined}
                 t={t}
               />

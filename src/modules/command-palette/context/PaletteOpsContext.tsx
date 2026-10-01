@@ -1,6 +1,8 @@
 import { createContext, useContext, useEffect, useMemo, useRef } from 'react';
 import type { MutableRefObject, ReactNode } from 'react';
 
+import type { ProjectSession } from '@/shared/types';
+
 export type PaletteOps = {
   openFile: (path: string) => void;
   // Opens a file in the editor side panel without changing the active tab
@@ -13,6 +15,10 @@ export type PaletteOps = {
   // Appends text to the chat composer and focuses it (used by the quick
   // settings Commands tab to hand a picked slash command to the composer).
   insertComposerText: (text: string) => void;
+  // Archives a session with Undo offered afterwards (registered by the
+  // sidebar, which owns archiving; used by the workspace header and the
+  // palette's "Archive current session").
+  archiveSession: (session: ProjectSession) => void;
 };
 
 type Registry = MutableRefObject<Partial<PaletteOps>>;
@@ -26,6 +32,7 @@ const defaultOps: PaletteOps = {
   openSettings: () => undefined,
   refreshProjects: () => undefined,
   insertComposerText: () => undefined,
+  archiveSession: () => undefined,
 };
 
 /** Mounted by the project-workspace module so CommandPalette and the chat, code-editor and sidebar modules share one set of palette operations. */
@@ -46,6 +53,8 @@ export function usePaletteOps(): PaletteOps {
       refreshProjects: () => (ref?.current.refreshProjects ?? defaultOps.refreshProjects)(),
       insertComposerText: (text) =>
         (ref?.current.insertComposerText ?? defaultOps.insertComposerText)(text),
+      archiveSession: (session) =>
+        (ref?.current.archiveSession ?? defaultOps.archiveSession)(session),
     }),
     [ref],
   );
@@ -60,6 +69,7 @@ export function usePaletteOpsRegister(partial: Partial<PaletteOps>) {
     openSettings,
     refreshProjects,
     insertComposerText,
+    archiveSession,
   } = partial;
 
   useEffect(() => {
@@ -75,6 +85,7 @@ export function usePaletteOpsRegister(partial: Partial<PaletteOps>) {
     if (openSettings) registry.openSettings = openSettings;
     if (refreshProjects) registry.refreshProjects = refreshProjects;
     if (insertComposerText) registry.insertComposerText = insertComposerText;
+    if (archiveSession) registry.archiveSession = archiveSession;
     return () => {
       if (openFile && registry.openFile === openFile) registry.openFile = prev.openFile;
       if (openFileInEditor && registry.openFileInEditor === openFileInEditor) registry.openFileInEditor = prev.openFileInEditor;
@@ -82,6 +93,7 @@ export function usePaletteOpsRegister(partial: Partial<PaletteOps>) {
       if (openSettings && registry.openSettings === openSettings) registry.openSettings = prev.openSettings;
       if (refreshProjects && registry.refreshProjects === refreshProjects) registry.refreshProjects = prev.refreshProjects;
       if (insertComposerText && registry.insertComposerText === insertComposerText) registry.insertComposerText = prev.insertComposerText;
+      if (archiveSession && registry.archiveSession === archiveSession) registry.archiveSession = prev.archiveSession;
     };
-  }, [ref, openFile, openFileInEditor, openDirectory, openSettings, refreshProjects, insertComposerText]);
+  }, [ref, openFile, openFileInEditor, openDirectory, openSettings, refreshProjects, insertComposerText, archiveSession]);
 }

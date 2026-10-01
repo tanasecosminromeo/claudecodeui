@@ -1,7 +1,10 @@
+import { Archive } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
 import { LLMProviderLogo } from '@/shared/ui';
 import type { AppTab, Project, ProjectSession } from '@/shared/types';
+import { useBackgroundSessionIdSet, useBusySessionIdSet } from '@/shared/context/SessionProtectionContext';
+import { usePaletteOps } from '@/modules/command-palette';
 import { usePlugins } from '@/modules/plugins';
 import { getSessionTitle } from '@/shared/utils';
 
@@ -45,6 +48,11 @@ export default function WorkspaceTitle({
 }: WorkspaceTitleProps) {
   const { t } = useTranslation();
   const { plugins } = usePlugins();
+  const { archiveSession } = usePaletteOps();
+  // Archiving is withheld while a response is in flight, as on the sidebar
+  // row; background-only work does not count.
+  const busySessionIds = useBusySessionIdSet();
+  const backgroundSessionIds = useBackgroundSessionIdSet();
 
   const pluginDisplayName = activeTab.startsWith('plugin:')
     ? plugins.find((p) => p.name === activeTab.replace('plugin:', ''))?.displayName
@@ -52,6 +60,9 @@ export default function WorkspaceTitle({
 
   const showSessionIcon = activeTab === 'chat' && Boolean(selectedSession);
   const showChatNewSession = activeTab === 'chat' && !selectedSession;
+  const canArchiveSession = activeTab === 'chat' && Boolean(selectedSession)
+    && !(busySessionIds.has(selectedSession?.id ?? '') && !backgroundSessionIds.has(selectedSession?.id ?? ''));
+  const archiveLabel = t('sessions.archiveSession', { ns: 'sidebar', defaultValue: 'Archive session' });
 
   return (
     <div className="scrollbar-hide flex min-w-0 flex-1 items-center gap-2 overflow-x-auto">
@@ -83,6 +94,20 @@ export default function WorkspaceTitle({
           </div>
         )}
       </div>
+
+      {canArchiveSession && selectedSession && (
+        // One click for the open session — on phones, where the sidebar is a
+        // closed drawer, this is the only one-tap archive.
+        <button
+          type="button"
+          onClick={() => archiveSession(selectedSession)}
+          title={archiveLabel}
+          aria-label={`${archiveLabel}: ${getSessionTitle(selectedSession)}`}
+          className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
+        >
+          <Archive className="h-4 w-4" />
+        </button>
+      )}
     </div>
   );
 }

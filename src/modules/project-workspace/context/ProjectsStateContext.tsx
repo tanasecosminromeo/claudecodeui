@@ -30,7 +30,7 @@ type ProjectMainState = Pick<
 
 type ProjectCommandState = Pick<
   ProjectsState,
-  'selectedProject' | 'handleNewSession' | 'openSettings' | 'setActiveTab'
+  'selectedProject' | 'selectedSession' | 'handleNewSession' | 'openSettings' | 'setActiveTab'
 >;
 
 type ProjectEffectsState = Pick<
@@ -117,11 +117,12 @@ export function ProjectsStateProvider({
   const commandState = useMemo<ProjectCommandState>(
     () => ({
       selectedProject: state.selectedProject,
+      selectedSession: state.selectedSession,
       handleNewSession: state.handleNewSession,
       openSettings: state.openSettings,
       setActiveTab: state.setActiveTab,
     }),
-    [state.handleNewSession, state.openSettings, state.selectedProject, state.setActiveTab],
+    [state.handleNewSession, state.openSettings, state.selectedProject, state.selectedSession, state.setActiveTab],
   );
 
   const effectsState = useMemo<ProjectEffectsState>(

@@ -6,12 +6,13 @@ import { useVersionCheck } from '@/shared/hooks/useVersionCheck';
 import { useUiPreferences, useSetUiPreference } from '@/shared/context/UiPreferencesContext';
 import { useSidebarController } from '@/modules/sidebar/hooks/useSidebarController';
 import { useTaskMaster, useTasksSettings } from '@/modules/task-master';
-import { usePaletteOps } from '@/modules/command-palette';
+import { usePaletteOps, usePaletteOpsRegister } from '@/modules/command-palette';
 import { useBackgroundSessionIdSet, useBusySessionIdSet } from '@/shared/context/SessionProtectionContext';
 import type { LLMProvider, LoadingProgress, MCPServerStatus, Project, ProjectSession, SidebarProjectListProps } from '@/shared/types';
 import SidebarCollapsed from '@/modules/sidebar/SidebarCollapsed';
 import SidebarContent from '@/modules/sidebar/SidebarContent';
 import SidebarModals from '@/modules/sidebar/SidebarModals';
+import QuickArchiveNotices from '@/modules/sidebar/QuickArchiveNotices';
 
 type SidebarProps = {
   projects: Project[];
@@ -132,6 +133,10 @@ function Sidebar({
     restoreArchivedProject,
     restoreArchivedSession,
     refreshProjects,
+    quickArchiveNotices,
+    quickArchiveSession,
+    undoQuickArchive,
+    dismissQuickArchiveNotice,
     updateSessionSummary,
     forkSession,
     collapseSidebar: handleCollapseSidebar,
@@ -167,6 +172,10 @@ function Sidebar({
     document.documentElement.classList.toggle('pwa-mode', isPWA);
     document.body.classList.toggle('pwa-mode', isPWA);
   }, [isPWA]);
+
+  // The workspace header and the command palette archive the open session
+  // through the palette registry, so the flow — and its Undo — stays here.
+  usePaletteOpsRegister({ archiveSession: quickArchiveSession });
 
   const handleProjectCreated = () => {
     void paletteOps.refreshProjects();
@@ -216,6 +225,7 @@ function Sidebar({
     onSessionSelect: handleSessionClick,
     onDeleteSession: showDeleteSessionConfirmation,
     onForkSession: forkSession,
+    onArchiveSession: quickArchiveSession,
     onLoadMoreSessions: loadMoreSessionsForProject,
     onNewSession,
     onStartEditingSession: startEditingSession,
@@ -244,6 +254,13 @@ function Sidebar({
         currentVersion={currentVersion}
         latestVersion={latestVersion}
         installMode={installMode}
+        t={t}
+      />
+
+      <QuickArchiveNotices
+        notices={quickArchiveNotices}
+        onUndo={undoQuickArchive}
+        onDismiss={dismissQuickArchiveNotice}
         t={t}
       />
 

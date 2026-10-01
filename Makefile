@@ -186,6 +186,9 @@ restart:
 else
 # Run from CloudCLI's own Shell tab, a restart kills that terminal (it lives in the
 # service's cgroup). Then hand the restart to systemd and exit before it lands.
+# The Shell tab's environment may lack XDG_RUNTIME_DIR, without which the user bus
+# is unreachable ("Failed to connect to bus: No medium found").
+restart: export XDG_RUNTIME_DIR ?= /run/user/$(shell id -u)
 restart:
 	@if grep -q '/$(SERVICE).service' /proc/self/cgroup; then \
 	  echo "Running inside CloudCLI's Shell: this terminal will close in ~2s. Reload the page after."; \

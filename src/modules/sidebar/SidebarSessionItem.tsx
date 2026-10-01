@@ -1,5 +1,5 @@
 import { memo, useState } from 'react';
-import { Check, Edit2, Loader2, MoreHorizontal, Trash2, X } from 'lucide-react';
+import { Archive, Check, Edit2, Loader2, MoreHorizontal, Trash2, X } from 'lucide-react';
 import type { TFunction } from 'i18next';
 
 import { Badge, Dialog, DialogContent, DialogTitle, LLMProviderLogo, Tooltip, buttonVariants } from '@/shared/ui';
@@ -31,6 +31,8 @@ type SidebarSessionItemProps = {
   onDeleteSession: (sessionId: string, sessionTitle: string) => void;
   /** Branches this session into an independent one; absent when its provider cannot. */
   onForkSession?: (session: SessionWithProvider) => void;
+  /** Archives this session in one click, with Undo offered afterwards. */
+  onArchiveSession?: (session: SessionWithProvider) => void;
   t: TFunction;
 };
 
@@ -53,6 +55,7 @@ function SidebarSessionItem({
   onSessionSelect,
   onDeleteSession,
   onForkSession,
+  onArchiveSession,
   t,
 }: SidebarSessionItemProps) {
   const isCompact = useCompactSidebar();
@@ -92,6 +95,8 @@ function SidebarSessionItem({
   const requestDeleteSession = () => {
     onDeleteSession(session.id, sessionView.sessionName);
   };
+
+  const canArchive = Boolean(onArchiveSession) && !isProcessing;
 
   const setMobileOptionsOpen = (open: boolean) => {
     setIsMobileOptionsOpen(open);
@@ -301,6 +306,20 @@ function SidebarSessionItem({
                   </span>
                 </button>
 
+                {canArchive && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMobileOptionsOpen(false);
+                      onArchiveSession?.(session);
+                    }}
+                    className="flex min-h-12 w-full items-center gap-3 rounded-xl border border-border bg-muted/35 px-4 py-3 text-left text-foreground transition-colors active:bg-muted"
+                  >
+                    <Archive className="h-5 w-5 flex-shrink-0" />
+                    <span className="text-sm font-medium">{t('sessions.archiveSession', 'Archive session')}</span>
+                  </button>
+                )}
+
                 {!isProcessing && (
                   <button
                     type="button"
@@ -337,7 +356,10 @@ function SidebarSessionItem({
           href={`/session/${session.id}`}
           className={cn(
             buttonVariants({ variant: 'ghost' }),
-            'h-auto w-full justify-start rounded-md border bg-card p-2 pr-11 text-left font-normal transition-all duration-150',
+            'h-auto w-full justify-start rounded-md border bg-card p-2 text-left font-normal transition-all duration-150',
+            // Room on the right for the controls: the options menu, plus the
+            // hover-revealed archive icon when the row offers it.
+            canArchive ? 'pr-[4.5rem]' : 'pr-11',
             isSelected ? 'border-primary/20 bg-primary/5' : 'border-border/30',
             !isSelected && isProcessing
               ? 'border-border/60 bg-muted/20 hover:bg-muted/25'
@@ -416,6 +438,7 @@ function SidebarSessionItem({
           onSaveEditingSession={onSaveEditingSession}
           onDeleteSession={onDeleteSession}
           onFork={onForkSession ? () => onForkSession(session) : undefined}
+          onArchive={onArchiveSession ? () => onArchiveSession(session) : undefined}
           t={t}
         />
       </div>
