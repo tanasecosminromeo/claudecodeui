@@ -44,6 +44,16 @@ div:has(> a[href*="discord.gg"]:only-child) ~ div:has(svg.lucide-settings) {
   display: none !important;
 }
 
+/* Workspace tabs of plugins that already live elsewhere: Usage is the header
+   meter, Sessions is the sidebar Running view. The plugins stay enabled (both
+   of those call their servers); cleanup.js also disables the buttons so arrow
+   keys in the tab bar skip them. Project Stats (starter plugin) is just hidden. */
+[role="tablist"] [role="tab"][aria-label="Usage"],
+[role="tablist"] [role="tab"][aria-label="Sessions"],
+[role="tablist"] [role="tab"][aria-label="Project Stats"] {
+  display: none !important;
+}
+
 /* Running view: the sidebar list is swapped for the session-radar panel (cleanup.js) */
 [data-uic-hidden] {
   display: none !important;
@@ -84,7 +94,9 @@ div:has(> a[href*="discord.gg"]:only-child) ~ div:has(svg.lucide-settings) {
 
 /* Claude plan usage meter (cleanup.js + claude-usage plugin) */
 .uic-usage-meter {
-  flex: 0 0 auto;
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
   align-self: stretch; /* same height as the neighbouring buttons */
   display: inline-flex;
   align-items: center;
@@ -99,6 +111,8 @@ div:has(> a[href*="discord.gg"]:only-child) ~ div:has(svg.lucide-settings) {
   cursor: pointer;
   color: #059669;
 }
+.uic-usage-meter[data-compact] .uic-usage-7d { display: none; }
+.uic-usage-meter[data-compact][data-maxed]::after { content: " !"; }
 .uic-usage-meter:hover { background: hsl(var(--accent)); }
 .uic-usage-meter[data-level="warn"] { color: #d97706; border-color: #f59e0b; }
 .uic-usage-meter[data-level="bad"] { color: #dc2626; border-color: #ef4444; }

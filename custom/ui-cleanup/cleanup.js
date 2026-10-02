@@ -90,6 +90,18 @@
     return promise;
   }
 
+  async function stopSession(sessionId) {
+    const r = await fetch(`/api/plugins/${RADAR_PLUGIN}/rpc/stop`, {
+      method: 'POST',
+      headers: { ...authHeaders(), 'content-type': 'application/json' },
+      body: JSON.stringify({ sessionId }),
+    });
+    const body = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(body.error || `HTTP ${r.status}`);
+    sessionsCache = { at: 0, promise: null };
+    return body;
+  }
+
   // ---- Claude plan usage meter (claude-usage plugin) ----
   const USAGE_PLUGIN = 'claude-usage';
   const USAGE_POLL_MS = 60000;
@@ -116,6 +128,17 @@
     return body;
   }
 
+  async function setUsageDefault(number) {
+    const r = await fetch(`/api/plugins/${USAGE_PLUGIN}/rpc/default`, {
+      method: 'PUT',
+      headers: { ...authHeaders(), 'content-type': 'application/json' },
+      body: JSON.stringify({ defaultAccount: number }),
+    });
+    const body = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(body.error || `HTTP ${r.status}`);
+    return body;
+  }
+
   function meterLevel(pct) { return pct >= 90 ? 'bad' : pct >= 70 ? 'warn' : 'ok'; }
 
   function paintMeter(m) {
@@ -133,7 +156,13 @@
     const worst = Math.max(five || 0, seven || 0, ...scoped.map((x) => x.pct));
     m.dataset.level = meterLevel(worst);
     const maxed = scoped.filter((x) => x.pct >= 100).length;
-    m.textContent = `5h ${five ?? '–'}% · 7d ${seven ?? '–'}%${maxed ? ' !' : ''}`;
+    const full = `5h ${five ?? '–'}%`;
+    const rest = ` · 7d ${seven ?? '–'}%${maxed ? ' !' : ''}`;
+    const tail = document.createElement('span');
+    tail.className = 'uic-usage-7d';
+    tail.textContent = rest;
+    m.replaceChildren(full, tail);
+    if (maxed) m.dataset.maxed = '1'; else delete m.dataset.maxed;
     m.title = [`#${a.number} ${a.email || ''}`,
       `5-hour: ${five ?? '–'}%${a.fiveHour && a.fiveHour.countdown ? ` (resets in ${a.fiveHour.countdown})` : ''}`,
       `7-day: ${seven ?? '–'}%${a.sevenDay && a.sevenDay.countdown ? ` (resets in ${a.sevenDay.countdown})` : ''}`,
@@ -150,7 +179,27 @@
     return [`Codex: 5h ${pct(cx.primary)} · 7d ${pct(cx.secondary)} (as of last Codex request)`];
   }
 
-  function paintAllMeters() { document.querySelectorAll(`[${METER}]`).forEach(paintMeter); }
+  // Show only the 5h figure when the row holding the meter has no room for the full text.
+  function fitMeter(m) {
+    if (!m.isConnected) return;
+    delete m.dataset.compact;
+    const row = m.getAttribute(METER) === 'composer' ? m.parentElement : m.parentElement && m.parentElement.parentElement;
+    if (row && row.scrollWidth > row.clientWidth + 1) m.dataset.compact = '1';
+  }
+
+  function paintAllMeters() {
+    document.querySelectorAll(`[${METER}]`).forEach((m) => { paintMeter(m); fitMeter(m); });
+  }
+
+  window.addEventListener('resize', () => document.querySelectorAll(`[${METER}]`).forEach(fitMeter));
+  if (window.ResizeObserver) {
+    const ro = new ResizeObserver(() => document.querySelectorAll(`[${METER}]`).forEach(fitMeter));
+    const watch = () => document.querySelectorAll(`[${METER}]`).forEach((m) => {
+      const row = m.parentElement && (m.getAttribute(METER) === 'composer' ? m.parentElement : m.parentElement.parentElement);
+      if (row && !row.__uicRo) { row.__uicRo = true; ro.observe(row); }
+    });
+    setInterval(watch, 2000);
+  }
 
   async function pollUsage() {
     try {
@@ -199,6 +248,7 @@
         pop.handle = mod.renderUsage(el, {
           fetchData: async (force) => { const d = await fetchUsage(force); usageData = d; usageError = null; paintAllMeters(); return d; },
           switchAccount: switchUsageAccount,
+          setDefault: setUsageDefault,
           onData: (d) => { usageData = d; usageError = null; paintAllMeters(); },
         });
       })
@@ -212,6 +262,7 @@
     m.className = `uic-usage-meter uic-usage-meter--${variant}`;
     m.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); openUsagePop(m); });
     paintMeter(m);
+    requestAnimationFrame(() => fitMeter(m));
     return m;
   }
 
@@ -402,7 +453,7 @@
         loadRadar()
           .then((mod) => {
             if (panel !== radarPanel || !panel.isConnected) return;
-            radarHandle = mod.renderRadar(panel, { fetchData: fetchSessions });
+            radarHandle = mod.renderRadar(panel, { fetchData: fetchSessions, stopSession });
           })
           .catch((err) => { panel.textContent = `Sessions plugin unavailable: ${err.message || err}`; panel.style.padding = '16px'; });
       }
@@ -417,8 +468,26 @@
     }
   }
 
+  // ---- Workspace tabs hidden by cleanup.css (Usage, Sessions) ----
+  // CSS hides them; the tab bar's arrow keys .click() every [role=tab] button
+  // though, so disable them too, and leave one if it was the open tab (a
+  // restored last tab, or a link) for Chat.
+  const HIDDEN_TABS = ['Usage', 'Sessions', 'Project Stats'];
+
+  function hideWorkspaceTabs() {
+    document.querySelectorAll('[role="tablist"] [role="tab"]').forEach((tab) => {
+      if (!HIDDEN_TABS.includes(tab.getAttribute('aria-label'))) return;
+      if (!tab.disabled) tab.disabled = true;
+      if (tab.getAttribute('aria-selected') === 'true') {
+        const first = tab.closest('[role="tablist"]').querySelector('[role="tab"]:not(:disabled)');
+        if (first) first.click();
+      }
+    });
+  }
+
   function apply() {
     scheduled = false;
+    try { hideWorkspaceTabs(); } catch (err) { console.warn('[ui-cleanup] workspace tabs', err); }
     try { ensureComposerMeters(); } catch (err) { console.warn('[ui-cleanup] composer meter', err); }
     try {
       const footer = footerOf(document);
