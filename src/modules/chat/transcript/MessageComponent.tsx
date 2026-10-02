@@ -1,4 +1,5 @@
 import { memo, useMemo, useRef } from 'react';
+import type { ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { GitBranchIcon, PencilIcon } from 'lucide-react';
 
@@ -38,6 +39,8 @@ type MessageComponentProps = {
    * Absent when the provider cannot copy a transcript prefix.
    */
   onForkFromMessage?: (message: ChatMessage) => void;
+  /** Shown at the right end of this message's footer row (the transcript's last-message stamp). */
+  footerEnd?: ReactNode;
 };
 
 const COPY_HIDDEN_TOOL_NAMES = new Set(['Bash', 'Edit', 'Write', 'ApplyPatch']);
@@ -46,7 +49,7 @@ const COPY_HIDDEN_TOOL_NAMES = new Set(['Bash', 'Edit', 'Write', 'ApplyPatch']);
  * Rendered by chat's ChatMessagesPane and ToolGroupContainer to draw one
  * transcript entry — user turn, assistant turn, or a tool call and its result.
  */
-const MessageComponent = memo(({ message, prevMessage, createDiff, onFileOpen, showRawParameters, showThinking, selectedProject, provider, onEditMessage, onForkFromMessage }: MessageComponentProps) => {
+const MessageComponent = memo(({ message, prevMessage, createDiff, onFileOpen, showRawParameters, showThinking, selectedProject, provider, onEditMessage, onForkFromMessage, footerEnd }: MessageComponentProps) => {
   const { t } = useTranslation('chat');
   const isGrouped = prevMessage && prevMessage.type === message.type &&
     ((prevMessage.type === 'assistant') ||
@@ -154,6 +157,7 @@ const MessageComponent = memo(({ message, prevMessage, createDiff, onFileOpen, s
                 <span>{formattedTime}</span>
               </div>
             )}
+            {footerEnd}
           </div>
           {!isGrouped && (
             <div className="hidden h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-blue-600 text-sm text-white sm:flex">
@@ -190,6 +194,7 @@ const MessageComponent = memo(({ message, prevMessage, createDiff, onFileOpen, s
               </div>
             </details>
           )}
+          {footerEnd && <div className="flex justify-end">{footerEnd}</div>}
         </div>
       ) : message.isTaskNotification ? (
         /* Compact task notification on the left */
@@ -197,6 +202,7 @@ const MessageComponent = memo(({ message, prevMessage, createDiff, onFileOpen, s
           <div className="flex items-center gap-2 py-0.5">
             <span className={`inline-block h-1.5 w-1.5 flex-shrink-0 rounded-full ${message.taskNotificationStatus === 'completed' ? 'bg-green-400 dark:bg-green-500' : 'bg-amber-400 dark:bg-amber-500'}`} />
             <span className="text-xs text-gray-500 dark:text-gray-400">{message.content}</span>
+            {footerEnd && <span className="ml-auto">{footerEnd}</span>}
           </div>
         </div>
       ) : (
@@ -408,7 +414,7 @@ const MessageComponent = memo(({ message, prevMessage, createDiff, onFileOpen, s
               <MemoryCitations citations={message.memoryCitations} />
             )}
 
-            {(shouldShowAssistantCopyControl || !isGrouped) && (
+            {(shouldShowAssistantCopyControl || !isGrouped || footerEnd) && (
               <div className="mt-1 flex w-full items-center gap-2 text-[11px] text-gray-400 dark:text-gray-500">
                 {shouldShowAssistantCopyControl && (
                   <MessageCopyControl content={assistantCopyContent} messageType="assistant" />
@@ -417,6 +423,7 @@ const MessageComponent = memo(({ message, prevMessage, createDiff, onFileOpen, s
                   <MessageSpeakControl content={assistantCopyContent} />
                 )}
                 {!isGrouped && <span>{formattedTime}</span>}
+                {footerEnd && <span className="ml-auto">{footerEnd}</span>}
               </div>
             )}
           </div>

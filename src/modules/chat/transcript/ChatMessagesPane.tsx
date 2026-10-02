@@ -19,6 +19,7 @@ import ToolGroupContainer from '@/modules/chat/transcript/ToolGroupContainer';
 import LoadAllMessagesOverlay from '@/modules/chat/transcript/LoadAllMessagesOverlay';
 import ChatExportMenu from '@/modules/chat/transcript/ChatExportMenu';
 import { BackgroundTasksStrip } from '@/modules/chat/transcript/BackgroundTasksStrip';
+import LastMessageStamp from '@/modules/chat/transcript/LastMessageStamp';
 
 /**
  * How many of the newest rows mount with real content on the first commit,
@@ -168,6 +169,17 @@ function ChatMessagesPane({
     }
     return keys;
   }, [groupedVisibleMessages]);
+
+  // The stamp rides on the last message's footer row; a last row without one
+  // (a tool group, a hidden thinking block) gets it on a line of its own.
+  const lastMessageStamp = useMemo(
+    () => (isProcessing ? null : <LastMessageStamp messages={chatMessages} />),
+    [chatMessages, isProcessing],
+  );
+  const lastItem = groupedVisibleMessages[groupedVisibleMessages.length - 1];
+  const stampOnLastMessage = Boolean(
+    lastItem && !isToolGroupItem(lastItem) && !(lastItem.isThinking && !showThinking),
+  );
 
   const getMessageKey = useCallback(
     (message: ChatMessage) =>
@@ -344,11 +356,16 @@ function ChatMessagesPane({
                     provider={provider}
                     onEditMessage={onEditMessage}
                     onForkFromMessage={onForkFromMessage}
+                    footerEnd={stampOnLastMessage && index === rowCount - 1 ? lastMessageStamp : undefined}
                   />
                 </LazyMessageRow>
               );
             });
           })()}
+
+          {lastMessageStamp && !stampOnLastMessage && (
+            <div className="flex justify-end">{lastMessageStamp}</div>
+          )}
         </>
       )}
       </div>
