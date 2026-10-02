@@ -34,7 +34,7 @@ import {
   serverLog,
   startInstance,
 } from './lib/instance.mjs';
-import { prepareWorkspace } from './lib/workspace.mjs';
+import { defaultWorktreeDir, prepareWorkspace } from './lib/workspace.mjs';
 import { runUnitTests, UNIT_TEST_FILES, writeReport } from './lib/report.mjs';
 import { execFileSync } from 'node:child_process';
 import os from 'node:os';
@@ -91,7 +91,7 @@ if (args.list) {
 
 const port = Number(args.port ?? process.env.E2E_PORT ?? 3101);
 const paths = runPaths(process.env.E2E_RUN_DIR || path.join(process.env.HOME, '.cache', 'cloudcli-e2e'));
-const worktreeDir = process.env.E2E_WORKTREE || path.join(path.dirname(repoDir), 'claudecodeui-worktrees', 'e2e');
+const worktreeDir = process.env.E2E_WORKTREE || defaultWorktreeDir(repoDir);
 
 let appDir;
 if (typeof args['app-dir'] === 'string') {

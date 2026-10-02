@@ -19,6 +19,16 @@ function run(cwd, command, args, log) {
 }
 
 /**
+ * The e2e worktree: `claudecodeui-worktrees/e2e` next to the main checkout. Found through git's
+ * common dir, so a run from a linked worktree (itself under claudecodeui-worktrees/) reuses the same
+ * folder instead of nesting a new one inside the worktrees folder.
+ */
+export function defaultWorktreeDir(repoDir) {
+  const common = path.resolve(repoDir, git(repoDir, 'rev-parse', '--git-common-dir').trim());
+  return path.join(path.dirname(path.dirname(common)), 'claudecodeui-worktrees', 'e2e');
+}
+
+/**
  * Makes `worktreeDir` an exact copy of `sourceDir`'s working tree — HEAD plus
  * staged, unstaged and untracked (non-ignored) changes — installs
  * dependencies when package-lock.json changed, and builds it.
