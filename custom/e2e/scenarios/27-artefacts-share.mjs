@@ -1,7 +1,8 @@
 // Publishing (custom/share) shows up in the sidebar: the Conversations tab is
-// relabelled Artefacts and lists the share under its session, with the public
-// link served by the share service without any login. Uses a separate share
-// (90m) in the real ~/shares and deletes it at the end.
+// relabelled Artefacts and lists the share under its session (the search box
+// filters it), with the public link served by the share service without any
+// login. Uses a separate share (90m) in the real ~/shares and deletes it at
+// the end.
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -49,6 +50,18 @@ export async function run({ chat, page, expect, snapshot }) {
     expect(await group.locator('.sa-row').count() === 1, 'one row for the one publish');
     await snapshot('artefacts list');
 
+    // The sidebar search box filters the artefacts on this tab.
+    const search = page.locator('input.nav-search-input:visible').first();
+    expect(await search.getAttribute('placeholder') === 'Search artefacts...', 'the search box says it searches artefacts');
+    await search.fill('zzz-no-such-artefact');
+    await panel.locator('.sa-empty', { hasText: 'No artefacts match' }).waitFor({ timeout: 5000 });
+    expect(await panel.locator('.sa-group').count() === 0, 'a search with no match hides every group');
+    await search.fill('fixture report');
+    await group.waitFor({ timeout: 5000 });
+    expect(await panel.locator('.sa-group').count() === 1, 'searching the item title keeps just its group');
+    await snapshot('artefacts filtered');
+    await search.fill('');
+
     // The public side: straight to the share service, no CloudCLI token, no cookie.
     const local = itemUrl.replace(/^https?:\/\/[^/]+/, `http://127.0.0.1:${SHARE_PORT}`);
     const html = await fetch(local);
@@ -65,6 +78,8 @@ export async function run({ chat, page, expect, snapshot }) {
     await page.locator('button:has(svg.lucide-folder)').first().click();
     await panel.waitFor({ state: 'detached', timeout: 10000 });
     expect(true, 'leaving the tab gives the normal list back');
+    const placeholder = await page.locator('input.nav-search-input:visible').first().getAttribute('placeholder');
+    expect(placeholder !== 'Search artefacts...', `the search box is the projects search again (${placeholder})`);
   } finally {
     execFileSync(process.execPath, [SHARE_CLI, 'purge', shareId]);
     fs.rmSync(dir, { recursive: true, force: true });

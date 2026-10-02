@@ -477,6 +477,7 @@
           .then((mod) => {
             if (panels.get(p.attr) !== entry || !entry.el.isConnected) return;
             entry.handle = p.render(mod, entry.el);
+            schedule(); // apply the search box's current text to the new panel
           })
           .catch((err) => { entry.el.textContent = `${p.name} plugin unavailable: ${err.message || err}`; entry.el.style.padding = '16px'; });
       } else if (cur) {
@@ -487,7 +488,26 @@
     }
     if (active) list.setAttribute('data-uic-hidden', '');
     else list.removeAttribute('data-uic-hidden');
+    syncArtefactsSearch(header);
   }
+
+  // On the Artefacts tab the sidebar search box filters the artefacts. Typing does not touch the
+  // DOM, so an input listener applies it at once; the sync on every apply() covers the clear button.
+  const ARTEFACTS_PLACEHOLDER = 'Search artefacts...';
+  function syncArtefactsSearch(header) {
+    const entry = panels.get('data-uic-artefacts');
+    if (!entry) return;
+    header.querySelectorAll('input.nav-search-input').forEach((input) => {
+      if (input.placeholder !== ARTEFACTS_PLACEHOLDER) input.placeholder = ARTEFACTS_PLACEHOLDER;
+      if (input.offsetParent !== null && entry.handle && entry.handle.setFilter) entry.handle.setFilter(input.value);
+    });
+  }
+  document.addEventListener('input', (e) => {
+    const entry = panels.get('data-uic-artefacts');
+    if (entry && entry.handle && entry.handle.setFilter && e.target.matches && e.target.matches('input.nav-search-input')) {
+      entry.handle.setFilter(e.target.value);
+    }
+  }, true);
 
   // The Conversations mode tab shows the Artefacts list (see PANELS), so it says so.
   function relabelConversations(header) {

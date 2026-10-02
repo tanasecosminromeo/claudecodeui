@@ -111,6 +111,36 @@ describe('renderArtefacts', () => {
     expect(calls.session).toEqual(['app-a']);
   });
 
+  it('filters by item title and keeps the matching group', async () => {
+    const { el } = await mount();
+    handle.setFilter('e2e');
+    expect([...el.querySelectorAll('.sa-group .sa-title')].map((n) => n.textContent)).toEqual(['Star colours']);
+    expect([...el.querySelectorAll('.sa-row-title')].map((n) => n.textContent)).toEqual(['E2E report']);
+  });
+
+  it('keeps every item of a group whose session, project or last message matches', async () => {
+    const { el } = await mount();
+    handle.setFilter('HOMELAB');
+    expect([...el.querySelectorAll('.sa-group .sa-title')].map((n) => n.textContent)).toEqual(['Old work']);
+    handle.setFilter('41 tests');
+    expect(el.querySelectorAll('.sa-row').length).toBe(2);
+  });
+
+  it('says when nothing matches, and shows everything again when cleared', async () => {
+    const { el } = await mount();
+    handle.setFilter('zzz');
+    expect(el.querySelector('.sa-empty').textContent).toBe('No artefacts match "zzz".');
+    handle.setFilter('  ');
+    expect(el.querySelectorAll('.sa-group').length).toBe(2);
+  });
+
+  it('keeps the filter across refreshes', async () => {
+    const { el } = await mount();
+    handle.setFilter('plan');
+    await handle.refresh();
+    expect([...el.querySelectorAll('.sa-row-title')].map((n) => n.textContent)).toEqual(['Plan']);
+  });
+
   it('says how to publish when there is nothing yet', async () => {
     const { el } = await mount({ fetchData: async () => ({ now, groups: [] }) });
     expect(el.querySelector('.sa-empty').textContent).toMatch(/publish/i);

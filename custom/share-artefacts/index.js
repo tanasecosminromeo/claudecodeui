@@ -65,7 +65,7 @@ export function openSession(sessionId, win = window) {
 
 /**
  * Render the artefact list into `container`.
- * fetchData(): Promise<{now, groups}>; extend(id, by); expire(id). Returns { destroy, refresh }.
+ * fetchData(): Promise<{now, groups}>; extend(id, by); expire(id). Returns { destroy, refresh, setFilter }.
  */
 export function renderArtefacts(container, {
   fetchData, extend, expire,
@@ -83,6 +83,7 @@ export function renderArtefacts(container, {
   root.className = 'sa-root';
   container.appendChild(root);
   let timer = null; let dead = false; let lastJson = '';
+  let lastData = null; let filter = '';
 
   function toast(text) {
     const t = doc.createElement('div'); t.className = 'sa-toast'; t.textContent = text;
@@ -118,14 +119,33 @@ export function renderArtefacts(container, {
     return b;
   }
 
+  // A group stays whole when its session, project or last message matches; otherwise only the
+  // items whose title matches are shown.
+  function filtered(groups) {
+    if (!filter) return groups;
+    const hit = (v) => typeof v === 'string' && v.toLowerCase().includes(filter);
+    return groups.map((g) => {
+      const s = g.session || {};
+      if ([s.title, s.project, s.lastMessage, g.sessionId].some(hit)) return g;
+      const items = g.items.filter((i) => hit(i.title));
+      return items.length ? { ...g, items } : null;
+    }).filter(Boolean);
+  }
+
   function draw(data) {
     const t = now();
+    lastData = data;
     root.replaceChildren();
     if (!data.groups || data.groups.length === 0) {
       root.append(el('div', 'sa-empty', 'Nothing published yet. Ask Claude to "publish" a report, a plan or any file.'));
       return;
     }
-    for (const g of data.groups) {
+    const groups = filtered(data.groups);
+    if (groups.length === 0) {
+      root.append(el('div', 'sa-empty', `No artefacts match "${filter}".`));
+      return;
+    }
+    for (const g of groups) {
       const s = g.session || {};
       const status = s.status || 'ended';
       const box = el('div', `sa-group sa-s-${status}`);
@@ -182,9 +202,17 @@ export function renderArtefacts(container, {
     if (!dead) timer = win.setTimeout(refresh, POLL_MS);
   }
 
+  function setFilter(q) {
+    const next = String(q || '').trim().toLowerCase();
+    if (next === filter) return;
+    filter = next;
+    if (lastData) draw(lastData);
+  }
+
   refresh();
   return {
     refresh,
+    setFilter,
     destroy() { dead = true; win.clearTimeout(timer); root.remove(); },
   };
 }
