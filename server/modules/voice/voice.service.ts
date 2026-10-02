@@ -4,6 +4,7 @@ import type {
   VoiceService,
   VoiceServiceResult,
   VoiceSpeechPayload,
+  VoiceSpeechSummary,
 } from '@/shared/types.js';
 
 type VoiceServiceDependencies = {
@@ -70,6 +71,17 @@ function backendFailure(status: number, responseText?: string): VoiceServiceResu
     status,
     error: responseText || 'voice backend error',
   };
+}
+
+/** The message inside an OpenAI-style `{"error": {"message": ...}}` body, else the body. */
+function backendErrorMessage(responseText: string): string {
+  try {
+    const parsed = JSON.parse(responseText) as { error?: { message?: unknown } | string };
+    const message = typeof parsed.error === 'string' ? parsed.error : parsed.error?.message;
+    return typeof message === 'string' && message ? message : responseText;
+  } catch {
+    return responseText;
+  }
 }
 
 function unreachableBackendFailure(error: unknown, timeoutMs: number): VoiceServiceResult<never> {
@@ -184,6 +196,52 @@ export function createVoiceService(dependencies: VoiceServiceDependencies): Voic
           body: response.body,
         };
         return { ok: true, value };
+      } catch (error) {
+        return unreachableBackendFailure(error, dependencies.timeoutMs);
+      }
+    },
+
+    async summarizeSpeech(input) {
+      const config = resolveVoiceConfig(dependencies.defaults, input.overrides);
+      const configurationFailure = validateConfiguredBackend(config);
+      if (configurationFailure) {
+        return configurationFailure;
+      }
+
+      try {
+        const response = await dependencies.fetchBackend(`${config.baseUrl}/audio/speech/summary`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...authorizationHeader(config.apiKey),
+          },
+          body: JSON.stringify({ voice: config.ttsVoice, input: input.text }),
+        });
+
+        if (response.status === 404) {
+          return {
+            ok: false,
+            status: 501,
+            error: 'This voice backend cannot summarise (no /audio/speech/summary).',
+          };
+        }
+        if (!response.ok) {
+          const responseText = await response.text().catch(() => 'summary failed');
+          return backendFailure(response.status, backendErrorMessage(responseText));
+        }
+
+        const body = await response.json() as Partial<VoiceSpeechSummary>;
+        if (typeof body.text !== 'string') {
+          return { ok: false, status: 502, error: 'Voice backend returned no summary text.' };
+        }
+        return {
+          ok: true,
+          value: {
+            text: body.text,
+            language: typeof body.language === 'string' ? body.language : '',
+            prepared: typeof body.prepared === 'string' ? body.prepared : '',
+          },
+        };
       } catch (error) {
         return unreachableBackendFailure(error, dependencies.timeoutMs);
       }

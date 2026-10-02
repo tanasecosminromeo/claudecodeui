@@ -100,6 +100,11 @@ if (typeof args['app-dir'] === 'string') {
   appDir = worktreeDir;
 } else {
   appDir = prepareWorkspace({ sourceDir: repoDir, worktreeDir, log });
+  // The live service applies the ui-cleanup layer before every start
+  // (custom/ui-cleanup/inject.sh in ExecStartPre), so the app under test
+  // does too. Only the HTML step: inject.sh's plugin sync writes to the
+  // shared ~/.claude-code-ui/plugins the live service reads.
+  execFileSync('node', [path.join(repoDir, 'custom', 'ui-cleanup', 'inject-html.mjs'), appDir], { stdio: 'inherit' });
 }
 
 resetRun(paths);

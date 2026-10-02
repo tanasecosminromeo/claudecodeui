@@ -76,6 +76,12 @@ export async function startInstance({ appDir, sourceDir, port, paths, log }) {
     || readDotEnv(appDir, 'CLAUDE_CLI_PATH')
     || (sourceDir ? readDotEnv(sourceDir, 'CLAUDE_CLI_PATH') : undefined);
 
+  // The local speech stack (llama.cpp's stt proxy: Parakeet + Piper), so the
+  // mic and read-aloud scenarios run against the same backend as the live app.
+  const voiceApiBaseUrl = process.env.VOICE_API_BASE_URL
+    || readDotEnv(appDir, 'VOICE_API_BASE_URL')
+    || (sourceDir ? readDotEnv(sourceDir, 'VOICE_API_BASE_URL') : undefined);
+
   const env = {
     NODE_ENV: 'production',
     HOST: '127.0.0.1',
@@ -90,6 +96,7 @@ export async function startInstance({ appDir, sourceDir, port, paths, log }) {
     CLOUDCLI_BG_WAIT_CEILING_MS: process.env.E2E_BG_WAIT_CEILING_MS ?? '20000',
     PATH: process.env.PATH,
     ...(claudeCliPath ? { CLAUDE_CLI_PATH: claudeCliPath } : {}),
+    ...(voiceApiBaseUrl ? { VOICE_API_BASE_URL: voiceApiBaseUrl } : {}),
   };
 
   execFileSync('systemd-run', [

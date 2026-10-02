@@ -30,6 +30,9 @@ const CSS = `
 .cu-ok{background:#10b981}.cu-warn{background:#f59e0b}.cu-bad{background:#ef4444}
 .cu-t-ok{color:#059669}.cu-t-warn{color:#d97706}.cu-t-bad{color:#dc2626}
 .cu-err{color:#dc2626;font-size:11px}
+.cu-def{flex:0 0 auto;font-size:10px;padding:0 5px;opacity:.75}
+.cu-def.cu-on{opacity:1;border-color:hsl(var(--primary));color:hsl(var(--primary))}
+.cu-pause{font-size:10.5px;color:#d97706;margin:-3px 0 6px}
 `;
 
 export function level(pct) {
@@ -113,13 +116,25 @@ function switchButton(doc, a, onSwitch) {
   return btn;
 }
 
-function cardEl(doc, a, onSwitch) {
+function cardEl(doc, a, onSwitch, auto, onDefault) {
   const card = el(doc, 'div', `cu-card${a.active ? ' cu-active' : ''}`);
   const head = el(doc, 'div', 'cu-head');
   head.append(el(doc, 'span', 'cu-num', `#${a.number}`), el(doc, 'span', 'cu-email', a.email || '(no email)'));
+  const isDefault = !!auto && auto.defaultAccount === a.number;
   if (a.active) head.append(el(doc, 'span', 'cu-badge', 'active'));
   else if (onSwitch) head.append(switchButton(doc, a, onSwitch));
+  if (onDefault) {
+    const d = el(doc, 'button', `cu-refresh cu-def${isDefault ? ' cu-on' : ''}`, isDefault ? '★ default' : '☆ default');
+    d.type = 'button';
+    d.title = isDefault ? 'Default account: used until 99% of its 5-hour window, then auto-switches. Click to clear.'
+      : `Make #${a.number} the default account (auto-switches away at 99% of 5 hours, back when it resets)`;
+    d.addEventListener('click', (e) => { e.stopPropagation(); d.disabled = true; onDefault(isDefault ? null : a.number, d); });
+    if (a.active || !onSwitch) d.style.marginLeft = 'auto'; // the badge / switch button already took the auto margin otherwise
+    head.append(d);
+  }
   card.append(head);
+  if (isDefault && auto.pinnedToken) card.append(el(doc, 'div', 'cu-pause', 'Auto-switch off: CLAUDE_CODE_OAUTH_TOKEN is pinned in the service env'));
+  else if (isDefault && auto.paused) card.append(el(doc, 'div', 'cu-pause', auto.paused));
   if (a.organizationName && a.organizationName !== `${a.email}'s Organization`) card.append(el(doc, 'div', 'cu-org', a.organizationName));
   if (a.usageStatus && a.usageStatus !== 'ok') card.append(el(doc, 'div', 'cu-err', `usage: ${a.usageStatus}`));
   card.append(windowEl(doc, '5-hour', a.fiveHour, false), windowEl(doc, '7-day', a.sevenDay, true));
@@ -169,8 +184,9 @@ export function summary(data) {
 }
 
 /** Render the account cards into `container`; fetchData(force) -> Promise<usage>.
- *  switchAccount(number) -> Promise<usage> adds a Switch button to inactive accounts. */
-export function renderUsage(container, { fetchData, switchAccount, onData, pollMs = POLL_MS } = {}) {
+ *  switchAccount(number) -> Promise<usage> adds a Switch button to inactive accounts;
+ *  setDefault(number|null) adds the default-account star (auto-switch, see autoswitch.mjs). */
+export function renderUsage(container, { fetchData, switchAccount, setDefault, onData, pollMs = POLL_MS } = {}) {
   const doc = container.ownerDocument;
   const win = doc.defaultView;
   ensureStyle(doc);
@@ -204,6 +220,16 @@ export function renderUsage(container, { fetchData, switchAccount, onData, pollM
     }
   }
 
+  async function onDefault(number, btn) {
+    try {
+      await setDefault(number);
+      refresh(true);
+    } catch (err) {
+      btn.disabled = false;
+      btn.title = `Could not set the default: ${err.message || err}`;
+    }
+  }
+
   function draw(data) {
     const top = el(doc, 'div', 'cu-top');
     const when = data.fetchedAt ? new Date(data.fetchedAt).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' }) : '';
@@ -213,7 +239,7 @@ export function renderUsage(container, { fetchData, switchAccount, onData, pollM
     btn.addEventListener('click', (e) => { e.stopPropagation(); btn.textContent = '…'; refresh(true); });
     top.append(btn);
     const accounts = [...(data.accounts || [])].sort((x, y) => (y.active - x.active) || (x.number - y.number));
-    const cards = accounts.map((a) => cardEl(doc, a, switchAccount ? onSwitch : null));
+    const cards = accounts.map((a) => cardEl(doc, a, switchAccount ? onSwitch : null, data.auto, setDefault ? onDefault : null));
     if (data.codex) cards.push(codexCardEl(doc, data.codex));
     root.replaceChildren(top, ...cards);
   }
@@ -228,6 +254,7 @@ export function mount(container, api) {
   handle = renderUsage(container, {
     fetchData: (force) => api.rpc('GET', force ? 'usage?refresh=1' : 'usage'),
     switchAccount: (number) => api.rpc('POST', 'switch', { number }),
+    setDefault: (number) => api.rpc('PUT', 'default', { defaultAccount: number }),
   });
 }
 export function unmount() {

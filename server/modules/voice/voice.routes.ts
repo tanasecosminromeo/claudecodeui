@@ -109,5 +109,26 @@ export function createVoiceRouter(dependencies: VoiceRouterDependencies): expres
     Readable.fromWeb(result.value.body).on('error', (error) => response.destroy(error)).pipe(response);
   }));
 
+  // The reply as the speaker would read it, summarised, for the "Summarised"
+  // option under the speaker button.
+  router.post('/summary', asyncHandler(async (request, response) => {
+    const text = request.body?.text;
+    if (typeof text !== 'string' || !text.trim()) {
+      response.status(400).json({ error: 'text required' });
+      return;
+    }
+
+    const result = await dependencies.voiceService.summarizeSpeech({
+      text,
+      overrides: parseVoiceOverrides(request),
+    });
+    if (sendFailure(response, result)) {
+      return;
+    }
+
+    response.setHeader('Cache-Control', 'no-store');
+    response.json(result.value);
+  }));
+
   return router;
 }

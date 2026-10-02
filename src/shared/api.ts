@@ -562,6 +562,7 @@ export const api = {
         body: formData,
       }),
     tts: (text: string, options: ApiRequestOptions = {}) => post('/api/voice/tts', { text }, options),
+    summary: (text: string, options: ApiRequestOptions = {}) => post('/api/voice/summary', { text }, options),
   },
 
   system: {
@@ -636,4 +637,27 @@ export function synthesizeVoice(text: string, signal: AbortSignal): Promise<Resp
   }
 
   return api.voice.tts(text, { headers: voiceConfigHeaders(), signal });
+}
+
+/**
+ * The reply as read aloud, summarised, from the speech backend's
+ * `/audio/speech/summary` (the local Piper service has it; a plain
+ * OpenAI-compatible backend answers 404). Same routing as synthesizeVoice.
+ */
+export function summarizeVoice(text: string, signal: AbortSignal): Promise<Response> {
+  const config = readVoiceConfig();
+
+  if (config.baseUrl.trim()) {
+    return fetch(voiceDirectUrl(config.baseUrl.trim(), '/audio/speech/summary'), {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(config.apiKey ? { Authorization: `Bearer ${config.apiKey}` } : {}),
+      },
+      body: JSON.stringify({ voice: config.ttsVoice || 'alloy', input: text }),
+      signal,
+    });
+  }
+
+  return api.voice.summary(text, { headers: voiceConfigHeaders(), signal });
 }

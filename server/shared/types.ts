@@ -1524,6 +1524,21 @@ export type VoiceService = {
     text: string;
     overrides: VoiceRequestOverrides;
   }): Promise<VoiceServiceResult<VoiceSpeechPayload>>;
+  summarizeSpeech(input: {
+    text: string;
+    overrides: VoiceRequestOverrides;
+  }): Promise<VoiceServiceResult<VoiceSpeechSummary>>;
+};
+
+/**
+ * What a reply is read aloud as, summarised: the local speech stack's
+ * `POST /audio/speech/summary` (llama.cpp's Piper service). `prepared` is
+ * "summary", or "full" when the reply was too short to summarise.
+ */
+export type VoiceSpeechSummary = {
+  text: string;
+  language: string;
+  prepared: string;
 };
 
 // ---------------------------
