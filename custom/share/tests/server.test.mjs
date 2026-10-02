@@ -109,6 +109,17 @@ describe('share server', () => {
     }
   });
 
+  it('sandboxes everything it serves away from the CloudCLI origin', async () => {
+    // Same host as CloudCLI, whose login token lives in localStorage: shared pages
+    // must not run with that origin, or a published page's script could read it.
+    for (const url of [`${base}/`, `${base}/reports/report/index.html`, `${base}/plain/`, `${origin}/nope`]) {
+      const csp = (await get(url)).headers.get('content-security-policy') || '';
+      expect(csp, url).toMatch(/(^|;)\s*sandbox\b/);
+      expect(csp, url).not.toMatch(/allow-same-origin/);
+      expect(csp, url).toMatch(/allow-scripts/);
+    }
+  });
+
   it('answers the same 404 for every way in that is not allowed', async () => {
     const old = readShare('sess-old');
     for (const url of [

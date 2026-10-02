@@ -15,9 +15,12 @@ const TYPES = {
   '.txt': 'text/plain; charset=utf-8', '.md': 'text/plain; charset=utf-8', '.log': 'text/plain; charset=utf-8',
   '.csv': 'text/plain; charset=utf-8', '.woff2': 'font/woff2', '.woff': 'font/woff',
 };
+// The share lives on CloudCLI's own host, whose login token sits in localStorage: the sandbox gives
+// every shared page an opaque origin (scripts still run, but cannot reach that storage or cookies).
 const BASE_HEADERS = {
   'X-Robots-Tag': 'noindex, nofollow', 'Referrer-Policy': 'no-referrer',
   'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff',
+  'Content-Security-Policy': 'sandbox allow-scripts allow-popups allow-popups-to-escape-sandbox allow-forms allow-modals allow-downloads',
 };
 
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
