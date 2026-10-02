@@ -245,9 +245,8 @@ SHARE_PORT      ?= $(or $(shell sed -n 's/^SHARE_PORT=//p' .env 2>/dev/null),300
 SHARE_UNIT      := $(HOME)/.config/systemd/user/claudecodeui-share.service
 share-install: export XDG_RUNTIME_DIR ?= /run/user/$(shell id -u)
 share-install:
-	@mkdir -p $(HOME)/shares $(HOME)/.local/bin $(HOME)/.claude/skills $(dir $(SHARE_UNIT))
-	ln -sfn $(CURDIR)/custom/share/skill $(HOME)/.claude/skills/publish
-	ln -sfn $(CURDIR)/custom/share/share.mjs $(HOME)/.local/bin/share
+	@mkdir -p $(HOME)/shares $(dir $(SHARE_UNIT))
+	@custom/share/install-links.sh
 	sed -e 's#__APP__#$(CURDIR)#g' -e 's#__NODE__#$(shell command -v node)#g' \
 	  custom/share/systemd/claudecodeui-share.service > $(SHARE_UNIT)
 	systemctl --user daemon-reload

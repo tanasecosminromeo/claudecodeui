@@ -22,6 +22,7 @@ copies it into `~/shares/<share_id>/` and answers with a link anyone can open, n
 | `sessions.mjs` | session name / status / last message for `share list --with-sessions` |
 | `server.mjs` | public server on `127.0.0.1:3002`; every refusal is the same plain 404 |
 | `skill/SKILL.md` | the `publish` Claude skill (linked to `~/.claude/skills/publish`) |
+| `install-links.sh` | links the CLI and the skill into `$HOME`; asks before moving a real file or folder aside |
 | `systemd/claudecodeui-share.service` | user unit template (`__APP__`, `__NODE__` filled in at install) |
 
 `share.json` keeps the token, `sessionId`, `projectPath`, `createdAt`, `expiresAt` and one item per
@@ -50,6 +51,8 @@ Settings (environment, or the repo `.env`): `SHARE_BASE_URL` (default
 
 1. In the checkout: `make share-install` (also run by `make service`). It links the CLI and the
    skill, installs and starts `claudecodeui-share.service`, and checks it answers on 127.0.0.1:3002.
+   Links from another checkout are replaced; a real `~/.claude/skills/publish` folder or
+   `~/.local/bin/share` file is only moved aside (`.bak-<timestamp>`) after you answer yes.
    If the machine's public host is not cloudcli.example.com, put `SHARE_BASE_URL=https://<host>`
    in `.env` first.
 2. Tunnel: add an ingress rule **before** the host's existing rule, sending `^/share/` to the share
