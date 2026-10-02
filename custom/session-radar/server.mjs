@@ -5,6 +5,7 @@ import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
+import { machineStats, processDetail, procStartOf, stopSession, transcriptDetail } from './detail.mjs';
 
 const HOME = process.env.HOME || os.homedir();
 const SESSIONS_DIR = path.join(HOME, '.claude', 'sessions');
@@ -41,14 +42,6 @@ function titlesFor(ids) {
 }
 
 // ---- process liveness ----
-function procStartOf(pid) {
-  try {
-    const stat = fs.readFileSync(`/proc/${pid}/stat`, 'utf8');
-    // field 22 (starttime); comm (field 2) may contain spaces, so split after ')'
-    return stat.slice(stat.lastIndexOf(')') + 2).split(' ')[19];
-  } catch { return null; }
-}
-
 function childrenOf(pid) {
   try {
     const tasks = fs.readdirSync(`/proc/${pid}/task`);
@@ -105,6 +98,21 @@ function cwdFromTranscript(file) {
   } catch { return null; }
 }
 
+// ---- live-process detail ----
+function liveDetail(s, transcript) {
+  let rssKb = 0; let procs = 0; const commands = [];
+  for (const pid of s.pids) {
+    const d = processDetail(pid);
+    rssKb += d.rssKb; procs += d.procs; commands.push(...d.commands);
+  }
+  const t = transcriptDetail(transcript && transcript.file) || {};
+  return {
+    rssMb: Math.round(rssKb / 1024), procs, commands: commands.slice(0, 5),
+    agents: t.agents || 0, model: t.model || null, branch: t.branch || null,
+    mode: t.mode || null, contextTokens: t.contextTokens || null,
+  };
+}
+
 // ---- main query ----
 function listSessions() {
   const now = Date.now();
@@ -122,6 +130,7 @@ function listSessions() {
     const s = bySession.get(d.sessionId) || {
       sessionId: d.sessionId, cwd: d.cwd, name: d.name || null, entrypoint: d.entrypoint || null,
       state: 'ended', waitingFor: null, pids: [], tasks: 0, statusAt: 0, live: true,
+      startedAt: d.startedAt || null, version: d.version || null,
     };
     s.pids.push(d.pid);
     s.tasks += shellTasksOf(d.pid);
@@ -145,23 +154,25 @@ function listSessions() {
   const out = [];
   for (const s of bySession.values()) {
     const row = titles.get(s.sessionId);
-    if (row && row.archived) continue;
+    if (row && row.archived && !s.live) continue; // a running process is never hidden
     // "last message" = last transcript write; fall back to the status timestamp
     s.lastMessage = s.transcriptAt || s.statusAt || null;
     s.lastActivity = Math.max(s.statusAt || 0, s.transcriptAt || 0) || null;
     const recent = s.lastActivity && now - s.lastActivity <= RECENT_MS;
-    s.active = s.state === 'waiting' || s.state === 'busy' || s.tasks > 0 || !!recent;
+    s.active = s.live || s.state === 'waiting' || s.state === 'busy' || s.tasks > 0 || !!recent;
     if (!s.active) continue;
     s.title = (row && row.name && row.name.trim()) || s.name || s.sessionId.slice(0, 8);
     s.appSessionId = (row && row.id) || s.sessionId; // what CloudCLI routes on (/session/<id>)
     s.project = (row && row.projectName) || (s.cwd ? path.basename(s.cwd) : null);
+    s.archived = Boolean(row && row.archived);
+    if (s.live) Object.assign(s, liveDetail(s, transcripts.get(s.sessionId)));
     delete s.statusAt; delete s.transcriptAt;
     out.push(s);
   }
 
   // Needs you > running > idle > ended; within a group, most recent message first.
   out.sort((a, b) => (STATE_RANK[a.state] - STATE_RANK[b.state]) || ((b.lastMessage || 0) - (a.lastMessage || 0)));
-  return { now, sessions: out };
+  return { now, machine: machineStats(), sessions: out };
 }
 
 const server = http.createServer((req, res) => {
@@ -172,6 +183,22 @@ const server = http.createServer((req, res) => {
     catch (err) { res.writeHead(500, { 'content-type': 'application/json' }); res.end(JSON.stringify({ error: String(err) })); return; }
     res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' });
     res.end(body);
+    return;
+  }
+  if (req.method === 'POST' && url.pathname === '/stop') {
+    let raw = '';
+    req.on('data', (c) => { raw += c; if (raw.length > 4096) req.destroy(); });
+    req.on('end', () => {
+      let sessionId = null;
+      try { sessionId = JSON.parse(raw).sessionId; } catch { /* bad body */ }
+      const send = (code, obj) => { res.writeHead(code, { 'content-type': 'application/json' }); res.end(JSON.stringify(obj)); };
+      if (typeof sessionId !== 'string' || !sessionId) return send(400, { error: 'sessionId required' });
+      try {
+        const pids = stopSession(sessionId, SESSIONS_DIR);
+        if (pids.length === 0) return send(404, { error: 'no live process for that session' });
+        send(200, { stopped: pids });
+      } catch (err) { send(500, { error: String(err) }); }
+    });
     return;
   }
   res.writeHead(404, { 'content-type': 'application/json' });

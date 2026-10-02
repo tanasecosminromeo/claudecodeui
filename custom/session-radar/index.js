@@ -20,6 +20,12 @@ const CSS = `
 .sr-title{font-size:12px;line-height:1.35;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .sr-waiting .sr-title{font-weight:600}
 .sr-meta{margin-top:1px;font-size:10.5px;line-height:1.3;color:hsl(var(--muted-foreground));white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sr-summary{display:flex;align-items:center;gap:10px;padding:2px 12px 4px;font-size:11px;font-variant-numeric:tabular-nums;color:hsl(var(--muted-foreground));white-space:nowrap;overflow:hidden}
+.sr-stat{display:inline-flex;align-items:center;gap:3px;flex:0 0 auto}
+.sr-stat svg{width:12px;height:12px;flex:0 0 auto;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.sr-stat.sr-warn{color:#d97706;font-weight:600}
+.sr-head.sr-toggle{width:100%;border:0;background:none;cursor:pointer;font-family:inherit}
+.sr-head.sr-toggle:hover{background:hsl(var(--accent))}
 .sr-flag{color:#d97706;font-weight:600}
 .sr-more{position:absolute;right:4px;top:4px;width:22px;height:22px;display:flex;align-items:center;justify-content:center;border:0;background:none;color:hsl(var(--muted-foreground));cursor:pointer;opacity:0;font:600 14px/1 system-ui}
 .sr-row:hover .sr-more,.sr-row:focus-within .sr-more,.sr-row.sr-menu-open .sr-more{opacity:1}
@@ -93,6 +99,38 @@ function ago(ms, now) {
   return h < 48 ? `${h}h` : `${Math.round(h / 24)}d`;
 }
 
+const SVG_NS = 'http://www.w3.org/2000/svg';
+// Lucide-style 24px stroke paths.
+const ICONS = {
+  live: 'M22 12h-4l-3 9L9 3l-3 9H2',
+  alert: 'M12 9v4 M12 17h.01 M10.3 3.9L1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z',
+  claude: 'M6 19v-3 M10 19v-3 M14 19v-3 M18 19v-3 M2 15h20 M2 7a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2z',
+  task: 'M4 17l6-6-6-6 M12 19h8',
+  agent: 'M12 8V4H8 M4 8h16v12H4z M2 14h2 M20 14h2 M15 13v2 M9 13v2',
+  ram: 'M2 6h20v5H2z M2 13h20v5H2z M6 8.5h.01 M6 15.5h.01',
+  load: 'M4 4h16v16H4z M9 9h6v6H9z M9 1v3 M15 1v3 M9 20v3 M15 20v3 M20 9h3 M20 14h3 M1 9h3 M1 14h3',
+};
+const ENDED_KEY = 'session-radar-ended-open';
+
+function fmtMem(mb) { return mb >= 1024 ? `${(mb / 1024).toFixed(1)} GB` : `${mb} MB`; }
+function fmtTokens(n) { return n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : `${Math.round(n / 1e3)}k`; }
+function shortModel(m) { return m ? m.replace(/^claude-/, '').replace(/-\d{8}$/, '') : null; }
+
+function rowTitle(s, now) {
+  const lines = [s.title, s.cwd || '', `session ${s.sessionId}`];
+  if (!s.live) return lines.filter(Boolean).join('\n');
+  lines.push(`pid ${s.pids.join(', ')}${s.entrypoint ? ` · ${s.entrypoint}` : ''}${s.version ? ` · v${s.version}` : ''}`);
+  if (s.startedAt) lines.push(`up ${ago(s.startedAt, now).replace('now', '<1m')}`);
+  if (s.rssMb != null) lines.push(`memory ${fmtMem(s.rssMb)} across ${s.procs} process${s.procs === 1 ? '' : 'es'}`);
+  const cfg = [shortModel(s.model), s.mode, s.branch].filter(Boolean).join(' · ');
+  if (cfg) lines.push(cfg);
+  if (s.contextTokens) lines.push(`context ${fmtTokens(s.contextTokens)} tokens`);
+  if (s.agents) lines.push(`${s.agents} agent${s.agents === 1 ? '' : 's'} running`);
+  for (const c of s.commands || []) lines.push(`running: ${c}`);
+  if (s.archived) lines.push('archived in CloudCLI');
+  return lines.filter(Boolean).join('\n');
+}
+
 const STATE_LABEL = { waiting: 'needs you', busy: 'working', idle: 'idle', ended: 'ended' };
 
 function rowEl(doc, s, now, currentId, onOpen, onMenu) {
@@ -101,7 +139,7 @@ function rowEl(doc, s, now, currentId, onOpen, onMenu) {
   row.className = `sr-row sr-${s.state}${appId === currentId || s.sessionId === currentId ? ' sr-current' : ''}`;
   row.tabIndex = 0;
   row.setAttribute('role', 'button');
-  row.title = `${s.title}\n${s.cwd || ''}\n${s.sessionId}`;
+  row.title = rowTitle(s, now);
   row.dataset.sid = s.sessionId;
   const dot = doc.createElement('span'); dot.className = 'sr-dot';
   const main = doc.createElement('span'); main.className = 'sr-main';
@@ -111,6 +149,10 @@ function rowEl(doc, s, now, currentId, onOpen, onMenu) {
   if (s.project) parts.push(s.project);
   parts.push(ago(s.lastMessage || s.lastActivity, now));
   if (s.tasks > 0) parts.push(`${s.tasks} task${s.tasks > 1 ? 's' : ''} running`);
+  if (s.agents > 0) parts.push(`${s.agents} agent${s.agents > 1 ? 's' : ''}`);
+  if (s.live && s.rssMb != null) parts.push(fmtMem(s.rssMb));
+  if (s.live && s.branch) parts.push(s.branch);
+  if (s.archived) parts.push('archived');
   if (s.state === 'waiting') {
     const flag = doc.createElement('span'); flag.className = 'sr-flag';
     flag.textContent = s.waitingFor ? `waiting: ${s.waitingFor}` : 'needs you';
@@ -147,9 +189,9 @@ export function openSession(sessionId, win = window) {
 
 /**
  * Render a live-updating session list into `container`.
- * fetchData(): Promise<{now, sessions}>; returns { destroy, refresh }.
+ * fetchData(): Promise<{now, machine, sessions}>; stopSession(sessionId) kills a live session's process; returns { destroy, refresh }.
  */
-export function renderRadar(container, { fetchData, onOpen = (id) => openSession(id) } = {}) {
+export function renderRadar(container, { fetchData, stopSession, onOpen = (id) => openSession(id) } = {}) {
   const doc = container.ownerDocument;
   const win = doc.defaultView;
   ensureStyle(doc);
@@ -264,6 +306,22 @@ export function renderRadar(container, { fetchData, onOpen = (id) => openSession
         if (id) onOpen(id);
       }),
     });
+    if (s.live && stopSession) {
+      sep();
+      let stopArmed = false;
+      item('Stop session (kill process)', {
+        hint: `Sends SIGTERM to pid ${s.pids.join(', ')}; the transcript is kept`,
+        danger: true,
+        onClick: (b) => {
+          if (!stopArmed) {
+            stopArmed = true;
+            b.firstChild.textContent = 'Click again to stop it now';
+            return;
+          }
+          runAction('Stop', () => stopSession(s.sessionId));
+        },
+      });
+    }
     sep();
     item('Archive session', {
       hint: liveHint || 'Hide it; history is kept',
@@ -309,7 +367,7 @@ export function renderRadar(container, { fetchData, onOpen = (id) => openSession
       const data = await fetchData();
       if (dead) return;
       if (busyUi || menu) return; // don't yank the row out from under an open menu/rename
-      const json = JSON.stringify(data.sessions) + currentSessionId(win);
+      const json = JSON.stringify([data.machine, data.sessions]) + currentSessionId(win) + endedOpen();
       if (json === lastJson) return; // nothing changed: keep DOM (and hover) stable
       lastJson = json;
       draw(data);
@@ -322,8 +380,13 @@ export function renderRadar(container, { fetchData, onOpen = (id) => openSession
     }
   }
 
+  function endedOpen() {
+    try { return win.localStorage.getItem(ENDED_KEY); } catch { return null; }
+  }
+
   function section(label, count) {
-    const h = doc.createElement('div');
+    const h = doc.createElement(label.includes('Ended') ? 'button' : 'div');
+    if (h.tagName === 'BUTTON') h.type = 'button';
     h.className = 'sr-head';
     h.append(doc.createTextNode(label));
     const c = doc.createElement('b'); c.textContent = String(count);
@@ -338,14 +401,66 @@ export function renderRadar(container, { fetchData, onOpen = (id) => openSession
     ['ended', 'Ended · 24h'],
   ];
 
-  function draw({ now, sessions }) {
+  function draw({ now, machine, sessions }) {
     const cur = currentSessionId(win);
     const nodes = [];
+    const live = sessions.filter((s) => s.live);
+    if (live.length) {
+      const mb = live.reduce((n, s) => n + (s.rssMb || 0), 0);
+      const needs = live.filter((s) => s.state === 'waiting').length;
+      const tasks = live.reduce((n, s) => n + (s.tasks || 0), 0);
+      const agents = live.reduce((n, s) => n + (s.agents || 0), 0);
+      const sum = doc.createElement('div');
+      sum.className = 'sr-summary';
+      const stat = (icon, text, title, cls) => {
+        const el = doc.createElement('span');
+        el.className = `sr-stat${cls ? ` ${cls}` : ''}`;
+        el.title = title;
+        const svg = doc.createElementNS(SVG_NS, 'svg');
+        svg.setAttribute('viewBox', '0 0 24 24');
+        svg.setAttribute('aria-hidden', 'true');
+        const path = doc.createElementNS(SVG_NS, 'path');
+        path.setAttribute('d', ICONS[icon]);
+        svg.append(path);
+        el.append(svg, doc.createTextNode(text));
+        sum.append(el);
+      };
+      stat('live', String(live.length), `${live.length} live Claude session${live.length === 1 ? '' : 's'}`);
+      if (needs) stat('alert', String(needs), `${needs} need${needs === 1 ? 's' : ''} you`, 'sr-warn');
+      stat('claude', fmtMem(mb), 'Memory used by all live Claude sessions (processes and their children)');
+      if (tasks) stat('task', String(tasks), `${tasks} background command${tasks === 1 ? '' : 's'} running`);
+      if (agents) stat('agent', String(agents), `${agents} agent${agents === 1 ? '' : 's'} running`);
+      if (machine && machine.memTotalMb) {
+        const used = machine.memTotalMb - machine.memAvailMb;
+        stat('ram', `${fmtMem(used)}/${fmtMem(machine.memTotalMb)}`, `Machine RAM in use; Claude is ${Math.round((mb / machine.memTotalMb) * 100)}% of it`);
+        stat('load', `${machine.load[0]}/${machine.cpus}`, `Load average (1 min) on ${machine.cpus} CPUs`);
+      }
+      nodes.push(sum);
+    }
     for (const [state, label] of GROUPS) {
       const group = sessions.filter((s) => s.state === state); // server already sorted by last message
       if (group.length === 0) continue;
-      nodes.push(section(label, group.length));
-      group.forEach((s) => nodes.push(rowEl(doc, s, now, cur, onOpen, openMenu)));
+      if (state !== 'ended') {
+        nodes.push(section(label, group.length));
+        group.forEach((s) => nodes.push(rowEl(doc, s, now, cur, onOpen, openMenu)));
+        continue;
+      }
+      // Ended work is history: one click away, collapsed unless asked for.
+      let open = false;
+      try { open = win.localStorage.getItem(ENDED_KEY) === '1'; } catch { /* storage blocked */ }
+      const head = section(`${open ? '▾' : '▸'} ${label}`, group.length);
+      head.classList.add('sr-toggle');
+      head.setAttribute('role', 'button');
+      head.tabIndex = 0;
+      head.setAttribute('aria-expanded', String(open));
+      const toggle = () => {
+        try { win.localStorage.setItem(ENDED_KEY, open ? '0' : '1'); } catch { /* storage blocked */ }
+        forceRefresh();
+      };
+      head.addEventListener('click', toggle);
+      head.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(); } });
+      nodes.push(head);
+      if (open) group.forEach((s) => nodes.push(rowEl(doc, s, now, cur, onOpen, openMenu)));
     }
     if (nodes.length === 0) {
       nodes.push(Object.assign(doc.createElement('div'), { className: 'sr-empty', textContent: 'No Claude sessions active in the last 24 hours.' }));
@@ -375,6 +490,7 @@ let handle = null;
 export function mount(container, api) {
   handle = renderRadar(container, {
     fetchData: () => api.rpc('GET', 'sessions'),
+    stopSession: (sessionId) => api.rpc('POST', 'stop', { sessionId }),
   });
 }
 
