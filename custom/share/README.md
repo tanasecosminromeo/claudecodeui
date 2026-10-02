@@ -60,7 +60,7 @@ Settings (environment, or the repo `.env`): `SHARE_BASE_URL` (default
    TOKEN=<Cloudflare API token with Tunnel edit scope>
    URL=https://api.cloudflare.com/client/v4/accounts/<account-id>/cfd_tunnel/<tunnel-id>/configurations
    curl -s -H "Authorization: Bearer $TOKEN" "$URL" | jq '{config: .result.config}' > /tmp/tunnel.json
-   jq '.config.ingress |= (map(select(.path != "^/share/")) | (index(map(select(.hostname == "cloudcli.example.com"))[0])) as $i
+   jq '.config.ingress |= (map(select(.path != "^/share/")) | (map(.hostname == "cloudcli.example.com") | index(true)) as $i
         | .[:$i] + [{"hostname":"cloudcli.example.com","path":"^/share/","service":"http://localhost:3002"}] + .[$i:])' \
       /tmp/tunnel.json > /tmp/tunnel-new.json
    curl -s -X PUT -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' --data @/tmp/tunnel-new.json "$URL" | jq .success
