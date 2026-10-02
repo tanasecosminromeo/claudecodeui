@@ -96,14 +96,14 @@ export default function WorkspaceTitle({
       </div>
 
       {canArchiveSession && selectedSession && (
-        // One click for the open session — on phones, where the sidebar is a
-        // closed drawer, this is the only one-tap archive.
+        // Phones only (the sidebar row has its own icon on desktop): the sidebar is a
+        // closed drawer there, so this is the only one-tap archive.
         <button
           type="button"
           onClick={() => archiveSession(selectedSession)}
           title={archiveLabel}
           aria-label={`${archiveLabel}: ${getSessionTitle(selectedSession)}`}
-          className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
+          className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 md:hidden"
         >
           <Archive className="h-4 w-4" />
         </button>

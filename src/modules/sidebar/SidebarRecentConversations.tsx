@@ -208,8 +208,8 @@ export default function SidebarRecentConversations({
                       </>
                     ) : age && (
                       <>
-                        <span className="flex-shrink-0 text-muted-foreground/40">·</span>
-                        <time className="flex-shrink-0 tabular-nums" dateTime={conversation.lastActivity ?? undefined}>
+                        <span className="flex-shrink-0 text-muted-foreground/40 transition-opacity group-hover:opacity-0 group-focus-within:opacity-0 group-has-[[aria-expanded=true]]:opacity-0">·</span>
+                        <time className="flex-shrink-0 tabular-nums transition-opacity group-hover:opacity-0 group-focus-within:opacity-0 group-has-[[aria-expanded=true]]:opacity-0" dateTime={conversation.lastActivity ?? undefined}>
                           {age}
                         </time>
                       </>
