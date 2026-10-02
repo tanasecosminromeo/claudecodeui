@@ -52,6 +52,8 @@ scenarios use Haiku); time: about 6 minutes plus the build.
 | `17-crash-survival` | The server SIGKILLed mid-turn (no shutdown handler runs): the process survives, the turn finishes, the session works. |
 | `18-bypass-picked-mid-run` | Bypass picked while a process launched in default runs: the CLI cannot switch, the app approves for the user, the next edit does not ask. |
 | `19-quick-archive-undo` | One click on the sidebar row's archive icon (and on the header's, for the open session) archives on the server, closes the session, drops its row and shows an "Archived …" notice; Undo restores through the server, puts the row back and reopens the session. |
+| `21-read-aloud-romanian` | The speaker button on a Romanian reply plays it (the button turns into Stop), and the MP3 `/api/voice/tts` returns, run back through Parakeet, comes out as the same Romanian words: the local Piper backend picked the Romanian voice by itself. Needs `VOICE_API_BASE_URL` in this checkout's `.env` (the run passes it to the instance) and the llama.cpp `tts` + `stt` services up. |
+| `22-speak-summary` | Hovering the speaker on a long reply shows a "Summarised" menu item; clicking it opens a popover with the summary the speech backend reads long replies as (Gemma, via llama.cpp's `tts` service), shorter than the reply, with its own read-aloud button and a Close button. Needs the llama.cpp `tts`, `stt` and `llama-cpp` services. |
 
 ### Bugs these scenarios found (all fixed)
 

@@ -97,3 +97,33 @@ test('blocks link-local metadata destinations before calling the fetch adapter',
   assert.deepEqual(result, { ok: false, status: 400, error: 'Invalid voice backend URL.' });
   assert.equal(fetchCalls, 0);
 });
+
+test('summarises through the backend summary route and unwraps its errors', async () => {
+  const requests: Array<{ url: string; body: string }> = [];
+  let reply: Response = new Response(JSON.stringify({
+    text: 'Both changes work.', voice: 'en_US-lessac-medium', language: 'en', prepared: 'summary',
+  }), { status: 200 });
+  const service = createVoiceService({
+    defaults,
+    timeoutMs: 1_000,
+    fetchBackend: async (url, options) => {
+      requests.push({ url, body: String(options.body) });
+      return reply;
+    },
+  });
+
+  const ok = await service.summarizeSpeech({ text: '## Report', overrides: {} });
+  assert.deepEqual(ok, { ok: true, value: { text: 'Both changes work.', language: 'en', prepared: 'summary' } });
+  assert.equal(requests[0].url, 'https://voice.example/v1/audio/speech/summary');
+  assert.deepEqual(JSON.parse(requests[0].body), { voice: 'alloy', input: '## Report' });
+
+  reply = new Response(JSON.stringify({ error: { code: 400, message: 'nothing to summarise' } }), { status: 400 });
+  assert.deepEqual(await service.summarizeSpeech({ text: 'x', overrides: {} }),
+    { ok: false, status: 400, error: 'nothing to summarise' });
+
+  // A plain OpenAI-compatible backend has no such route.
+  reply = new Response('not found', { status: 404 });
+  const missing = await service.summarizeSpeech({ text: 'x', overrides: {} });
+  assert.equal(missing.ok, false);
+  assert.equal(!missing.ok && missing.status, 501);
+});

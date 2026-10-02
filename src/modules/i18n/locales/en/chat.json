@@ -109,7 +109,13 @@
     "transcribing": "Transcribing…",
     "speak": "Read aloud",
     "stopSpeaking": "Stop",
-    "loading": "Loading…"
+    "loading": "Loading…",
+    "summarised": "Summarised",
+    "summarising": "Summarising…",
+    "summaryTitle": "Summary",
+    "summaryNotShortened": "Short enough to read as is",
+    "readSummary": "Read the summary aloud",
+    "closeSummary": "Close summary"
   },
   "input": {
     "placeholder": "Type / for commands, @ for files, or ask {{provider}} anything...",
