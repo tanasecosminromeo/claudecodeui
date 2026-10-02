@@ -153,3 +153,6 @@ server/**/tests/read-only-roots-fixture-*/
 server/**/tests/file-tree-outside-*/
 custom/e2e/reports/
 public/e2e-reports/
+
+# Specs and plans are tracked here, despite the global ignore
+!docs/superpowers
