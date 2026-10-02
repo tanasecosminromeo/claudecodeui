@@ -5,12 +5,13 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execFile } from 'node:child_process';
 import { readCodexUsage } from './codex.mjs';
+import { createController } from './autoswitch.mjs';
 
 const HOME = process.env.HOME || '';
 const CANDIDATES = [path.join(HOME, '.local/bin/claude-swap'), 'claude-swap'];
 const BIN = CANDIDATES.find((p) => !p.includes('/') || fs.existsSync(p));
-const TTL_MS = 60_000; // claude-swap hits Anthropic's usage endpoint; don't hammer it
-const MIN_REFRESH_MS = 10_000;
+const TTL_MS = Number(process.env.CLAUDE_USAGE_TTL_MS) || 60_000; // claude-swap hits Anthropic's usage endpoint; don't hammer it
+const MIN_REFRESH_MS = process.env.CLAUDE_USAGE_TTL_MS ? 0 : 10_000; // the env override is for tests
 
 let cache = null; // { at, body }
 let inflight = null;
@@ -107,6 +108,15 @@ function readJson(req, limit = 1024) {
   });
 }
 
+const auto = createController({
+  stateDir: process.env.CLAUDE_USAGE_STATE_DIR || path.join(HOME, '.claude-code-ui', 'claude-usage'),
+  getUsage,
+  switchTo: (n) => switchAccount(n),
+  sessionsDir: process.env.CLAUDE_USAGE_SESSIONS_DIR || undefined,
+});
+// the payload carries the controller's view so the UI can badge the default and show the pause message
+const withAuto = (body) => ({ ...body, auto: auto.status() });
+
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, 'http://x');
   if (req.method === 'POST' && url.pathname === '/switch') {
@@ -114,18 +124,47 @@ const server = http.createServer(async (req, res) => {
       const body = await readJson(req);
       const usage = await switchAccount(body.number);
       res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' });
-      res.end(JSON.stringify(usage));
+      res.end(JSON.stringify(withAuto(usage)));
     } catch (err) {
       res.writeHead(err.status || 502, { 'content-type': 'application/json' });
       res.end(JSON.stringify({ error: String(err.message || err) }));
     }
     return;
   }
+  if (url.pathname === '/default' && (req.method === 'PUT' || req.method === 'GET')) {
+    try {
+      if (req.method === 'PUT') {
+        const body = await readJson(req);
+        const next = {};
+        if ('defaultAccount' in body) {
+          if (body.defaultAccount !== null && !(Number.isInteger(body.defaultAccount) && (await getUsage(false)).accounts.some((a) => a.number === body.defaultAccount))) {
+            throw Object.assign(new Error('unknown account'), { status: 400 });
+          }
+          next.defaultAccount = body.defaultAccount;
+        }
+        if ('enabled' in body) next.enabled = !!body.enabled;
+        auto.setDefault(next);
+        await auto.tick();
+      }
+      res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' });
+      res.end(JSON.stringify(auto.status()));
+    } catch (err) {
+      res.writeHead(err.status || 502, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ error: String(err.message || err) }));
+    }
+    return;
+  }
+  if (req.method === 'GET' && url.pathname === '/autoswitch/log') {
+    res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' });
+    res.end(JSON.stringify(auto.readLog(Math.min(1000, Number(url.searchParams.get('n')) || 200))));
+    return;
+  }
   if (req.method === 'GET' && (url.pathname === '/usage' || url.pathname === '/')) {
     try {
-      const body = await getUsage(url.searchParams.get('refresh') === '1');
+      await getUsage(url.searchParams.get('refresh') === '1');
+      await auto.tick(); // a UI fetch is one of the events that triggers a check
       res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' });
-      res.end(JSON.stringify(body));
+      res.end(JSON.stringify(withAuto(await getUsage(false)))); // re-read: the tick may have switched
     } catch (err) {
       res.writeHead(502, { 'content-type': 'application/json' });
       res.end(JSON.stringify({ error: String(err.message || err), stale: cache ? cache.body : null }));
