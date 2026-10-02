@@ -69,6 +69,22 @@ export function listShares() {
   return ids.map(readShare).filter(Boolean).sort((a, b) => lastPublish(b) - lastPublish(a));
 }
 
+const LOCAL = new Intl.DateTimeFormat('en-GB', {
+  timeZone: 'Europe/Bucharest', year: 'numeric', month: '2-digit', day: '2-digit',
+  hour: '2-digit', minute: '2-digit', hourCycle: 'h23', timeZoneName: 'short',
+});
+/** "2026-10-03 14:27 EEST": the user reads every time in Bucharest local time. */
+export function formatLocal(iso) {
+  const p = Object.fromEntries(LOCAL.formatToParts(new Date(iso)).map((x) => [x.type, x.value]));
+  return `${p.year}-${p.month}-${p.day} ${p.hour}:${p.minute} ${p.timeZoneName}`;
+}
+export function formatLeft(ms) {
+  if (ms <= 0) return 'expired';
+  const mins = Math.round(ms / 60e3);
+  const h = Math.floor(mins / 60);
+  return `in ${h ? `${h}h ` : ''}${mins % 60}m`;
+}
+
 export function isExpired(share, now = Date.now()) { return now >= Date.parse(share.expiresAt); }
 
 const encodePath = (p) => p.split('/').map(encodeURIComponent).join('/');

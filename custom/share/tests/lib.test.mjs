@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
-  expireShare, extendShare, isExpired, itemUrl, listShares, newSeparateId, newToken, parseDuration,
+  expireShare, extendShare, formatLeft, formatLocal, isExpired, itemUrl, listShares, newSeparateId, newToken, parseDuration,
   publish, purge, readShare, resolveInside, shareUrl,
 } from '../lib.mjs';
 
@@ -186,5 +186,18 @@ describe('resolveInside', () => {
     for (const bad of ['../secret', 'd/../../secret', '/etc/passwd', 'link', 'share.json', '.hidden', 'd/.x', 'missing']) {
       expect(resolveInside(root, bad), bad).toBeNull();
     }
+  });
+});
+
+describe('time formatting', () => {
+  it('shows times in Bucharest local time with the zone', () => {
+    expect(formatLocal('2026-10-02T11:27:00Z')).toBe('2026-10-02 14:27 EEST');
+    expect(formatLocal('2026-12-02T11:27:00Z')).toBe('2026-12-02 13:27 EET');
+  });
+  it('rounds the time left without ever printing 60 minutes', () => {
+    expect(formatLeft(24 * H - 20e3)).toBe('in 24h 0m');
+    expect(formatLeft(59.9 * 60e3)).toBe('in 1h 0m');
+    expect(formatLeft(5 * 60e3)).toBe('in 5m');
+    expect(formatLeft(0)).toBe('expired');
   });
 });

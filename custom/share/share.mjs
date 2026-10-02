@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // share: publish files from a Claude session to a public, expiring link. See README.md.
 import {
-  DEFAULT_TTL_MS, expireShare, extendShare, findSession, isExpired, itemUrl, listShares,
+  DEFAULT_TTL_MS, expireShare, extendShare, findSession, formatLeft, formatLocal, isExpired, itemUrl, listShares,
   parseDuration, publish, purge, readShare, shareUrl,
 } from './lib.mjs';
 
@@ -34,20 +34,8 @@ function parseArgs(argv) {
   return { pos, opts };
 }
 
-const fmt = new Intl.DateTimeFormat('en-GB', {
-  timeZone: 'Europe/Bucharest', year: 'numeric', month: '2-digit', day: '2-digit',
-  hour: '2-digit', minute: '2-digit', hourCycle: 'h23', timeZoneName: 'short',
-});
-function local(iso) {
-  const p = Object.fromEntries(fmt.formatToParts(new Date(iso)).map((x) => [x.type, x.value]));
-  return `${p.year}-${p.month}-${p.day} ${p.hour}:${p.minute} ${p.timeZoneName}`;
-}
-function left(iso) {
-  const ms = Date.parse(iso) - Date.now();
-  if (ms <= 0) return 'expired';
-  const h = Math.floor(ms / 3600e3); const m = Math.round((ms % 3600e3) / 60e3);
-  return `in ${h ? `${h}h ` : ''}${m}m`;
-}
+const local = formatLocal;
+const left = (iso) => formatLeft(Date.parse(iso) - Date.now());
 
 function currentSession(opts) {
   if (opts.session) return { sessionId: opts.session, cwd: process.cwd() };

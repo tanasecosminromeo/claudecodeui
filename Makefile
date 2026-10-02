@@ -11,6 +11,7 @@
 #   make deploy    build + restart (after your own changes)
 #   make remote    run a target on another machine over ssh: make remote HOST=dev TARGET=status
 #   make claude-guard  make terminal `claude --resume` ask before opening a session already running elsewhere
+#   make share-install  public artefact links: `share` CLI, `publish` skill, share service (custom/share/)
 #   make e2e       end-to-end tests: an isolated copy of this checkout, real Claude CLI, real browser
 #                  (E2E_ARGS="--only=restart --keep"; see custom/e2e/README.md)
 #
@@ -52,7 +53,7 @@ endif
 
 .DEFAULT_GOAL := help
 .PHONY: help remotes fetch status clean-check update sync install browser build restart deploy upgrade rollback \
-        logs service push test-custom plugins plugins-status verify remote claude-guard e2e
+        logs service push test-custom plugins plugins-status verify remote claude-guard e2e share-install
 
 help:
 	@sed -n '/^$$/q;p' Makefile | sed 's/^# \{0,1\}//'
@@ -225,6 +226,8 @@ service:
 	-launchctl bootout $(LAUNCHD)/$(LABEL) 2>/dev/null; sleep 1
 	launchctl enable $(LAUNCHD)/$(LABEL)
 	launchctl bootstrap $(LAUNCHD) $(PLIST)
+share-install:
+	@echo "share-install: Linux/systemd only for now (custom/share/README.md)"
 else
 logs:
 	journalctl --user -u $(SERVICE) -f -o cat
@@ -234,6 +237,26 @@ service:
 	install -m 644 custom/systemd/$(SERVICE).service $(UNIT)
 	systemctl --user daemon-reload
 	systemctl --user enable $(SERVICE)
+	$(MAKE) --no-print-directory share-install
+
+# Public artefact links (custom/share/README.md): the `share` CLI, the `publish` skill and the
+# share service on 127.0.0.1:$(SHARE_PORT). Idempotent; restarts the share service, never CloudCLI.
+SHARE_PORT      ?= $(or $(shell sed -n 's/^SHARE_PORT=//p' .env 2>/dev/null),3002)
+SHARE_UNIT      := $(HOME)/.config/systemd/user/claudecodeui-share.service
+share-install: export XDG_RUNTIME_DIR ?= /run/user/$(shell id -u)
+share-install:
+	@mkdir -p $(HOME)/shares $(HOME)/.local/bin $(HOME)/.claude/skills $(dir $(SHARE_UNIT))
+	ln -sfn $(CURDIR)/custom/share/skill $(HOME)/.claude/skills/publish
+	ln -sfn $(CURDIR)/custom/share/share.mjs $(HOME)/.local/bin/share
+	sed -e 's#__APP__#$(CURDIR)#g' -e 's#__NODE__#$(shell command -v node)#g' \
+	  custom/share/systemd/claudecodeui-share.service > $(SHARE_UNIT)
+	systemctl --user daemon-reload
+	systemctl --user enable claudecodeui-share
+	systemctl --user restart claudecodeui-share
+	@for i in 1 2 3 4 5 6; do code=$$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:$(SHARE_PORT)/share/x/y/); \
+	  [ "$$code" = 404 ] && break; sleep 1; done; \
+	 [ "$$code" = 404 ] || { echo "share-install: share service not answering on 127.0.0.1:$(SHARE_PORT) (got $$code)"; exit 1; }; \
+	 echo "share-install: share service up on 127.0.0.1:$(SHARE_PORT); skill 'publish' and CLI 'share' linked"
 endif
 
 # Source custom/claude-guard/claude-guard.sh from ~/.zshrc and ~/.bashrc (whichever exist), once.
