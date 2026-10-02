@@ -1,0 +1,13 @@
+{
+  "name": "share-artefacts",
+  "displayName": "Artefacts",
+  "version": "1.0.0",
+  "description": "Everything published with `share publish` (custom/share): public links, expiry, the session each came from.",
+  "author": "homelab",
+  "icon": "icon.svg",
+  "type": "module",
+  "slot": "tab",
+  "entry": "index.js",
+  "server": "server.mjs",
+  "permissions": []
+}

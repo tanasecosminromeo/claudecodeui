@@ -52,11 +52,9 @@
     return btn;
   }
 
-  // ---- Running view -> session-radar list ----
+  // ---- Sidebar views swapped for plugin panels: Running -> session-radar, Conversations -> share-artefacts ----
   const RADAR_PLUGIN = 'session-radar';
-  let radarModule = null; // Promise<module>
-  let radarHandle = null;
-  let radarPanel = null;
+  const ARTEFACTS_PLUGIN = 'share-artefacts';
 
   function authHeaders() {
     let token = null;
@@ -77,7 +75,6 @@
     }
     return pluginModules[name];
   }
-  const loadRadar = () => loadPluginModule(RADAR_PLUGIN);
 
   let sessionsCache = { at: 0, promise: null };
   function fetchSessions() {
@@ -100,6 +97,17 @@
     if (!r.ok) throw new Error(body.error || `HTTP ${r.status}`);
     sessionsCache = { at: 0, promise: null };
     return body;
+  }
+
+  async function artefactsRpc(method, path, body) {
+    const r = await fetch(`/api/plugins/${ARTEFACTS_PLUGIN}/rpc/${path}`, {
+      method,
+      headers: { ...authHeaders(), ...(body ? { 'content-type': 'application/json' } : {}) },
+      body: body ? JSON.stringify(body) : undefined,
+    });
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`);
+    return data;
   }
 
   // ---- Claude plan usage meter (claude-usage plugin) ----
@@ -436,43 +444,64 @@
   }
   addEventListener('popstate', () => setTimeout(renderBadge, 0));
 
-  function syncRunningView(root, header) {
-    const runningActive = !!header.querySelector('button[aria-pressed="true"] svg.lucide-activity');
-    // the project/session list between header and footer (the only flex-1 child)
-    const list = [...root.children].find((el) => el !== header && el !== radarPanel
-      && !el.hasAttribute('data-uic-radar') && el.classList.contains('flex-1'));
+  // The list between header and footer (the only flex-1 child) is hidden while a mode tab with a
+  // plugin panel is pressed, and the panel is mounted in its place.
+  const PANELS = [
+    { attr: 'data-uic-radar', icon: 'lucide-activity', plugin: RADAR_PLUGIN, name: 'Sessions',
+      render: (mod, el) => mod.renderRadar(el, { fetchData: fetchSessions, stopSession }) },
+    { attr: 'data-uic-artefacts', icon: 'lucide-message-square', plugin: ARTEFACTS_PLUGIN, name: 'Artefacts',
+      render: (mod, el) => mod.renderArtefacts(el, {
+        fetchData: () => artefactsRpc('GET', 'artefacts'),
+        extend: (id, by) => artefactsRpc('POST', 'extend', { id, by }),
+        expire: (id) => artefactsRpc('POST', 'expire', { id }),
+        onOpenSession: (id) => goTo({ sessionId: id }),
+      }) },
+  ];
+  const panels = new Map(); // attr -> { el, handle }
+
+  function syncPanels(root, header) {
+    const list = [...root.children].find((el) => el !== header && el.classList.contains('flex-1')
+      && !PANELS.some((p) => el.hasAttribute(p.attr)));
     if (!list) return;
-    if (runningActive) {
-      list.setAttribute('data-uic-hidden', '');
-      if (!radarPanel || !radarPanel.isConnected) {
-        radarPanel = document.createElement('div');
-        radarPanel.setAttribute('data-uic-radar', '');
-        radarPanel.className = 'flex-1 overflow-y-auto overscroll-contain';
-        list.before(radarPanel);
-        const panel = radarPanel;
-        loadRadar()
+    const active = PANELS.find((p) => header.querySelector(`button[aria-pressed="true"] svg.${p.icon}`));
+    for (const p of PANELS) {
+      const cur = panels.get(p.attr);
+      if (p === active) {
+        if (cur && cur.el.isConnected) continue;
+        const entry = { el: document.createElement('div'), handle: null };
+        entry.el.setAttribute(p.attr, '');
+        entry.el.className = 'flex-1 overflow-y-auto overscroll-contain';
+        list.before(entry.el);
+        panels.set(p.attr, entry);
+        loadPluginModule(p.plugin)
           .then((mod) => {
-            if (panel !== radarPanel || !panel.isConnected) return;
-            radarHandle = mod.renderRadar(panel, { fetchData: fetchSessions, stopSession });
+            if (panels.get(p.attr) !== entry || !entry.el.isConnected) return;
+            entry.handle = p.render(mod, entry.el);
           })
-          .catch((err) => { panel.textContent = `Sessions plugin unavailable: ${err.message || err}`; panel.style.padding = '16px'; });
-      }
-    } else {
-      list.removeAttribute('data-uic-hidden');
-      if (radarPanel) {
-        try { radarHandle && radarHandle.destroy(); } catch { /* ignore */ }
-        radarHandle = null;
-        radarPanel.remove();
-        radarPanel = null;
+          .catch((err) => { entry.el.textContent = `${p.name} plugin unavailable: ${err.message || err}`; entry.el.style.padding = '16px'; });
+      } else if (cur) {
+        try { cur.handle && cur.handle.destroy(); } catch { /* ignore */ }
+        cur.el.remove();
+        panels.delete(p.attr);
       }
     }
+    if (active) list.setAttribute('data-uic-hidden', '');
+    else list.removeAttribute('data-uic-hidden');
+  }
+
+  // The Conversations mode tab shows the Artefacts list (see PANELS), so it says so.
+  function relabelConversations(header) {
+    header.querySelectorAll('button svg.lucide-message-square').forEach((svg) => {
+      const label = svg.closest('button').querySelector('span.truncate');
+      if (label && label.textContent !== 'Artefacts') label.textContent = 'Artefacts';
+    });
   }
 
   // ---- Workspace tabs hidden by cleanup.css (Usage, Sessions) ----
   // CSS hides them; the tab bar's arrow keys .click() every [role=tab] button
   // though, so disable them too, and leave one if it was the open tab (a
   // restored last tab, or a link) for Chat.
-  const HIDDEN_TABS = ['Usage', 'Sessions', 'Project Stats'];
+  const HIDDEN_TABS = ['Usage', 'Sessions', 'Artefacts', 'Project Stats'];
 
   function hideWorkspaceTabs() {
     document.querySelectorAll('[role="tablist"] [role="tab"]').forEach((tab) => {
@@ -494,7 +523,8 @@
       const root = footer && footer.parentElement;
       const header = root && root.firstElementChild;
       if (!header || header === footer) return;
-      try { syncRunningView(root, header); } catch (err) { console.warn('[ui-cleanup] running view', err); }
+      try { syncPanels(root, header); } catch (err) { console.warn('[ui-cleanup] sidebar panels', err); }
+      try { relabelConversations(header); } catch (err) { console.warn('[ui-cleanup] artefacts label', err); }
       const settingsBtn = footerSettingsButton();
       const templateSvg = settingsBtn && settingsBtn.querySelector('svg');
       if (!templateSvg) return;

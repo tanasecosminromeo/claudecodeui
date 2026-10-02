@@ -45,16 +45,18 @@ div:has(> a[href*="discord.gg"]:only-child) ~ div:has(svg.lucide-settings) {
 }
 
 /* Workspace tabs of plugins that already live elsewhere: Usage is the header
-   meter, Sessions is the sidebar Running view. The plugins stay enabled (both
-   of those call their servers); cleanup.js also disables the buttons so arrow
-   keys in the tab bar skip them. Project Stats (starter plugin) is just hidden. */
+   meter, Sessions is the sidebar Running view, Artefacts the sidebar
+   Conversations view. The plugins stay enabled (all of those call their
+   servers); cleanup.js also disables the buttons so arrow keys in the tab bar
+   skip them. Project Stats (starter plugin) is just hidden. */
 [role="tablist"] [role="tab"][aria-label="Usage"],
 [role="tablist"] [role="tab"][aria-label="Sessions"],
+[role="tablist"] [role="tab"][aria-label="Artefacts"],
 [role="tablist"] [role="tab"][aria-label="Project Stats"] {
   display: none !important;
 }
 
-/* Running view: the sidebar list is swapped for the session-radar panel (cleanup.js) */
+/* Running / Conversations views: the sidebar list is swapped for a plugin panel (cleanup.js) */
 [data-uic-hidden] {
   display: none !important;
 }
