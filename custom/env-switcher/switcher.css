@@ -2,19 +2,26 @@
    Injected by ui-cleanup/inject-html.mjs when ENV_SWITCHER is set. Uses the app's theme tokens. */
 
 /* ---- Logo chip (drawn with ::after so React's children stay untouched) ---- */
-[data-envsw-logo] { cursor: pointer; }
+[data-envsw-logo] { cursor: pointer; position: relative; }
 [data-envsw-logo]:focus-visible { outline: 2px solid hsl(var(--ring, var(--primary))); outline-offset: 2px; }
+/* Badge on the bottom-right corner of the 28px logo icon */
 [data-envsw-logo]::after {
-  content: attr(data-envsw-label) " \25BE";
-  flex: 0 0 auto;
-  padding: 0 6px;
-  font-size: 10.5px;
-  font-weight: 600;
-  line-height: 17px;
+  content: attr(data-envsw-label);
+  position: absolute;
+  left: calc(1.75rem + 3px);
+  bottom: -3px;
+  transform: translateX(-100%);
+  z-index: 1;
+  padding: 0 3px;
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 12px;
   white-space: nowrap;
+  pointer-events: none;
   color: hsl(var(--muted-foreground));
   background: hsl(var(--muted, var(--background)));
   border: 1px solid hsl(var(--border));
+  border-radius: 4px;
 }
 [data-envsw-logo]:hover::after { color: hsl(var(--foreground)); background: hsl(var(--accent)); }
 [data-envsw-logo][data-envsw-alert]::after {

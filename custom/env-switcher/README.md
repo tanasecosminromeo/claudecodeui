@@ -3,11 +3,11 @@
 Switch between CloudCLI instances (e.g. one per machine, all behind the same Cloudflare Access app) from the
 sidebar logo, without reloading any of them.
 
-- The window you open is **home**. Click the logo (it now shows a small `Name ▾` chip) to get the menu.
+- The window you open is **home**. Click the logo (a small `Name` badge sits on the bottom-right corner of the logo icon) to get the menu.
 - Picking another environment loads it into a full-screen iframe on first use and keeps it alive; switching back
   and forth never reloads either app. `×` in the menu unloads one to free memory, `↗` opens it in a new tab.
 - **Ctrl+Option+1…9** switches directly (works with the sidebar collapsed, and from inside an embedded env).
-- The chip pulses and the menu shows a count when another environment has a session waiting on your input;
+- The badge pulses and the menu shows a count when another environment has a session waiting on your input;
   the tab's favicon pulses for all of them.
 - Works from any configured origin. Opened any other way (e.g. `http://127.0.0.1:8022`), entries open new tabs.
 
@@ -50,8 +50,8 @@ login is invalidated).
 - `switcher.js`: one script, three modes: host (top window, menu and iframes), embedded (inside a host's iframe,
   forwards logo clicks, title, path, needs-input count and Access status via `postMessage`), auth landing
   (`?envsw=auth`, reports back to the opener or returns to `?return=`, which must be a configured origin).
-- `switcher.css`: chip, menu, stage, overlay, banner; uses the app's theme tokens.
+- `switcher.css`: logo badge, menu, stage, overlay, banner; uses the app's theme tokens.
 - `tests/`: `make test-custom`.
 
-If the chip stops appearing after an upstream update, check the logo markup in
+If the badge stops appearing after an upstream update, check the logo markup in
 `src/modules/sidebar/SidebarHeader.tsx` (`LogoBlock`: `div.min-w-0 > [div > svg, h1]`).
