@@ -45,6 +45,18 @@ const CSS = `
 .sr-empty,.sr-error{padding:18px 12px;color:hsl(var(--muted-foreground));font-size:12px}
 .sr-error{color:#dc2626}
 .sr-toast{padding:4px 12px;font-size:11px;color:#dc2626}
+.sr-other .sr-dot{background:hsl(var(--muted-foreground)/.35)}
+.sr-chev{flex:0 0 14px;width:14px;height:14px;margin:1px -4px 0 -6px;border:0;background:none;color:hsl(var(--muted-foreground));font:inherit;font-size:10px;line-height:14px;cursor:pointer;padding:0}
+.sr-chev:hover{color:hsl(var(--foreground))}
+.sr-tree{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:10.5px;padding:0 8px 4px 20px;border-left:2px solid transparent}
+.sr-node{display:flex;gap:6px;align-items:baseline;white-space:nowrap;line-height:17px}
+.sr-node-chev{flex:0 0 10px;width:10px;border:0;background:none;padding:0;color:hsl(var(--muted-foreground));font:inherit;font-size:9px;cursor:pointer}
+.sr-node-pad{flex:0 0 10px}
+.sr-cmd{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis}
+.sr-nmeta{flex:0 0 auto;color:hsl(var(--muted-foreground))}
+.sr-node.sr-dead{opacity:.55}
+.sr-node.sr-fail .sr-nmeta{color:#dc2626;opacity:1}
+.sr-tree-note{padding:2px 0 4px;color:hsl(var(--muted-foreground));white-space:normal}
 @keyframes sr-pulse{50%{box-shadow:0 0 0 5px rgba(245,158,11,.05)}}
 `;
 
@@ -111,10 +123,35 @@ const ICONS = {
   load: 'M4 4h16v16H4z M9 9h6v6H9z M9 1v3 M15 1v3 M9 20v3 M15 20v3 M20 9h3 M20 14h3 M1 9h3 M1 14h3',
 };
 const ENDED_KEY = 'session-radar-ended-open';
+const TREE_KEY = 'session-radar-trees'; // { [sid]: { open: 0|1, opened: [pid], closed: [pid] } }
+const TREE_POLL_MS = 2000;
 
 function fmtMem(mb) { return mb >= 1024 ? `${(mb / 1024).toFixed(1)} GB` : `${mb} MB`; }
 function fmtTokens(n) { return n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : `${Math.round(n / 1e3)}k`; }
 function shortModel(m) { return m ? m.replace(/^claude-/, '').replace(/-\d{8}$/, '') : null; }
+
+function fmtDur(ms) {
+  if (ms < 1000) return `${ms}ms`;
+  if (ms < 60000) return `${(ms / 1000).toFixed(ms < 10000 ? 1 : 0)}s`;
+  const m = Math.floor(ms / 60000);
+  return m < 60 ? `${m}m${Math.round((ms % 60000) / 1000)}s` : `${Math.floor(m / 60)}h${m % 60}m`;
+}
+
+// ---- process-tree nodes (GET /tree) ----
+function nodeTitle(n) {
+  const lines = [`pid ${n.pid}`, n.argv, `started ${new Date(n.startMs).toLocaleTimeString()}`];
+  if (n.live) lines.push(`memory ${fmtMem(Math.round(n.rssKb / 1024))}`);
+  else if (n.endMs) lines.push(`ran ${fmtDur(n.endMs - n.startMs)}, ${n.sig ? `killed by signal ${n.sig}` : `exit ${n.code}`}`);
+  else lines.push('ended (no exit recorded)');
+  return lines.join('\n');
+}
+
+function nodeMeta(n, now) {
+  if (n.live) return n.rssKb ? fmtMem(Math.round(n.rssKb / 1024)) : ago(n.startMs, now);
+  const dur = n.endMs ? fmtDur(n.endMs - n.startMs) : '';
+  const status = n.sig ? `sig ${n.sig}` : n.code ? `exit ${n.code}` : '';
+  return [dur, status].filter(Boolean).join(' · ');
+}
 
 function rowTitle(s, now) {
   const lines = [s.title, s.cwd || '', `session ${s.sessionId}`];
@@ -131,9 +168,10 @@ function rowTitle(s, now) {
   return lines.filter(Boolean).join('\n');
 }
 
-const STATE_LABEL = { waiting: 'needs you', busy: 'working', idle: 'idle', ended: 'ended' };
+const STATE_LABEL = { waiting: 'needs you', busy: 'working', idle: 'idle', other: 'other process', ended: 'ended' };
 
-function rowEl(doc, s, now, currentId, onOpen, onMenu) {
+// tree = { isOpen(sid), toggle(sid) }: the row's chevron for its process tree (live rows only).
+function rowEl(doc, s, now, currentId, onOpen, onMenu, tree) {
   const appId = s.appSessionId || s.sessionId;
   const row = doc.createElement('div');
   row.className = `sr-row sr-${s.state}${appId === currentId || s.sessionId === currentId ? ' sr-current' : ''}`;
@@ -167,8 +205,20 @@ function rowEl(doc, s, now, currentId, onOpen, onMenu) {
   more.textContent = '⋯';
   more.setAttribute('aria-label', `Session options for ${s.title}`);
   more.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); onMenu(s, row, more); });
-  row.append(dot, main, more);
-  const open = (e) => { if (row.querySelector('.sr-rename')) return; e.preventDefault(); onOpen(appId); };
+  row.append(dot, main);
+  if (!s.other) row.append(more); // an unregistered process has no CloudCLI session to act on
+  if (s.live && tree) {
+    const chev = doc.createElement('button');
+    chev.type = 'button';
+    chev.className = 'sr-chev';
+    const isOpen = tree.isOpen(s.sessionId);
+    chev.textContent = isOpen ? '▾' : '▸';
+    chev.setAttribute('aria-expanded', String(isOpen));
+    chev.setAttribute('aria-label', `${isOpen ? 'Hide' : 'Show'} processes of ${s.title}`);
+    chev.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); tree.toggle(s.sessionId); });
+    row.prepend(chev);
+  }
+  const open = (e) => { if (s.other || row.querySelector('.sr-rename')) return; e.preventDefault(); onOpen(appId); };
   row.addEventListener('click', open);
   row.addEventListener('keydown', (e) => { if (e.target === row && (e.key === 'Enter' || e.key === ' ')) open(e); });
   return row;
@@ -189,9 +239,11 @@ export function openSession(sessionId, win = window) {
 
 /**
  * Render a live-updating session list into `container`.
- * fetchData(): Promise<{now, machine, sessions}>; stopSession(sessionId) kills a live session's process; returns { destroy, refresh }.
+ * fetchData(): Promise<{now, machine, sessions}>; stopSession(sessionId) kills a live session's process;
+ * fetchTree(sid): Promise<{now, history, roots, nodes, truncated}> (optional: without it rows have no chevron).
+ * Returns { destroy, refresh }.
  */
-export function renderRadar(container, { fetchData, stopSession, onOpen = (id) => openSession(id) } = {}) {
+export function renderRadar(container, { fetchData, stopSession, fetchTree, onOpen = (id) => openSession(id) } = {}) {
   const doc = container.ownerDocument;
   const win = doc.defaultView;
   ensureStyle(doc);
@@ -218,6 +270,116 @@ export function renderRadar(container, { fetchData, stopSession, onOpen = (id) =
     const t = doc.createElement('div'); t.className = 'sr-toast'; t.textContent = text;
     root.prepend(t);
     win.setTimeout(() => t.remove(), 4000);
+  }
+
+  // ---- process trees (one per expanded live row), polled every TREE_POLL_MS while open ----
+  const trees = new Map(); // sid -> { data, json, timer, error }
+  function treeState() {
+    try { return JSON.parse(win.localStorage.getItem(TREE_KEY) || '{}') || {}; } catch { return {}; }
+  }
+  function saveTreeState(st) { try { win.localStorage.setItem(TREE_KEY, JSON.stringify(st)); } catch { /* storage blocked */ } }
+  function sidState(sid) { const st = treeState(); return st[sid] || { open: 0, opened: [], closed: [] }; }
+  function setSidState(sid, patch) { const st = treeState(); st[sid] = { ...sidState(sid), ...patch }; saveTreeState(st); }
+  const treeApi = {
+    isOpen: (sid) => !!fetchTree && sidState(sid).open === 1,
+    toggle(sid) {
+      const open = !treeApi.isOpen(sid);
+      setSidState(sid, { open: open ? 1 : 0 });
+      if (!open) stopTree(sid);
+      forceRefresh();
+    },
+  };
+  function stopTree(sid) {
+    const t = trees.get(sid);
+    if (t) { win.clearTimeout(t.timer); trees.delete(sid); }
+  }
+  function ensureTree(sid) {
+    if (trees.has(sid) || !fetchTree) return;
+    const t = { data: null, json: '', timer: null, error: null };
+    trees.set(sid, t);
+    const poll = async () => {
+      if (dead || trees.get(sid) !== t) return;
+      try {
+        const data = await fetchTree(sid);
+        if (dead || trees.get(sid) !== t) return;
+        // Redraw when the shape or a shown figure changes (memory in MB), not on every poll.
+        const json = JSON.stringify(data.nodes.map((n) => [n.pid, n.parent, n.argv, n.live, n.endMs, n.code, Math.round(n.rssKb / 1024)]));
+        t.error = null;
+        if (json !== t.json) { t.json = json; t.data = data; drawTrees(sid); }
+      } catch (err) {
+        if (dead || trees.get(sid) !== t) return;
+        t.error = err.message || String(err); t.json = ''; drawTrees(sid);
+      } finally {
+        if (!dead && trees.get(sid) === t) t.timer = win.setTimeout(poll, TREE_POLL_MS);
+      }
+    };
+    poll();
+  }
+  function drawTrees(sid) {
+    root.querySelectorAll('.sr-tree').forEach((el) => { if (el.dataset.sid === sid) fillTree(el, sid); });
+  }
+  function treeEl(sid) {
+    const el = doc.createElement('div');
+    el.className = 'sr-tree';
+    el.dataset.sid = sid;
+    fillTree(el, sid);
+    ensureTree(sid);
+    return el;
+  }
+  function fillTree(el, sid) {
+    const t = trees.get(sid);
+    const note = (text) => Object.assign(doc.createElement('div'), { className: 'sr-tree-note', textContent: text });
+    if (!t || (!t.data && !t.error)) { el.replaceChildren(note('Loading processes…')); return; }
+    if (t.error) { el.replaceChildren(note(`Processes unavailable: ${t.error}`)); return; }
+    const { nodes, history, truncated, now: tnow } = t.data;
+    const st = sidState(sid);
+    const known = new Set(nodes.map((n) => n.pid));
+    const kids = new Map(); // parent pid (null = top) -> children
+    for (const n of nodes) {
+      const key = n.parent != null && known.has(n.parent) ? n.parent : null;
+      if (!kids.has(key)) kids.set(key, []);
+      kids.get(key).push(n);
+    }
+    // Live branches start open, finished ones collapsed; the user's clicks win.
+    const isOpen = (n) => (st.opened.includes(n.pid) ? true : st.closed.includes(n.pid) ? false : n.live);
+    const out = [];
+    const walk = (parentKey, depth) => {
+      for (const n of kids.get(parentKey) || []) {
+        const line = doc.createElement('div');
+        line.className = `sr-node${n.live ? '' : ' sr-dead'}${!n.live && (n.code || n.sig) ? ' sr-fail' : ''}`;
+        line.style.paddingLeft = `${depth * 10}px`;
+        line.title = nodeTitle(n);
+        const children = kids.get(n.pid) || [];
+        if (children.length) {
+          const open = isOpen(n);
+          const c = doc.createElement('button');
+          c.type = 'button'; c.className = 'sr-node-chev'; c.textContent = open ? '▾' : '▸';
+          c.setAttribute('aria-expanded', String(open));
+          c.setAttribute('aria-label', `${open ? 'Collapse' : 'Expand'} ${n.cmd}`);
+          c.addEventListener('click', (e) => {
+            e.preventDefault(); e.stopPropagation();
+            const s = sidState(sid);
+            const opened = s.opened.filter((p) => p !== n.pid); const closed = s.closed.filter((p) => p !== n.pid);
+            if (open) closed.push(n.pid); else opened.push(n.pid);
+            setSidState(sid, { opened, closed });
+            fillTree(el, sid);
+          });
+          line.append(c);
+        } else {
+          line.append(Object.assign(doc.createElement('span'), { className: 'sr-node-pad' }));
+        }
+        line.append(
+          Object.assign(doc.createElement('span'), { className: 'sr-cmd', textContent: n.cmd }),
+          Object.assign(doc.createElement('span'), { className: 'sr-nmeta', textContent: nodeMeta(n, tnow || Date.now()) }),
+        );
+        out.push(line);
+        if (children.length && isOpen(n)) walk(n.pid, depth + 1);
+      }
+    };
+    walk(null, 0);
+    if (!history) out.push(note('Command history needs the exec tracer (make exec-tracer)'));
+    if (truncated) out.push(note(`${truncated} older process${truncated === 1 ? '' : 'es'} not shown`));
+    el.replaceChildren(...out);
   }
 
   function startRename(s, row) {
@@ -398,13 +560,19 @@ export function renderRadar(container, { fetchData, stopSession, onOpen = (id) =
     ['waiting', 'Needs you'],
     ['busy', 'Running'],
     ['idle', 'Idle'],
+    ['other', 'Other agent processes'],
     ['ended', 'Ended · 24h'],
   ];
 
   function draw({ now, machine, sessions }) {
     const cur = currentSessionId(win);
     const nodes = [];
-    const live = sessions.filter((s) => s.live);
+    for (const sid of [...trees.keys()]) if (!sessions.some((s) => s.sessionId === sid && s.live)) stopTree(sid);
+    const pushRow = (s) => {
+      nodes.push(rowEl(doc, s, now, cur, onOpen, openMenu, treeApi));
+      if (s.live && treeApi.isOpen(s.sessionId)) nodes.push(treeEl(s.sessionId));
+    };
+    const live = sessions.filter((s) => s.live && !s.other); // the summary is about sessions
     if (live.length) {
       const mb = live.reduce((n, s) => n + (s.rssMb || 0), 0);
       const needs = live.filter((s) => s.state === 'waiting').length;
@@ -442,7 +610,7 @@ export function renderRadar(container, { fetchData, stopSession, onOpen = (id) =
       if (group.length === 0) continue;
       if (state !== 'ended') {
         nodes.push(section(label, group.length));
-        group.forEach((s) => nodes.push(rowEl(doc, s, now, cur, onOpen, openMenu)));
+        group.forEach(pushRow);
         continue;
       }
       // Ended work is history: one click away, collapsed unless asked for.
@@ -460,7 +628,7 @@ export function renderRadar(container, { fetchData, stopSession, onOpen = (id) =
       head.addEventListener('click', toggle);
       head.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(); } });
       nodes.push(head);
-      if (open) group.forEach((s) => nodes.push(rowEl(doc, s, now, cur, onOpen, openMenu)));
+      if (open) group.forEach(pushRow);
     }
     if (nodes.length === 0) {
       nodes.push(Object.assign(doc.createElement('div'), { className: 'sr-empty', textContent: 'No Claude sessions active in the last 24 hours.' }));
@@ -477,6 +645,7 @@ export function renderRadar(container, { fetchData, stopSession, onOpen = (id) =
     destroy() {
       dead = true;
       closeMenu();
+      for (const sid of [...trees.keys()]) stopTree(sid);
       win.clearTimeout(timer);
       win.removeEventListener('popstate', onNav);
       root.remove();
@@ -491,6 +660,7 @@ export function mount(container, api) {
   handle = renderRadar(container, {
     fetchData: () => api.rpc('GET', 'sessions'),
     stopSession: (sessionId) => api.rpc('POST', 'stop', { sessionId }),
+    fetchTree: (sid) => api.rpc('GET', `tree?sid=${encodeURIComponent(sid)}`),
   });
 }
 

@@ -1,0 +1,18 @@
+[Unit]
+Description=Agent exec tracer: logs processes started by claude / claude-swap, one JSONL file per user
+Documentation=file:///usr/local/lib/agent-exec-tracer/README.md
+After=local-fs.target
+
+[Service]
+Type=simple
+Environment=BPFTRACE_MAX_STRLEN=200
+# No ".." trailer on cut arguments (the wrapper re-reads long argv from /proc), room for many tracked pids.
+Environment=BPFTRACE_STR_TRUNC_TRAILER=
+Environment=BPFTRACE_MAX_MAP_KEYS=65536
+ExecStart=/usr/bin/python3 /usr/local/lib/agent-exec-tracer/agent-exec-tracer.py --dir /var/log/agent-exec
+Restart=always
+RestartSec=5
+Nice=5
+
+[Install]
+WantedBy=multi-user.target

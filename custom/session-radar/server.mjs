@@ -6,13 +6,16 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { machineStats, processDetail, procStartOf, stopSession, transcriptDetail } from './detail.mjs';
+import { ExecLog } from './proctree.mjs';
+import { otherAgentRows, treeFor } from './tree-route.mjs';
 
 const HOME = process.env.HOME || os.homedir();
 const SESSIONS_DIR = path.join(HOME, '.claude', 'sessions');
 const PROJECTS_DIR = path.join(HOME, '.claude', 'projects');
 const DB_PATH = path.join(HOME, '.cloudcli', 'auth.db');
 const RECENT_MS = 24 * 60 * 60 * 1000;
-const STATE_RANK = { waiting: 0, busy: 1, idle: 2, ended: 3 };
+const STATE_RANK = { waiting: 0, busy: 1, idle: 2, other: 3, ended: 4 };
+const execLog = new ExecLog(); // the exec tracer's log for this user (custom/exec-tracer), if installed
 
 // ---- CloudCLI titles (optional; node:sqlite is built into Node >= 22.5) ----
 let db = null;
@@ -170,7 +173,11 @@ function listSessions() {
     out.push(s);
   }
 
-  // Needs you > running > idle > ended; within a group, most recent message first.
+  // claude / claude-swap processes with no status file (VS Code extension, --chrome-native-host).
+  const registered = new Set(out.flatMap((s) => s.pids || []));
+  out.push(...otherAgentRows(registered, process.getuid()));
+
+  // Needs you > running > idle > other > ended; within a group, most recent message first.
   out.sort((a, b) => (STATE_RANK[a.state] - STATE_RANK[b.state]) || ((b.lastMessage || 0) - (a.lastMessage || 0)));
   return { now, machine: machineStats(), sessions: out };
 }
@@ -183,6 +190,14 @@ const server = http.createServer((req, res) => {
     catch (err) { res.writeHead(500, { 'content-type': 'application/json' }); res.end(JSON.stringify({ error: String(err) })); return; }
     res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' });
     res.end(body);
+    return;
+  }
+  if (req.method === 'GET' && url.pathname === '/tree') {
+    let r;
+    try { r = treeFor(url.searchParams.get('sid'), { sessionsDir: SESSIONS_DIR, execLog, uid: process.getuid() }); }
+    catch (err) { r = { status: 500, body: { error: String(err) } }; }
+    res.writeHead(r.status, { 'content-type': 'application/json', 'cache-control': 'no-store' });
+    res.end(JSON.stringify(r.body));
     return;
   }
   if (req.method === 'POST' && url.pathname === '/stop') {
@@ -209,4 +224,10 @@ server.listen(0, '127.0.0.1', () => {
   console.log(JSON.stringify({ ready: true, port: server.address().port }));
 });
 
-if (process.argv.includes('--dump')) { console.log(JSON.stringify(listSessions(), null, 1)); process.exit(0); }
+// --dump prints the session list; --dump <session id | pid:N> the tree of one session.
+if (process.argv.includes('--dump')) {
+  const sid = process.argv[process.argv.indexOf('--dump') + 1];
+  const out = sid && !sid.startsWith('-') ? treeFor(sid, { sessionsDir: SESSIONS_DIR, execLog, uid: process.getuid() }) : listSessions();
+  console.log(JSON.stringify(out, null, 1));
+  process.exit(0);
+}

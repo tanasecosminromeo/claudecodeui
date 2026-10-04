@@ -99,6 +99,13 @@
     return body;
   }
 
+  async function fetchTree(sid) {
+    const r = await fetch(`/api/plugins/${RADAR_PLUGIN}/rpc/tree?sid=${encodeURIComponent(sid)}`, { headers: authHeaders() });
+    const body = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(body.error || `HTTP ${r.status}`);
+    return body;
+  }
+
   async function artefactsRpc(method, path, body) {
     const r = await fetch(`/api/plugins/${ARTEFACTS_PLUGIN}/rpc/${path}`, {
       method,
@@ -448,7 +455,7 @@
   // plugin panel is pressed, and the panel is mounted in its place.
   const PANELS = [
     { attr: 'data-uic-radar', icon: 'lucide-activity', plugin: RADAR_PLUGIN, name: 'Sessions',
-      render: (mod, el) => mod.renderRadar(el, { fetchData: fetchSessions, stopSession }) },
+      render: (mod, el) => mod.renderRadar(el, { fetchData: fetchSessions, stopSession, fetchTree }) },
     { attr: 'data-uic-artefacts', icon: 'lucide-message-square', plugin: ARTEFACTS_PLUGIN, name: 'Artefacts',
       render: (mod, el) => mod.renderArtefacts(el, {
         fetchData: () => artefactsRpc('GET', 'artefacts'),

@@ -42,7 +42,8 @@ export function shellCommand(cmdline) {
   const i = args.indexOf('-c');
   const script = (i >= 0 ? args[i + 1] : args.join(' ')) || '';
   const eva = script.match(/eval '?"?(.*)$/s);
-  const cmd = (eva ? eva[1] : script).split('\n')[0].replace(/\s+/g, ' ').replace(/< \/dev\/null.*$/, '').trim();
+  // The wrapper quotes the command (eval '...'); drop the closing quote that is left after the cut.
+  const cmd = (eva ? eva[1] : script).split('\n')[0].replace(/\s+/g, ' ').replace(/< \/dev\/null.*$/, '').trim().replace(/['"]$/, '');
   return cmd.slice(0, 80);
 }
 
