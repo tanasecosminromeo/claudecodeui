@@ -131,6 +131,23 @@ describe('process tree', () => {
     expect(el.querySelector('.sr-tree[data-sid="a"]')).toBeNull();
   });
 
+  it('refreshes a live node\'s memory on the next poll', async () => {
+    let polls = 0;
+    const el = document.createElement('div');
+    document.body.append(el);
+    handle = renderRadar(el, {
+      fetchData: async () => ({ now, sessions, machine: { cpus: 8, load: [0.5, 0.4, 0.3], memTotalMb: 16384, memAvailMb: 8192 } }),
+      stopSession,
+      fetchTree: async () => ({ ...tree, nodes: [{ ...tree.nodes[0], rssKb: ++polls === 1 ? 204800 : 409600 }] }),
+    });
+    await new Promise((r) => setTimeout(r, 20));
+    el.querySelector('.sr-row.sr-busy .sr-chev').click();
+    await new Promise((r) => setTimeout(r, 20));
+    expect(el.querySelector('.sr-tree .sr-nmeta').textContent).toBe('200 MB');
+    await new Promise((r) => setTimeout(r, 2200));
+    expect(el.querySelector('.sr-tree .sr-nmeta').textContent).toBe('400 MB');
+  }, 5000);
+
   it('says when history is unavailable', async () => {
     const el = await mountTree({ ...tree, history: false, nodes: tree.nodes.filter((n) => n.live) });
     el.querySelector('.sr-row.sr-busy .sr-chev').click();

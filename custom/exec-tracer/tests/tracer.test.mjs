@@ -51,3 +51,16 @@ test('rotates the file past the byte cap', () => {
   expect(fs.existsSync(path.join(dir, '1000.jsonl.1'))).toBe(true);
   expect(fs.statSync(path.join(dir, '1000.jsonl')).size).toBeLessThan(1200);
 });
+
+test('takes the full argv from /proc while the process is alive, keeping the cut argv as a fallback', async () => {
+  const { spawn } = await import('node:child_process');
+  const child = spawn('sleep', ['30']);
+  await new Promise((r) => setTimeout(r, 50));
+  const dir = run([
+    `A ${child.pid} 0 sleep`, `X ${child.pid} 1 1000 1 1 1`, // bpftrace saw only "sleep" (cut), /proc has "sleep 30"
+    `A ${child.pid} 0 other`, `X ${child.pid} 1 1000 1 1 1`, // argv[0] differs: /proc is some other process now
+    'A 4000000 0 ls', 'A 4000000 1 -la', 'X 4000000 1 1000 1 1 2', // gone already: fallback
+  ]);
+  child.kill();
+  expect(read(dir, 1000).map((r) => r.argv)).toEqual(['sleep 30', 'other', 'ls -la']);
+});

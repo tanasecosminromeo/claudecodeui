@@ -129,3 +129,22 @@ test('ExecLog reads only records of its uid file, incrementally, and null when m
   expect(log.records().map((r) => r.pid)).toEqual([1, 1, 2]);
   fs.rmSync(dir, { recursive: true });
 });
+
+test('commandLabel is honest about a Bash-tool wrapper whose command was cut off', () => {
+  const cut = '/usr/bin/zsh -c source /tmp/test-home/.claude/shell-snapshots/snapshot-zsh-1.sh || true && setopt NO_EXTENDED_GLOB && { \\builtin unalias -- x; }';
+  expect(commandLabel(cut)).toBe('zsh (Bash tool, command cut)');
+});
+
+test('ExecLog keeps records appended to the old file before a rotation it did not see', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'execlog-'));
+  const file = path.join(dir, '1000.jsonl');
+  const now = Date.now();
+  fs.writeFileSync(file, JSON.stringify({ ts: now, ev: 'exec', pid: 1 }) + '\n');
+  const log = new ExecLog(dir, 1000);
+  expect(log.records()).toHaveLength(1);
+  fs.appendFileSync(file, JSON.stringify({ ts: now, ev: 'exit', pid: 1 }) + '\n'); // not read yet
+  fs.renameSync(file, file + '.1');
+  fs.writeFileSync(file, JSON.stringify({ ts: now, ev: 'exec', pid: 2 }) + '\n');
+  expect(log.records().map((r) => `${r.ev}:${r.pid}`)).toEqual(['exec:1', 'exit:1', 'exec:2']);
+  fs.rmSync(dir, { recursive: true });
+});

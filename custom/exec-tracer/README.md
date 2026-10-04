@@ -19,9 +19,14 @@ Record shapes:
 
 `root` = pid of the nearest claude/claude-swap ancestor; `lparent` = nearest ancestor that is itself
 logged (or root), so a child of a forked-but-never-exec'd subshell still attaches to the tree.
-`ts` is wall-clock milliseconds stamped by the wrapper when it reads the line. Each argument is cut
-at 200 bytes and at most 12 arguments are kept; an argument containing a newline breaks its line and
-is dropped. Linux only (bpftrace, BTF); the macOS instance shows live trees without history.
+`ts` is wall-clock milliseconds stamped by the wrapper when it reads the line. bpftrace cuts each
+argument at 200 bytes (too short for the Bash tool's wrapper shell, whose `-c` script carries a
+264-byte preamble before the command) and keeps at most 12 arguments, so the wrapper re-reads
+`/proc/<pid>/cmdline` as root while the process is still alive and uses that when its argv[0] matches;
+the cut argv is the fallback for processes gone within milliseconds. An argument containing a newline
+keeps its first line only. The hook is `sys_enter_execve`, so a failed exec (an `execvp` PATH walk
+tries one `execve` per directory) is logged as well; same-pid records merge into one node in the tree.
+Linux only (bpftrace, BTF); the macOS instance shows live trees without history.
 
 The parser is tested without root by `tests/tracer.test.mjs` (`make test-custom`), which feeds
 bpftrace-format lines to `agent-exec-tracer.py --stdin --dir <tmp>`.

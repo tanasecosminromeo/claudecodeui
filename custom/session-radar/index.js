@@ -302,7 +302,8 @@ export function renderRadar(container, { fetchData, stopSession, fetchTree, onOp
       try {
         const data = await fetchTree(sid);
         if (dead || trees.get(sid) !== t) return;
-        const json = JSON.stringify(data.nodes.map((n) => [n.pid, n.parent, n.argv, n.live, n.endMs, n.code]));
+        // Redraw when the shape or a shown figure changes (memory in MB), not on every poll.
+        const json = JSON.stringify(data.nodes.map((n) => [n.pid, n.parent, n.argv, n.live, n.endMs, n.code, Math.round(n.rssKb / 1024)]));
         t.error = null;
         if (json !== t.json) { t.json = json; t.data = data; drawTrees(sid); }
       } catch (err) {

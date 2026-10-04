@@ -33,10 +33,17 @@ export function procInfo(pid) {
   return { pid, ppid: Number(f[1]), comm, startMs: bootTimeMs() + Math.round((Number(f[19]) / CLK_TCK) * 1000), argv, cmdline };
 }
 
-/** What to show for a process: a Claude shell wrapper shows the command it runs. */
+/**
+ * What to show for a process: a Claude shell wrapper shows the command it runs. A wrapper whose
+ * record was cut before the `eval` (the tracer's per-argument limit) says so instead of showing
+ * the wrapper's preamble.
+ */
 export function commandLabel(argv, cmdline) {
-  const sh = shellCommand(cmdline || argv);
-  return sh || argv;
+  const text = cmdline || argv;
+  if (text.includes('.claude/shell-snapshots/') && !/eval ['"]/.test(text)) {
+    return `${path.basename(argv.split(' ')[0])} (Bash tool, command cut)`;
+  }
+  return shellCommand(text) || argv;
 }
 
 /** The live subtree of rootPid as Node objects (parent = ppid, root = rootPid). */
@@ -112,23 +119,34 @@ export class ExecLog {
     if (this.recs === null) {
       this.recs = parseLogLines(readText(`${this.file}.1`) || '');
     }
-    if (this.ino !== st.ino || st.size < this.offset) { this.offset = 0; this.ino = st.ino; } // rotated: new file from 0
-    if (st.size > this.offset) {
-      const fd = fs.openSync(this.file, 'r');
-      const buf = Buffer.alloc(st.size - this.offset);
-      const n = fs.readSync(fd, buf, 0, buf.length, this.offset);
-      fs.closeSync(fd);
-      const text = buf.toString('utf8', 0, n);
-      const cut = text.lastIndexOf('\n');
-      if (cut >= 0) {
-        const whole = text.slice(0, cut + 1);
-        this.recs.push(...parseLogLines(whole));
-        this.offset += Buffer.byteLength(whole);
-      }
+    if (this.ino !== st.ino || st.size < this.offset) {
+      // Rotated since the last read: the old file is now `.1`; take what it got after our offset,
+      // then start the new file from 0.
+      if (this.ino !== null) this.offset += this.readFrom(`${this.file}.1`, this.offset);
+      this.offset = 0; this.ino = st.ino;
     }
+    if (st.size > this.offset) this.offset += this.readFrom(this.file, this.offset);
     const minTs = Date.now() - KEEP_MS;
     if (this.recs.length && this.recs[0].ts < minTs) this.recs = this.recs.filter((r) => r.ts >= minTs);
     return this.recs;
+  }
+
+  /** Parses the whole lines of `file` from `offset` into recs; returns the bytes consumed. */
+  readFrom(file, offset) {
+    let fd;
+    try { fd = fs.openSync(file, 'r'); } catch { return 0; }
+    try {
+      const size = fs.fstatSync(fd).size;
+      if (size <= offset) return 0;
+      const buf = Buffer.alloc(size - offset);
+      const n = fs.readSync(fd, buf, 0, buf.length, offset);
+      const text = buf.toString('utf8', 0, n);
+      const cut = text.lastIndexOf('\n');
+      if (cut < 0) return 0;
+      const whole = text.slice(0, cut + 1);
+      this.recs.push(...parseLogLines(whole));
+      return Buffer.byteLength(whole);
+    } finally { fs.closeSync(fd); }
   }
 }
 

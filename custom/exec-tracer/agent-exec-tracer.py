@@ -17,6 +17,21 @@ import time
 MAX_BYTES = int(os.environ.get("AGENT_EXEC_MAX_BYTES", str(10 * 1024 * 1024)))
 
 
+def proc_argv(pid, cut):
+    """The full argv from /proc while the process is still alive (bpftrace cuts each argument at
+    BPFTRACE_MAX_STRLEN, shorter than the Bash tool's wrapper script); None when the process is gone
+    or the pid already belongs to another program."""
+    try:
+        with open(f"/proc/{pid}/cmdline", "rb") as fh:
+            raw = fh.read()
+    except OSError:
+        return None
+    argv = [a.decode("utf-8", "replace") for a in raw.split(b"\0") if a]
+    if not argv or not cut or argv[0] != cut[0]:
+        return None
+    return " ".join(argv)
+
+
 class Writer:
     def __init__(self, directory):
         self.dir = directory
@@ -64,7 +79,8 @@ class Parser:
                 argv.append(" ".join(parts[3:]))
             elif kind == "X" and len(parts) == 7:
                 pid, ppid, uid, root, lparent, _n = (int(x) for x in parts[1:])
-                argv = " ".join(self.args.pop(pid, []))
+                cut = self.args.pop(pid, [])
+                argv = proc_argv(pid, cut) or " ".join(cut)
                 self.uid_of[pid] = uid
                 if len(self.uid_of) > 200000:  # exits we never saw (tracer restarted): don't grow forever
                     self.uid_of.clear()

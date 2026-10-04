@@ -21,13 +21,9 @@ export async function run({ chat, page, app, expect, snapshot, log }) {
   // app ids through, so the row is not marked current.
   const row = panel.locator(`.sr-row[title*="${app.project.fullPath}"]:not(.sr-other)`).first();
   await row.waitFor({ timeout: 20000 });
-  for (let attempt = 1; ; attempt++) {
-    await row.locator('.sr-chev').click();
-    const opened = await panel.locator('.sr-tree').first().waitFor({ timeout: 3000 }).then(() => true, () => false);
-    log(`chevron click ${attempt}: expanded=${await row.locator('.sr-chev').getAttribute('aria-expanded')}, tree element=${opened}, storage=${await page.evaluate(() => localStorage.getItem('session-radar-trees'))}`);
-    if (opened) break;
-    expect(attempt < 3, 'the chevron opens the tree within three clicks');
-  }
+  await row.locator('.sr-chev').click();
+  await panel.locator('.sr-tree').first().waitFor({ timeout: 5000 });
+  expect(await row.locator('.sr-chev').getAttribute('aria-expanded') === 'true', 'one click on the chevron opens the tree');
   const node = panel.locator('.sr-tree .sr-node', { hasText: 'tail -f /dev/null' }).first();
   const treeCmds = () => page.evaluate(() => [...document.querySelectorAll('[data-uic-radar] .sr-tree .sr-node, [data-uic-radar] .sr-tree-note')]
     .map((el) => (el.querySelector('.sr-cmd') || el).textContent.slice(0, 50)));
