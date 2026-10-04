@@ -10,6 +10,19 @@ Data sources (all local, read-only):
 - `~/.cloudcli/auth.db` (read-only, `node:sqlite`): titles and the app session id CloudCLI routes on. UI-started chats have an app id different from Claude's id.
 - `detail.mjs`, for live sessions only: memory (`VmRSS`, summed over the process tree), the commands of running Bash-tool children, and from the last 256 KB of the transcript the model, permission mode, git branch, context size and running agents (foreground agents without a result; background agents until their task-notification). Shown as chips in the row and in its tooltip, with a "N live · M GB" summary on top.
 
+- `/var/log/agent-exec/<uid>.jsonl` (written by `../exec-tracer`, optional): every process a session
+  started and its exit. `GET /tree?sid=<claude session id | pid:<n>>` merges it with the live `/proc`
+  subtree (`proctree.mjs`) into one node list (cap 500, newest kept); `history: false` when the tracer
+  is not installed. Debug: `node server.mjs --dump <session id>`.
+
+Each live row in the sidebar Running view has a chevron that expands that tree inline: live processes with
+their memory, finished ones dimmed with duration and exit code, collapsible per node (state remembered in
+localStorage), refreshed every 2 s while open.
+
+Rows in an **Other agent processes** group are `claude` / `claude-swap` processes of this user that
+registered no status file (the VS Code extension, `--chrome-native-host`); they cannot be opened or
+stopped, only expanded.
+
 Stop (kill process) sends SIGTERM to a live session's pid after a second click; only pids from `~/.claude/sessions` whose start time still matches, owned by the same user.
 
 A live process is always listed (even idle for days, or archived in CloudCLI). The "Ended · 24h" group is collapsed by default (remembered in localStorage).
