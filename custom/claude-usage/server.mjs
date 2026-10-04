@@ -37,6 +37,7 @@ function sanitize(raw) {
     active: !!a.active,
     usageStatus: a.usageStatus || null,
     usageFetchedAt: a.usageFetchedAt || null,
+    usageAgeSeconds: typeof a.usageAgeSeconds === 'number' ? a.usageAgeSeconds : null,
     fiveHour: pickWindow(a.usage && a.usage.fiveHour),
     sevenDay: pickWindow(a.usage && a.usage.sevenDay),
     scoped: Array.isArray(a.usage && a.usage.scoped) ? a.usage.scoped.map(pickWindow) : [],

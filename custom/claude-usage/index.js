@@ -126,8 +126,8 @@ function cardEl(doc, a, onSwitch, auto, onDefault) {
   if (onDefault) {
     const d = el(doc, 'button', `cu-refresh cu-def${isDefault ? ' cu-on' : ''}`, isDefault ? '★ default' : '☆ default');
     d.type = 'button';
-    d.title = isDefault ? 'Default account: used until 99% of its 5-hour window, then auto-switches. Click to clear.'
-      : `Make #${a.number} the default account (auto-switches away at 99% of 5 hours, back when it resets)`;
+    d.title = isDefault ? 'Default account: used until 95% of its 5-hour window, then auto-switches. Click to clear.'
+      : `Make #${a.number} the default account (auto-switches away at 95% of 5 hours, back when it resets)`;
     d.addEventListener('click', (e) => { e.stopPropagation(); d.disabled = true; onDefault(isDefault ? null : a.number, d); });
     if (a.active || !onSwitch) d.style.marginLeft = 'auto'; // the badge / switch button already took the auto margin otherwise
     head.append(d);

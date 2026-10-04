@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { createController, decide, pollDelay, readSessions, COOLDOWN_MS } from '../autoswitch.mjs';
+import { createController, decide, findRateLimitHits, limitMatches, localIso, pollDelay, projected5h, readSessions, COOLDOWN_MS } from '../autoswitch.mjs';
 
 const NOW = Date.parse('2026-10-01T12:00:00Z');
 const acc = (number, five, seven, extra = {}) => ({
@@ -20,12 +20,12 @@ describe('decide', () => {
     expect(run(on([acc(1, 99.5, 10), acc(2, 0, 0)], 1), { defaultNumber: null }).action).toBe('none');
     expect(run(on([acc(1, 99.5, 10), acc(2, 0, 0)], 1), { enabled: false }).action).toBe('none');
   });
-  it('leaves the default at 99% for the fallback with most headroom', () => {
-    const d = run(on([acc(1, 99, 10), acc(2, 40, 10), acc(3, 5, 10)], 1));
+  it('leaves the default at 95% for the fallback with most headroom', () => {
+    const d = run(on([acc(1, 95, 10), acc(2, 40, 10), acc(3, 5, 10)], 1));
     expect(d).toMatchObject({ action: 'switch', to: 3, reason: 'default at 5h limit' });
   });
-  it('stays put below 99%', () => {
-    expect(run(on([acc(1, 98.9, 10), acc(2, 0, 0)], 1)).action).toBe('none');
+  it('stays put below 95%', () => {
+    expect(run(on([acc(1, 94.9, 10), acc(2, 0, 0)], 1)).action).toBe('none');
   });
   it('skips targets that are exhausted, 7d-heavy, disabled or API-key; blocks when none is left', () => {
     const list = on([acc(1, 99, 10), acc(2, 0, 96), acc(3, 0, 0, { disabled: true }), acc(4, 0, 0, { apiKey: true }), acc(5, 99, 0)], 1);
@@ -55,13 +55,59 @@ describe('decide', () => {
   });
 });
 
-describe('pollDelay: quiet unless there is activity', () => {
+describe('pollDelay: re-check when the claude-swap usage cache expires, and only while there is work', () => {
   const a = (p) => acc(1, p, 0);
-  it('96% and nothing active: no timer at all', () => expect(pollDelay(a(96), false)).toBeNull());
-  it('below 90%: no timer even with sessions', () => expect(pollDelay(a(89), true)).toBeNull());
-  it('90-95% with sessions: 30s; 95%+: 15s', () => {
-    expect(pollDelay(a(92), true)).toBe(30_000);
-    expect(pollDelay(a(96), true)).toBe(15_000);
+  it('96% and nothing active: no timer at all', () => expect(pollDelay(a(96), false, 100)).toBeNull());
+  it('below 90%: no timer even with sessions', () => expect(pollDelay(a(89), true, 100)).toBeNull());
+  it('90%+ with sessions: a few seconds past the 180s cache expiry', () => {
+    expect(pollDelay(a(92), true, 100)).toBe(85_000); // 80s left + 5s slack
+    expect(pollDelay(a(99), true, 0)).toBe(185_000);
+    expect(pollDelay(a(96), true, 178)).toBe(10_000); // never faster than 10s
+  });
+  it('cache already past its expiry (refresh failing): retry in 30s; unknown age: 60s', () => {
+    expect(pollDelay(a(96), true, 400)).toBe(30_000);
+    expect(pollDelay(a(96), true, undefined)).toBe(60_000);
+  });
+});
+
+describe('rate-limit error safety net', () => {
+  const MSG = "You've hit your session limit · resets 8:10pm (Europe/Bucharest)";
+  it('matches the account whose 5h window resets at that time, not the other one', () => {
+    expect(limitMatches(MSG, '2026-10-01T17:10:00.482180+00:00')).toBe(true); // 20:10 in Bucharest (EEST)
+    expect(limitMatches(MSG, '2026-10-01T15:59:59.881817+00:00')).toBe(false);
+    expect(limitMatches("resets 7pm (Europe/Bucharest)", '2026-10-01T16:00:00Z')).toBe(false); // not a "session limit"
+    expect(limitMatches("You've hit your session limit · resets 7pm (Europe/Bucharest)", '2026-10-01T16:00:00Z')).toBe(true);
+    expect(limitMatches(MSG, '2026-10-01T17:10:00Z') && limitMatches("You've hit your session limit · resets 8:10pm (Nowhere/Land)", '2026-10-01T17:10:00Z')).toBe(false);
+  });
+  it('decide: a hit switches even at 60% and through the cooldown', () => {
+    const d = run(on([acc(1, 60, 10), acc(2, 0, 0)], 1), { limitHit: true, memory: { lastSwitchAt: NOW - 1000 } });
+    expect(d).toMatchObject({ action: 'switch', to: 2, reason: 'rate-limit error in a session' });
+  });
+  it('finds recent rate_limit errors in transcripts, newer than the mark, ignoring old files and other lines', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'proj-'));
+    fs.mkdirSync(path.join(dir, 'p1'));
+    const line = (ts, extra = {}) => JSON.stringify({ type: 'assistant', timestamp: new Date(ts).toISOString(), error: 'rate_limit', isApiErrorMessage: true, message: { content: [{ type: 'text', text: MSG }] }, ...extra });
+    fs.writeFileSync(path.join(dir, 'p1', 'a.jsonl'), [line(NOW - 5000), line(NOW - 90_000_000), line(NOW - 1000, { error: 'other' }), '{broken rate_limit'].join('\n'));
+    fs.utimesSync(path.join(dir, 'p1', 'a.jsonl'), NOW / 1000, NOW / 1000);
+    fs.writeFileSync(path.join(dir, 'p1', 'old.jsonl'), line(NOW - 5000));
+    fs.utimesSync(path.join(dir, 'p1', 'old.jsonl'), NOW / 1000 - 7200, NOW / 1000 - 7200);
+    expect(findRateLimitHits(dir, NOW - 60_000, NOW).map((h) => h.ts)).toEqual([NOW - 5000]);
+    expect(findRateLimitHits(dir, NOW, NOW)).toEqual([]);
+    fs.rmSync(dir, { recursive: true });
+  });
+});
+
+describe('log times and the 5h projection', () => {
+  it('writes local Bucharest time with its offset, summer and winter', () => {
+    expect(localIso('2026-10-02T07:54:05Z')).toBe('2026-10-02T10:54:05+03:00');
+    expect(localIso('2026-12-01T10:00:00Z')).toBe('2026-12-01T12:00:00+02:00');
+    expect(localIso('junk')).toBeNull();
+  });
+  it('projects the 5h window at its average pace: the 2 Oct miss read 97% and projected 11:01, it ran out 10:54', () => {
+    const a = { fiveHour: { pct: 97, resetsAt: '2026-10-02T08:10:00Z' }, usageFetchedAt: '2026-10-02T07:52:36Z' };
+    expect(localIso(projected5h(a))).toBe('2026-10-02T11:01:20+03:00');
+    expect(projected5h({ ...a, fiveHour: { ...a.fiveHour, pct: 0 } })).toBeNull();
+    expect(projected5h({ ...a, usageFetchedAt: null })).toBeNull();
   });
 });
 
@@ -81,17 +127,17 @@ describe('readSessions', () => {
 });
 
 describe('controller over time (injected clock, faked report)', () => {
-  let dir; let clock; let usage; let active; let calls; let timers; let ctl;
+  let dir; let clock; let usage; let active; let calls; let timers; let ctl; let age = 0;
   const mk = (sessions = []) => {
     dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ctl-'));
     const sdir = path.join(dir, 'sessions');
     fs.mkdirSync(sdir);
     sessions.forEach((s, i) => fs.writeFileSync(path.join(sdir, `${i}.json`), JSON.stringify(s)));
-    clock = NOW; active = 1; calls = []; timers = [];
+    clock = NOW; active = 1; calls = []; timers = []; age = 0;
     usage = { 1: [50, 20, '2026-10-01T15:00:00Z'], 2: [10, 10, null] };
     ctl = createController({
-      stateDir: path.join(dir, 'state'), sessionsDir: sdir, now: () => clock, pinnedToken: false,
-      getUsage: async () => ({ accounts: [1, 2].map((n) => ({ number: n, active: active === n, usageStatus: 'ok', fiveHour: { pct: usage[n][0], resetsAt: usage[n][2] }, sevenDay: { pct: usage[n][1] } })) }),
+      stateDir: path.join(dir, 'state'), sessionsDir: sdir, projectsDir: path.join(dir, 'projects'), now: () => clock, pinnedToken: false,
+      getUsage: async () => ({ fetchedAt: new Date(clock).toISOString(), accounts: [1, 2].map((n) => ({ number: n, active: active === n, usageStatus: 'ok', usageAgeSeconds: age, usageFetchedAt: new Date(clock - age * 1000).toISOString(), fiveHour: { pct: usage[n][0], resetsAt: usage[n][2] }, sevenDay: { pct: usage[n][1] } })) }),
       switchTo: async (n) => { calls.push(n); active = n; },
       setTimer: (fn, ms) => { const h = { fn, ms, unref() {} }; timers.push(h); return h; }, clearTimer: (h) => { if (h) h.cleared = true; },
     });
@@ -132,18 +178,57 @@ describe('controller over time (injected clock, faked report)', () => {
     expect(calls).toEqual([1]);
   });
 
-  it('96% with nothing active arms no timer; with a busy session it arms 15s', async () => {
+  it('92% with nothing active arms no timer; with a busy session it waits for the cache to expire; goes quiet when work stops', async () => {
     mk([{ pid: process.pid, status: 'idle', statusUpdatedAt: NOW - 3600e3 }]);
     ctl.setDefault({ defaultAccount: 1 });
-    usage[1] = [96, 20, '2026-10-01T15:00:00Z'];
+    usage[1] = [92, 20, '2026-10-01T15:00:00Z'];
+    age = 100;
     await ctl.tick();
     expect(timers.filter((t) => !t.cleared)).toHaveLength(0);
     fs.writeFileSync(path.join(dir, 'sessions', '0.json'), JSON.stringify({ pid: process.pid, status: 'busy' }));
     await ctl.tick();
-    expect(timers.filter((t) => !t.cleared).map((t) => t.ms)).toEqual([15_000]);
+    expect(timers.filter((t) => !t.cleared).map((t) => t.ms)).toEqual([85_000]);
     fs.writeFileSync(path.join(dir, 'sessions', '0.json'), JSON.stringify({ pid: process.pid, status: 'idle', statusUpdatedAt: NOW - 3600e3 }));
-    await ctl.tick(); // work stopped: the timer is cancelled, nothing re-armed
+    await ctl.tick();
     expect(timers.filter((t) => !t.cleared)).toHaveLength(0);
+  });
+
+  it('logs each new measurement once the active account is at 90%+, with local times and projections', async () => {
+    mk([{ pid: process.pid, status: 'busy' }]);
+    ctl.setDefault({ defaultAccount: 1 });
+    usage[1] = [80, 20, '2026-10-01T15:00:00Z'];
+    await ctl.tick();
+    expect(ctl.readLog().filter((l) => l.event === 'reading')).toHaveLength(0);
+    usage[1] = [91, 20, '2026-10-01T15:00:00Z'];
+    await ctl.tick();
+    await ctl.tick(); // same measurement: not logged twice
+    clock += 60_000;
+    await ctl.tick();
+    const readings = ctl.readLog().filter((l) => l.event === 'reading');
+    expect(readings).toHaveLength(2);
+    expect(readings[0]).toMatchObject({ ts: '2026-10-01T15:00:00+03:00', activeAccount: 1, activeSessions: 1 });
+    expect(readings[0].usage[0]).toMatchObject({ fiveHour: 91, fiveHourResetsAt: '2026-10-01T18:00:00+03:00', measuredAt: '2026-10-01T15:00:00+03:00' });
+    expect(readings[0].usage[0].fiveHourProjectedExhaustionAt).toMatch(/^2026-10-01T15:\d\d:\d\d\+03:00$/);
+  });
+
+  it('a session rate-limit error for the active account switches although the numbers still say 94%', async () => {
+    mk();
+    ctl.setDefault({ defaultAccount: 1 });
+    usage[1] = [94, 20, '2026-10-01T17:10:00.482Z']; // stale: the account is really spent
+    fs.mkdirSync(path.join(dir, 'projects', 'p'), { recursive: true });
+    const err = (text, ts) => JSON.stringify({ type: 'assistant', timestamp: new Date(ts).toISOString(), error: 'rate_limit', isApiErrorMessage: true, message: { content: [{ type: 'text', text }] } });
+    const f = path.join(dir, 'projects', 'p', 's.jsonl');
+    fs.writeFileSync(f, err("You've hit your session limit · resets 7:00pm (Europe/Bucharest)", clock + 1000)); // the other account's window
+    fs.utimesSync(f, clock / 1000, clock / 1000);
+    await ctl.tick();
+    expect(calls).toEqual([]); // not this account's error
+    fs.writeFileSync(f, err("You've hit your session limit · resets 8:10pm (Europe/Bucharest)", clock + 2000));
+    fs.utimesSync(f, clock / 1000, clock / 1000);
+    await ctl.tick();
+    expect(calls).toEqual([2]);
+    expect(ctl.readLog().find((l) => l.event === 'switch')).toMatchObject({ reason: 'rate-limit error in a session', from: 1, to: 2 });
+    await ctl.tick(); // the same error is not acted on twice
+    expect(calls).toEqual([2]);
   });
 });
 
