@@ -35,9 +35,17 @@ test('treeFor answers 400 / 404 / 200 with history flag', async () => {
 
 test('otherAgentRows describes a process as a row', () => {
   // No claude processes are guaranteed in a test, so exercise the row shape through the injected finder on this pid.
-  const rows = otherAgentRows(new Set(), process.getuid(), () => [process.pid]);
+  // This test process may itself be younger than the registration grace period: pretend it is not.
+  const rows = otherAgentRows(new Set(), process.getuid(), () => [process.pid], () => Date.now() + 60000);
   expect(rows[0]).toMatchObject({ sessionId: `pid:${process.pid}`, state: 'other', other: true, live: true, pids: [process.pid] });
   expect(rows[0].title.length).toBeGreaterThan(0);
   expect(rows[0].cwd).toBe(process.cwd());
   expect(rows[0].rssMb).toBeGreaterThan(0);
+});
+
+test('otherAgentRows skips a process younger than 10 s (Claude Code registers its status file at start)', async () => {
+  const child = spawn('sleep', ['30']);
+  await new Promise((r) => setTimeout(r, 50));
+  expect(otherAgentRows(new Set(), process.getuid(), () => [child.pid])).toEqual([]);
+  child.kill();
 });

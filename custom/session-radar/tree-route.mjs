@@ -27,12 +27,19 @@ export function treeFor(sid, { sessionsDir, execLog, uid }) {
   return { status: 200, body: { now: Date.now(), history: records !== null, ...tree } };
 }
 
-/** Rows for claude / claude-swap processes that registered no ~/.claude/sessions file. */
-export function otherAgentRows(registeredPids, uid, find = otherAgentPids) {
+const REGISTER_GRACE_MS = 10000;
+
+/**
+ * Rows for claude / claude-swap processes that registered no ~/.claude/sessions file.
+ * A process younger than REGISTER_GRACE_MS is skipped: Claude Code writes its status file
+ * right after start, and listing it as "other" for those seconds would make a new session
+ * flicker between groups.
+ */
+export function otherAgentRows(registeredPids, uid, find = otherAgentPids, now = Date.now) {
   const rows = [];
   for (const pid of find(uid, registeredPids)) {
     const info = procInfo(pid);
-    if (!info) continue;
+    if (!info || now() - info.startMs < REGISTER_GRACE_MS) continue;
     let cwd = null;
     try { cwd = fs.readlinkSync(`/proc/${pid}/cwd`); } catch { /* gone or not ours */ }
     const d = processDetail(pid);
