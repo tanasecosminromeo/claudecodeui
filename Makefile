@@ -12,6 +12,8 @@
 #   make remote    run a target on another machine over ssh: make remote HOST=dev TARGET=status
 #   make claude-guard  make terminal `claude --resume` ask before opening a session already running elsewhere
 #   make share-install  public artefact links: `share` CLI, `publish` skill, share service (custom/share/)
+#   make exec-tracer    root exec tracer (sudo) so session process trees show finished commands (custom/exec-tracer/)
+#                       make exec-tracer-uninstall removes it
 #   make e2e       end-to-end tests: an isolated copy of this checkout, real Claude CLI, real browser
 #                  (E2E_ARGS="--only=restart --keep"; see custom/e2e/README.md)
 #
@@ -53,7 +55,8 @@ endif
 
 .DEFAULT_GOAL := help
 .PHONY: help remotes fetch status clean-check update sync install browser build restart deploy upgrade rollback \
-        logs service push test-custom plugins plugins-status verify remote claude-guard e2e share-install
+        logs service push test-custom plugins plugins-status verify remote claude-guard e2e share-install \
+        exec-tracer exec-tracer-uninstall
 
 help:
 	@sed -n '/^$$/q;p' Makefile | sed 's/^# \{0,1\}//'
@@ -228,6 +231,8 @@ service:
 	launchctl bootstrap $(LAUNCHD) $(PLIST)
 share-install:
 	@echo "share-install: Linux/systemd only for now (custom/share/README.md)"
+exec-tracer exec-tracer-uninstall:
+	@echo "exec-tracer: Linux only (bpftrace); the process tree shows live processes without history here"
 else
 logs:
 	journalctl --user -u $(SERVICE) -f -o cat
@@ -256,6 +261,29 @@ share-install:
 	  [ "$$code" = 404 ] && break; sleep 1; done; \
 	 [ "$$code" = 404 ] || { echo "share-install: share service not answering on 127.0.0.1:$(SHARE_PORT) (got $$code)"; exit 1; }; \
 	 echo "share-install: share service up on 127.0.0.1:$(SHARE_PORT); skill 'publish' and CLI 'share' linked"
+
+# Root exec tracer (custom/exec-tracer/README.md): logs processes started by claude / claude-swap into
+# /var/log/agent-exec/<uid>.jsonl so Session Radar can show finished commands. Needs sudo.
+TRACER_LIB := /usr/local/lib/agent-exec-tracer
+exec-tracer:
+	@command -v bpftrace >/dev/null || { echo "exec-tracer: bpftrace not installed (apt install bpftrace)"; exit 1; }
+	sudo install -d -m 755 $(TRACER_LIB) /var/log/agent-exec
+	sudo install -m 644 custom/exec-tracer/agent-exec.bt custom/exec-tracer/README.md $(TRACER_LIB)/
+	sudo install -m 755 custom/exec-tracer/agent-exec-tracer.py $(TRACER_LIB)/
+	sudo install -m 644 custom/exec-tracer/agent-exec-tracer.service /etc/systemd/system/
+	sudo systemctl daemon-reload
+	sudo systemctl enable agent-exec-tracer
+	sudo systemctl restart agent-exec-tracer
+	@sleep 3; systemctl is-active --quiet agent-exec-tracer \
+	  && echo "exec-tracer: running; log /var/log/agent-exec/$$(id -u).jsonl" \
+	  || { echo "exec-tracer: not running:"; systemctl status --no-pager agent-exec-tracer | tail -15; exit 1; }
+
+exec-tracer-uninstall:
+	-sudo systemctl disable --now agent-exec-tracer
+	sudo rm -f /etc/systemd/system/agent-exec-tracer.service
+	sudo rm -rf $(TRACER_LIB)
+	sudo systemctl daemon-reload
+	@echo "exec-tracer: removed (logs in /var/log/agent-exec kept)"
 endif
 
 # Source custom/claude-guard/claude-guard.sh from ~/.zshrc and ~/.bashrc (whichever exist), once.
