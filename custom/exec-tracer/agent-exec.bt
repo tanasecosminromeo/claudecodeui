@@ -1,11 +1,13 @@
 // agent-exec.bt: every process started under a `claude` or `claude-swap` process, and its exit.
 // Run as root by agent-exec-tracer.py, which turns these lines into per-user JSONL:
-//   A <pid> <i> <arg>                         one argv element (i = 0..11)
-//   X <pid> <ppid> <uid> <root> <lparent> <n>  exec header, after that pid's A lines
+//   A <pid> <i> <arg>                         one argv element (i = 0..11), at execve entry
+//   X <pid> <ppid> <uid> <root> <lparent> 0   exec header, once execve returned successfully
 //   Z <pid> <code> <sig>                      exit of a tracked process (thread-group leader)
 // root    = nearest ancestor whose comm is claude / claude-swap
 // lparent = nearest ancestor that is itself tracked (or root): bridges subshells that
 //           forked but never exec'd, which the tracer never sees.
+// X waits for the execve return so that a failed attempt (execvp walking PATH) is not logged and
+// /proc/<pid>/cmdline already shows the new program when the wrapper re-reads the full argv.
 // Anything without such an ancestor is never printed.
 
 BEGIN { printf("R\n"); }
@@ -24,7 +26,8 @@ tracepoint:syscalls:sys_enter_execve
   }
   if ($root != 0) {
     if ($lp == 0) { $lp = $root; }
-    @tracked[pid] = 1;
+    @root[tid] = $root;
+    @lparent[tid] = $lp;
     $n = 0;
     unroll(12) {
       if (*(args->argv + $n) != 0) {
@@ -32,8 +35,18 @@ tracepoint:syscalls:sys_enter_execve
         $n++;
       }
     }
-    printf("X %d %d %d %d %d %d\n", pid, curtask->real_parent->tgid, uid, $root, $lp, $n);
   }
+}
+
+tracepoint:syscalls:sys_exit_execve
+/ @root[tid] != 0 /
+{
+  if (args->ret == 0) {
+    @tracked[pid] = 1;
+    printf("X %d %d %d %d %d 0\n", pid, curtask->real_parent->tgid, uid, @root[tid], @lparent[tid]);
+  }
+  delete(@root[tid]);
+  delete(@lparent[tid]);
 }
 
 tracepoint:sched:sched_process_exit
@@ -43,4 +56,4 @@ tracepoint:sched:sched_process_exit
   delete(@tracked[pid]);
 }
 
-END { clear(@tracked); }
+END { clear(@tracked); clear(@root); clear(@lparent); }

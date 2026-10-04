@@ -40,9 +40,10 @@ export function procInfo(pid) {
  */
 export function commandLabel(argv, cmdline) {
   const text = cmdline || argv;
-  if (text.includes('.claude/shell-snapshots/') && !/eval ['"]/.test(text)) {
-    return `${path.basename(argv.split(' ')[0])} (Bash tool, command cut)`;
-  }
+  // The Bash tool's wrapper is `<shell> -c source …/.claude/shell-snapshots/… && … eval '<cmd>'`;
+  // other shells mentioning shell-snapshots (the snapshot builder) are shown as they are.
+  if (!/-c source \S*\.claude\/shell-snapshots\//.test(text.replace(/\0/g, ' '))) return argv;
+  if (!/eval ['"]/.test(text)) return `${path.basename(argv.split(' ')[0])} (Bash tool, command cut)`;
   return shellCommand(text) || argv;
 }
 

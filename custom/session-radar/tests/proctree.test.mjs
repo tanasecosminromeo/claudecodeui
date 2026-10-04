@@ -148,3 +148,8 @@ test('ExecLog keeps records appended to the old file before a rotation it did no
   expect(log.records().map((r) => `${r.ev}:${r.pid}`)).toEqual(['exec:1', 'exit:1', 'exec:2']);
   fs.rmSync(dir, { recursive: true });
 });
+
+test('commandLabel leaves other shells that mention shell-snapshots alone (the snapshot builder)', () => {
+  const builder = '/usr/bin/zsh -c -l SNAPSHOT_FILE=/tmp/test-home/.claude/shell-snapshots/snapshot-zsh-1.sh source ~/.zshrc';
+  expect(commandLabel(builder)).toBe(builder);
+});
