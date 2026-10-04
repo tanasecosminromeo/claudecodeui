@@ -13,12 +13,12 @@ BEGIN { printf("R\n"); }
 tracepoint:syscalls:sys_enter_execve
 {
   $t = curtask->real_parent;
-  $root = (uint32)0;
-  $lp = (uint32)0;
+  $root = 0;
+  $lp = 0;
   unroll(20) {
     if ($root == 0 && $t->pid > 1) {
       if ($lp == 0 && @tracked[$t->tgid] == 1) { $lp = $t->tgid; }
-      if (str($t->comm) == "claude" || str($t->comm) == "claude-swap") { $root = $t->tgid; }
+      if ($t->comm == "claude" || $t->comm == "claude-swap") { $root = $t->tgid; }
       $t = $t->real_parent;
     }
   }
