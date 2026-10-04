@@ -273,8 +273,10 @@ e2e:
 	node custom/e2e/run.mjs $(E2E_ARGS)
 
 # Unit tests for the custom layer (env-switcher, inject-html); the app's own suites are npm test / test:client.
+# NODE_ENV=test: a shell opened from CloudCLI inherits NODE_ENV=production, under which the jsdom
+# environment hands tests broken node:os / node:url modules (tmpdir, fileURLToPath "is not a function").
 test-custom:
-	npx vitest run --config custom/vitest.config.mjs
+	NODE_ENV=test npx vitest run --config custom/vitest.config.mjs
 
 push:
 	git push origin HEAD
