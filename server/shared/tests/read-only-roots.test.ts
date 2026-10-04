@@ -80,6 +80,21 @@ test('a background agent output link resolves to its transcript under the Claude
   }
 });
 
+test('a plan file under the Claude plans directory resolves, the rest of ~/.claude does not', async () => {
+  // Plan mode writes `~/.claude/plans/<slug>.md` and the transcript links it.
+  const plansDirectory = path.join(fixtureHome, '.claude', 'plans');
+  await mkdir(plansDirectory, { recursive: true });
+  const planPath = path.join(plansDirectory, 'swift-percolating-donut.md');
+  await writeFile(planPath, '# Plan\n', 'utf8');
+
+  // Only the plans directory is a root: credentials beside it stay closed.
+  const credentialsPath = path.join(fixtureHome, '.claude', '.credentials.json');
+  await writeFile(credentialsPath, '{}', 'utf8');
+
+  assert.equal(await resolveReadOnlyRootPath(planPath), planPath);
+  assert.equal(await resolveReadOnlyRootPath(credentialsPath), null);
+});
+
 test('the temp directory stays read-only: it is still not a valid workspace location', async () => {
   const temporaryDirectory = await mkdtemp(path.join(os.tmpdir(), 'read-only-root-'));
 

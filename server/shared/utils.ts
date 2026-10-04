@@ -185,6 +185,10 @@ export const FORBIDDEN_WORKSPACE_PATHS = [
  * transcripts, which the sessions API already serves; the directory is located
  * the same way the session watcher and synchronizer locate it.
  *
+ * Plan mode writes its plan to `~/.claude/plans/<slug>.md` and the transcript
+ * links it, so that directory is a root too. Only it: the rest of `~/.claude`
+ * holds credentials and settings and stays closed.
+ *
  * Being a read-only root grants reads only: the file-tree write paths resolve
  * against the project root alone, so nothing under these can be changed
  * through the file API. Whether one may become a workspace is decided
@@ -200,6 +204,7 @@ const READ_ONLY_ROOTS = [...new Set([
   '/tmp',
   os.tmpdir(),
   path.join(os.homedir(), '.claude', 'projects'),
+  path.join(os.homedir(), '.claude', 'plans'),
 ])];
 
 /**
