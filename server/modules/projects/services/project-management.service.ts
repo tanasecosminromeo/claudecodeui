@@ -5,9 +5,10 @@ import { projectsDb } from '@/modules/database/index.js';
 import type {
   CreateProjectPathResult,
   ProjectRepositoryRow,
+  StarColor,
   WorkspacePathValidationResult,
 } from '@/shared/types.js';
-import { AppError, normalizeProjectPath, validateWorkspacePath } from '@/shared/utils.js';
+import { AppError, normalizeProjectPath, parseStarColor, validateWorkspacePath } from '@/shared/utils.js';
 
 type CreateProjectInput = {
   projectPath: string;
@@ -29,6 +30,8 @@ type ProjectApiView = {
   customName: string | null;
   isArchived: boolean;
   isStarred: boolean;
+  starColor: StarColor | null;
+  groupId: string | null;
   sessions: [];
   sessionMeta: {
     hasMore: false;
@@ -77,6 +80,8 @@ function mapProjectRowToApiView(projectRow: ProjectRepositoryRow): ProjectApiVie
     customName: projectRow.custom_project_name,
     isArchived: Boolean(projectRow.isArchived),
     isStarred: Boolean(projectRow.isStarred),
+    starColor: parseStarColor(projectRow.star_color),
+    groupId: projectRow.group_id ?? null,
     sessions: [],
     sessionMeta: {
       hasMore: false,

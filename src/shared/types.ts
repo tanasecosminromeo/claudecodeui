@@ -112,10 +112,23 @@ export type Project = {
   fullPath: string;
   path?: string;
   isStarred?: boolean;
+  /** Gmail-style star color; null/absent means not starred. */
+  starColor?: StarColor | null;
+  /** The sidebar folder this project is filed under, if any. */
+  groupId?: string | null;
   sessions?: ProjectSession[];
   sessionMeta?: ProjectSessionMeta;
   taskmaster?: ProjectTaskmasterInfo;
   [key: string]: unknown;
+};
+
+/** Gmail-style project star colors; the order lives in the sidebar's `STAR_COLORS`. */
+export type StarColor = 'yellow' | 'orange' | 'red' | 'green' | 'blue' | 'purple';
+
+/** A named, collapsible sidebar folder that projects can be filed under. */
+export type ProjectGroup = {
+  groupId: string;
+  name: string;
 };
 
 /** Progress payload streamed while the backend enumerates projects, used to drive the sidebar loading bar. */
@@ -1500,9 +1513,22 @@ export type SidebarProjectListProps = SessionRowActions & {
   onLoadMoreSessions: (projectId: string) => void;
   loadingMoreProjects: Set<string>;
   isProjectStarred: (projectId: string) => boolean;
+  getProjectStarColor: (projectId: string) => StarColor | null;
+  /** Folders for the Projects list; empty where the list should stay flat (Running). */
+  projectGroups: ProjectGroup[];
+  /** Every known group, offered by a row's "Move to group" menu. */
+  allProjectGroups: ProjectGroup[];
+  isProjectGroupCollapsed: (groupId: string) => boolean;
+  onToggleProjectGroup: (groupId: string) => void;
+  onRenameProjectGroup: (group: ProjectGroup) => void;
+  onDeleteProjectGroup: (group: ProjectGroup) => void;
+  onSetProjectGroup: (projectId: string, groupId: string | null) => void;
+  onCreateGroupForProject: (projectId: string) => void;
   onToggleProject: (projectId: string) => void;
   onProjectSelect: (project: Project) => void;
+  /** Gmail-style: cycles through the star colors, then back to unstarred. */
   onToggleStarProject: (projectId: string) => void;
+  onSetStarColor: (projectId: string, color: StarColor | null) => void;
   onStartEditingProject: (project: Project) => void;
   onCancelEditingProject: () => void;
   onSaveProjectName: (projectId: string, nextName: string) => void;

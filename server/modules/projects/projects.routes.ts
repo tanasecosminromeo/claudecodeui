@@ -8,7 +8,14 @@ import { getProjectTaskMaster } from '@/modules/projects/services/projects-has-t
 import { AppError, asyncHandler, createApiSuccessResponse } from '@/shared/utils.js';
 import { getArchivedProjectsWithSessions, getProjectSessionsPage, getProjectsWithSessions } from '@/modules/projects/services/projects-with-sessions-fetch.service.js';
 import { deleteOrArchiveProject, restoreArchivedProject } from '@/modules/projects/services/project-delete.service.js';
-import { applyLegacyStarredProjectIds, toggleProjectStar } from '@/modules/projects/services/project-star.service.js';
+import { applyLegacyStarredProjectIds, setProjectStarColor, toggleProjectStar } from '@/modules/projects/services/project-star.service.js';
+import {
+  createProjectGroup,
+  deleteProjectGroup,
+  listProjectGroups,
+  renameProjectGroup,
+  setProjectGroup,
+} from '@/modules/projects/services/project-group.service.js';
 
 /**
  * How long a posted clone request waits for its progress stream to be opened.
@@ -146,6 +153,37 @@ router.post(
   }),
 );
 
+/** Sidebar folders. Registered before the `/:projectId` routes on purpose. */
+router.get('/groups', (_req, res) => {
+  res.json(createApiSuccessResponse({ groups: listProjectGroups() }));
+});
+
+router.post(
+  '/groups',
+  asyncHandler(async (req, res) => {
+    const group = createProjectGroup((req.body as { name?: unknown })?.name);
+    res.json(createApiSuccessResponse({ group }));
+  }),
+);
+
+router.put(
+  '/groups/:groupId',
+  asyncHandler(async (req, res) => {
+    const groupId = typeof req.params.groupId === 'string' ? req.params.groupId : '';
+    const group = renameProjectGroup(groupId, (req.body as { name?: unknown })?.name);
+    res.json(createApiSuccessResponse({ group }));
+  }),
+);
+
+router.delete(
+  '/groups/:groupId',
+  asyncHandler(async (req, res) => {
+    const groupId = typeof req.params.groupId === 'string' ? req.params.groupId : '';
+    deleteProjectGroup(groupId);
+    res.json(createApiSuccessResponse({ groupId }));
+  }),
+);
+
 router.use(
   createProjectCloneRouter({
     startCloneProject,
@@ -179,6 +217,24 @@ router.post(
     const projectId = typeof req.params.projectId === 'string' ? req.params.projectId : '';
     const { isStarred } = toggleProjectStar(projectId);
     res.json({ success: true, isStarred });
+  }),
+);
+
+router.put(
+  '/:projectId/star',
+  asyncHandler(async (req, res) => {
+    const projectId = typeof req.params.projectId === 'string' ? req.params.projectId : '';
+    const { starColor } = setProjectStarColor(projectId, (req.body as { color?: unknown })?.color ?? null);
+    res.json(createApiSuccessResponse({ projectId, starColor }));
+  }),
+);
+
+router.put(
+  '/:projectId/group',
+  asyncHandler(async (req, res) => {
+    const projectId = typeof req.params.projectId === 'string' ? req.params.projectId : '';
+    const { groupId } = setProjectGroup(projectId, (req.body as { groupId?: unknown })?.groupId ?? null);
+    res.json(createApiSuccessResponse({ projectId, groupId }));
   }),
 );
 

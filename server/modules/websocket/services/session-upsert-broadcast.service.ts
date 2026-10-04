@@ -4,6 +4,7 @@ import { projectsDb, sessionsDb } from '@/modules/database/index.js';
 import { generateDisplayName } from '@/modules/projects/index.js';
 import { connectedClients, WS_OPEN_STATE } from '@/modules/websocket/services/websocket-state.service.js';
 import type { SessionUpsertedEvent } from '@/shared/types.js';
+import { parseStarColor } from '@/shared/utils.js';
 
 /**
  * The single producer of the `session_upserted` delta.
@@ -57,6 +58,8 @@ async function buildSessionUpsertedEvent(
         fullPath: project.project_path,
         displayName,
         isStarred: Boolean(project.isStarred),
+        starColor: parseStarColor(project.star_color),
+        groupId: project.group_id ?? null,
       }
       : null,
     timestamp: new Date().toISOString(),

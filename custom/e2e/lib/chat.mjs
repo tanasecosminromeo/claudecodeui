@@ -56,9 +56,12 @@ export class ChatPage {
     page.on('dialog', async (dialog) => {
       const entry = { type: dialog.type(), message: dialog.message(), at: new Date().toISOString() };
       this.dialogs.push(entry);
+      // onDialog may return a string: the answer typed into a prompt().
       const accept = this.onDialog ? await this.onDialog(entry) : false;
       entry.accepted = Boolean(accept);
-      if (accept) {
+      if (typeof accept === 'string') {
+        await dialog.accept(accept);
+      } else if (accept) {
         await dialog.accept();
       } else {
         await dialog.dismiss();

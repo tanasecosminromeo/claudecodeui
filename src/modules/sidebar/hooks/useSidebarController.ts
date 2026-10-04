@@ -4,7 +4,7 @@ import type { TFunction } from 'i18next';
 import { api } from '@/shared/api';
 import { subscribeToUserPreferences } from '@/shared/userSettings';
 import { usePaletteOps } from '@/modules/command-palette';
-import type { ArchivedProjectListItem, ArchivedSessionListItem, ConversationProjectResult, ConversationSearchResults, LLMProvider, Project, ProjectSession, ProjectSortOrder, RecentConversationListItem, SearchProgress, ActiveSidebarRename, PendingSidebarDeletion, SessionTitleSearchResult, SessionWithProvider, SidebarSearchMode } from '@/shared/types';
+import type { ArchivedProjectListItem, ArchivedSessionListItem, ConversationProjectResult, ConversationSearchResults, LLMProvider, Project, ProjectGroup, ProjectSession, StarColor, ProjectSortOrder, RecentConversationListItem, SearchProgress, ActiveSidebarRename, PendingSidebarDeletion, SessionTitleSearchResult, SessionWithProvider, SidebarSearchMode } from '@/shared/types';
 import { useQuickArchive } from '@/modules/sidebar/hooks/useQuickArchive';
 import {
   filterProjects,
@@ -13,9 +13,34 @@ import {
 } from '@/modules/sidebar/utils/sidebarProjectFormatting';
 import {
   clearLegacyStarredProjectIds,
+  readCollapsedProjectGroupIds,
   readLegacyStarredProjectIds,
   readProjectSortOrder,
+  writeCollapsedProjectGroupIds,
 } from '@/modules/sidebar/utils/sidebarStoredPreferences';
+import { getStarColor, nextStarColor } from '@/modules/sidebar/utils/starColors';
+
+type ProjectGroupsApiPayload = {
+  success?: boolean;
+  data?: {
+    groups?: ProjectGroup[];
+    group?: ProjectGroup;
+  };
+};
+
+// Server errors come back either as a string or as `{ message }`.
+const readApiErrorMessage = async (response: Response, fallback: string): Promise<string> => {
+  try {
+    const payload = (await response.json()) as { error?: string | { message?: string } };
+    const errorPayload = payload.error;
+    if (typeof errorPayload === 'string') {
+      return errorPayload;
+    }
+    return errorPayload?.message || fallback;
+  } catch {
+    return fallback;
+  }
+};
 
 
 type ArchivedSessionsApiPayload = {
@@ -40,6 +65,8 @@ type RecentConversationsApiPayload = {
     hasMore?: boolean;
   };
 };
+
+const EMPTY_PROJECT_GROUPS: ProjectGroup[] = [];
 
 type UseSidebarControllerArgs = {
   projects: Project[];
@@ -112,7 +139,10 @@ export function useSidebarController({
   const [isLoadingMoreRecentConversations, setIsLoadingMoreRecentConversations] = useState(false);
   const [recentConversationsError, setRecentConversationsError] = useState(false);
   const [debouncedSearchQuery, setDebouncedSearchQuery] = useState('');
-  const [optimisticStarByProjectId, setOptimisticStarByProjectId] = useState<Map<string, boolean>>(new Map());
+  const [optimisticStarByProjectId, setOptimisticStarByProjectId] = useState<Map<string, StarColor | null>>(new Map());
+  const [optimisticGroupByProjectId, setOptimisticGroupByProjectId] = useState<Map<string, string | null>>(new Map());
+  const [projectGroups, setProjectGroups] = useState<ProjectGroup[]>([]);
+  const [collapsedGroupIds, setCollapsedGroupIds] = useState<Set<string>>(() => readCollapsedProjectGroupIds());
   const [loadingMoreProjects, setLoadingMoreProjects] = useState<Set<string>>(new Set());
   const searchSeqRef = useRef(0);
   const recentConversationsSeqRef = useRef(0);
@@ -350,7 +380,7 @@ export function useSidebarController({
           continue;
         }
 
-        if (Boolean(project.isStarred) === optimisticValue) {
+        if (getStarColor(project) === optimisticValue) {
           next.delete(projectId);
           changed = true;
         }
@@ -358,7 +388,39 @@ export function useSidebarController({
 
       return changed ? next : previous;
     });
+    setOptimisticGroupByProjectId((previous) => {
+      if (previous.size === 0) {
+        return previous;
+      }
+
+      const next = new Map(previous);
+      for (const [projectId, optimisticGroupId] of previous.entries()) {
+        const project = projects.find((candidate) => candidate.projectId === projectId);
+        if (!project || (project.groupId ?? null) === optimisticGroupId) {
+          next.delete(projectId);
+        }
+      }
+
+      return next.size === previous.size ? previous : next;
+    });
   }, [projects]);
+
+  const fetchProjectGroups = useCallback(async () => {
+    try {
+      const response = await api.getProjectGroups();
+      if (!response.ok) {
+        throw new Error(`Failed to load project groups: ${response.status}`);
+      }
+      const payload = (await response.json()) as ProjectGroupsApiPayload;
+      setProjectGroups(Array.isArray(payload.data?.groups) ? payload.data.groups : []);
+    } catch (error) {
+      console.error('[Sidebar] Failed to load project groups:', error);
+    }
+  }, []);
+
+  useEffect(() => {
+    void fetchProjectGroups();
+  }, [fetchProjectGroups]);
 
   // Debounce search text updates so both project filtering and conversation
   // SSE requests avoid running on every keypress.
@@ -534,77 +596,184 @@ export function useSidebarController({
     [onSessionSelect],
   );
 
-  const resolveProjectStarState = useCallback(
-    (projectId: string): boolean => {
+  const resolveProjectStarColor = useCallback(
+    (projectId: string): StarColor | null => {
       if (optimisticStarByProjectId.has(projectId)) {
-        return Boolean(optimisticStarByProjectId.get(projectId));
+        return optimisticStarByProjectId.get(projectId) ?? null;
       }
 
-      return projects.some((project) => project.projectId === projectId && Boolean(project.isStarred));
+      const project = projects.find((candidate) => candidate.projectId === projectId);
+      return project ? getStarColor(project) : null;
     },
     [optimisticStarByProjectId, projects],
   );
 
-  const toggleStarProject = useCallback((projectId: string) => {
-    const previousStarState = resolveProjectStarState(projectId);
-    const optimisticStarState = !previousStarState;
+  const setStarColor = useCallback((projectId: string, color: StarColor | null) => {
+    const previousColor = resolveProjectStarColor(projectId);
     const latestSequence = (starToggleSequenceByProjectRef.current.get(projectId) ?? 0) + 1;
     starToggleSequenceByProjectRef.current.set(projectId, latestSequence);
 
     setOptimisticStarByProjectId((previous) => {
       const next = new Map(previous);
-      next.set(projectId, optimisticStarState);
+      next.set(projectId, color);
       return next;
     });
 
     const updateStar = async () => {
       try {
-        const response = await api.toggleProjectStar(projectId);
+        const response = await api.setProjectStarColor(projectId, color);
         if (!response.ok) {
-          const payload = (await response.json()) as { error?: string | { message?: string } };
-          const errorPayload = payload.error;
-          const message =
-            typeof errorPayload === 'string'
-              ? errorPayload
-              : errorPayload && typeof errorPayload === 'object' && errorPayload.message
-                ? errorPayload.message
-                : t('messages.updateProjectError');
-          throw new Error(message);
+          throw new Error(await readApiErrorMessage(response, t('messages.updateProjectError')));
         }
-
-        const payload = (await response.json()) as { isStarred?: boolean };
-        const isLatestSequence = starToggleSequenceByProjectRef.current.get(projectId) === latestSequence;
-        if (!isLatestSequence) {
-          return;
-        }
-
-        setOptimisticStarByProjectId((previous) => {
-          const next = new Map(previous);
-          next.set(projectId, Boolean(payload.isStarred));
-          return next;
-        });
       } catch (error) {
-        const isLatestSequence = starToggleSequenceByProjectRef.current.get(projectId) === latestSequence;
-        if (!isLatestSequence) {
+        // A newer click already moved on; its own request decides the color.
+        if (starToggleSequenceByProjectRef.current.get(projectId) !== latestSequence) {
           return;
         }
 
         setOptimisticStarByProjectId((previous) => {
           const next = new Map(previous);
-          next.set(projectId, previousStarState);
+          next.set(projectId, previousColor);
           return next;
         });
-        console.error('[Sidebar] Failed to toggle project star:', error);
+        console.error('[Sidebar] Failed to update project star:', error);
         alert(t('messages.updateProjectError'));
       }
     };
 
     void updateStar();
-  }, [resolveProjectStarState, t]);
+  }, [resolveProjectStarColor, t]);
+
+  /** Gmail-style: each click moves to the next color, and past the last one unstars. */
+  const toggleStarProject = useCallback((projectId: string) => {
+    setStarColor(projectId, nextStarColor(resolveProjectStarColor(projectId)));
+  }, [resolveProjectStarColor, setStarColor]);
 
   const isProjectStarred = useCallback(
-    (projectId: string) => resolveProjectStarState(projectId),
-    [resolveProjectStarState],
+    (projectId: string) => resolveProjectStarColor(projectId) !== null,
+    [resolveProjectStarColor],
+  );
+
+  const getProjectStarColor = useCallback(
+    (projectId: string) => resolveProjectStarColor(projectId),
+    [resolveProjectStarColor],
+  );
+
+  const setProjectGroup = useCallback((projectId: string, groupId: string | null) => {
+    const project = projects.find((candidate) => candidate.projectId === projectId);
+    const previousGroupId = optimisticGroupByProjectId.has(projectId)
+      ? optimisticGroupByProjectId.get(projectId) ?? null
+      : project?.groupId ?? null;
+
+    // Held until the next project-list refresh carries the same value, like stars.
+    setOptimisticGroupByProjectId((previous) => new Map(previous).set(projectId, groupId));
+
+    const updateGroup = async () => {
+      try {
+        const response = await api.setProjectGroup(projectId, groupId);
+        if (!response.ok) {
+          throw new Error(await readApiErrorMessage(response, t('groups.saveError')));
+        }
+      } catch (error) {
+        setOptimisticGroupByProjectId((previous) => new Map(previous).set(projectId, previousGroupId));
+        console.error('[Sidebar] Failed to move project to group:', error);
+        alert(error instanceof Error ? error.message : t('groups.saveError'));
+      }
+    };
+
+    void updateGroup();
+  }, [optimisticGroupByProjectId, projects, t]);
+
+  const createGroupForProject = useCallback((projectId: string) => {
+    const name = window.prompt(t('groups.newGroupPrompt'))?.trim();
+    if (!name) {
+      return;
+    }
+
+    const create = async () => {
+      try {
+        const response = await api.createProjectGroup(name);
+        if (!response.ok) {
+          throw new Error(await readApiErrorMessage(response, t('groups.saveError')));
+        }
+        const payload = (await response.json()) as ProjectGroupsApiPayload;
+        const group = payload.data?.group;
+        if (!group) {
+          throw new Error(t('groups.saveError'));
+        }
+        setProjectGroups((previous) => [...previous, group]);
+        setProjectGroup(projectId, group.groupId);
+      } catch (error) {
+        console.error('[Sidebar] Failed to create project group:', error);
+        alert(error instanceof Error ? error.message : t('groups.saveError'));
+      }
+    };
+
+    void create();
+  }, [setProjectGroup, t]);
+
+  const renameProjectGroup = useCallback((group: ProjectGroup) => {
+    const name = window.prompt(t('groups.renameGroupPrompt'), group.name)?.trim();
+    if (!name || name === group.name) {
+      return;
+    }
+
+    const rename = async () => {
+      try {
+        const response = await api.renameProjectGroup(group.groupId, name);
+        if (!response.ok) {
+          throw new Error(await readApiErrorMessage(response, t('groups.saveError')));
+        }
+        setProjectGroups((previous) => previous.map((candidate) => (
+          candidate.groupId === group.groupId ? { ...candidate, name } : candidate
+        )));
+      } catch (error) {
+        console.error('[Sidebar] Failed to rename project group:', error);
+        alert(error instanceof Error ? error.message : t('groups.saveError'));
+      }
+    };
+
+    void rename();
+  }, [t]);
+
+  const deleteProjectGroup = useCallback((group: ProjectGroup) => {
+    if (!window.confirm(t('groups.deleteGroupConfirm', { name: group.name }))) {
+      return;
+    }
+
+    const remove = async () => {
+      try {
+        const response = await api.deleteProjectGroup(group.groupId);
+        if (!response.ok) {
+          throw new Error(await readApiErrorMessage(response, t('groups.saveError')));
+        }
+        // Members whose groupId now points nowhere render as ungrouped, which is
+        // what the server did to them too.
+        setProjectGroups((previous) => previous.filter((candidate) => candidate.groupId !== group.groupId));
+      } catch (error) {
+        console.error('[Sidebar] Failed to delete project group:', error);
+        alert(error instanceof Error ? error.message : t('groups.saveError'));
+      }
+    };
+
+    void remove();
+  }, [t]);
+
+  const toggleProjectGroup = useCallback((groupId: string) => {
+    setCollapsedGroupIds((previous) => {
+      const next = new Set(previous);
+      if (!next.delete(groupId)) {
+        next.add(groupId);
+      }
+      writeCollapsedProjectGroupIds(next);
+      return next;
+    });
+  }, []);
+
+  // A search shows every match, so it opens collapsed groups for its duration.
+  const isProjectGroupCollapsed = useCallback(
+    (groupId: string) => debouncedSearchQuery.length === 0 && collapsedGroupIds.has(groupId),
+    [collapsedGroupIds, debouncedSearchQuery],
   );
 
   const getProjectSessions = useCallback((project: Project) => getAllSessions(project), []);
@@ -645,27 +814,32 @@ export function useSidebarController({
   }, [onLoadMoreSessions, t]);
 
   const projectsWithResolvedStarState = useMemo(() => {
-    if (optimisticStarByProjectId.size === 0) {
+    if (optimisticStarByProjectId.size === 0 && optimisticGroupByProjectId.size === 0) {
       return projects;
     }
 
     return projects.map((project) => {
-      const optimisticStarState = optimisticStarByProjectId.get(project.projectId);
-      if (optimisticStarState === undefined) {
+      const hasOptimisticStar = optimisticStarByProjectId.has(project.projectId);
+      const hasOptimisticGroup = optimisticGroupByProjectId.has(project.projectId);
+      if (!hasOptimisticStar && !hasOptimisticGroup) {
         return project;
       }
 
-      const currentStarState = Boolean(project.isStarred);
-      if (currentStarState === optimisticStarState) {
-        return project;
-      }
+      const starColor = hasOptimisticStar
+        ? optimisticStarByProjectId.get(project.projectId) ?? null
+        : getStarColor(project);
+      const groupId = hasOptimisticGroup
+        ? optimisticGroupByProjectId.get(project.projectId) ?? null
+        : project.groupId ?? null;
 
       return {
         ...project,
-        isStarred: optimisticStarState,
+        isStarred: starColor !== null,
+        starColor,
+        groupId,
       };
     });
-  }, [optimisticStarByProjectId, projects]);
+  }, [optimisticGroupByProjectId, optimisticStarByProjectId, projects]);
 
   const sortedProjects = useMemo(
     () => sortProjects(projectsWithResolvedStarState, projectSortOrder),
@@ -1153,7 +1327,18 @@ export function useSidebarController({
     handleSessionClick,
     forkSession,
     toggleStarProject,
+    setStarColor,
     isProjectStarred,
+    getProjectStarColor,
+    // Groups only shape the Projects list; Running stays one flat list.
+    projectGroups: searchMode === 'projects' ? projectGroups : EMPTY_PROJECT_GROUPS,
+    allProjectGroups: projectGroups,
+    setProjectGroup,
+    createGroupForProject,
+    renameProjectGroup,
+    deleteProjectGroup,
+    toggleProjectGroup,
+    isProjectGroupCollapsed,
     getProjectSessions,
     loadMoreSessionsForProject,
     startEditingProject,

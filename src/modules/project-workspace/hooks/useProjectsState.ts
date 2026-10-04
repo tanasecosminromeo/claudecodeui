@@ -7,7 +7,8 @@ import type { ServerEvent,
   LLMProvider,
   LoadingProgress,
   Project,
-  ProjectSession,IsSessionProcessing } from '@/shared/types';
+  ProjectSession,
+  StarColor,IsSessionProcessing } from '@/shared/types';
 import { mergeProjectSelectionMetadata } from '@/modules/project-workspace/utils/projectSelectionMetadata';
 import { readSelectedProvider } from '@/shared/selectedProvider';
 
@@ -40,6 +41,8 @@ type SessionUpsertedEvent = ServerEvent & {
     fullPath: string;
     displayName: string;
     isStarred: boolean;
+    starColor?: StarColor | null;
+    groupId?: string | null;
   } | null;
 };
 
@@ -113,6 +116,8 @@ const projectsHaveChanges = (
       nextProject.displayName !== prevProject.displayName ||
       nextProject.fullPath !== prevProject.fullPath ||
       Boolean(nextProject.isStarred) !== Boolean(prevProject.isStarred) ||
+      (nextProject.starColor ?? null) !== (prevProject.starColor ?? null) ||
+      (nextProject.groupId ?? null) !== (prevProject.groupId ?? null) ||
       serialize(nextProject.sessionMeta) !== serialize(prevProject.sessionMeta) ||
       serialize(nextProject.sessions) !== serialize(prevProject.sessions) ||
       serialize(nextProject.taskmaster) !== serialize(prevProject.taskmaster)
@@ -319,6 +324,8 @@ const projectFromRegistration = (project: Project): Project => ({
   fullPath: project.fullPath || project.path || '',
   displayName: project.displayName,
   isStarred: project.isStarred,
+  starColor: project.starColor,
+  groupId: project.groupId,
   sessions: project.sessions ?? [],
   sessionMeta: project.sessionMeta ?? { hasMore: false, total: countLoadedProjectSessions(project) },
   taskmaster: project.taskmaster,
@@ -797,6 +804,8 @@ export function useProjectsState({
             fullPath: upsert.project.fullPath,
             displayName: upsert.project.displayName,
             isStarred: upsert.project.isStarred,
+            starColor: upsert.project.starColor ?? null,
+            groupId: upsert.project.groupId ?? null,
             sessions: [],
             sessionMeta: { hasMore: false, total: 0 },
           } as Project;

@@ -27,6 +27,7 @@ import type {
   ProviderCurrentActiveModel,
   ProviderModelsDefinition,
   ProviderSkillSource,
+  StarColor,
   SubagentActivity,
   WorkspacePathValidationResult,
 } from '@/shared/types.js';
@@ -1384,4 +1385,17 @@ export function readProcessStartTime(pid: number): string | null {
   } catch {
     return null;
   }
+}
+
+/**
+ * Project star colors, Gmail style. The order is both the click-to-cycle order
+ * and the sidebar sort rank; the frontend mirrors it in sidebar/utils/starColors.
+ */
+export const STAR_COLORS: readonly StarColor[] = ['yellow', 'orange', 'red', 'green', 'blue', 'purple'];
+
+/** Narrows a stored or submitted value to a known project star color, or null. */
+export function parseStarColor(value: unknown): StarColor | null {
+  return typeof value === 'string' && (STAR_COLORS as readonly string[]).includes(value)
+    ? (value as StarColor)
+    : null;
 }

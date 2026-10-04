@@ -59,6 +59,7 @@ const NOW = new Date('2026-08-21T10:00:00.000Z');
 // membership changes, and attentionSessionIds is passed into Sidebar from above.
 // Rebuilding them per render here would test the harness, not the component.
 const NO_SESSION_IDS: ReadonlySet<string> = new Set<string>();
+const NO_GROUPS: SidebarProjectListProps['projectGroups'] = [];
 
 const listProps = (activeRename: ActiveSidebarRename | null): SidebarProjectListProps => ({
   projects: [PROJECT_A, PROJECT_B],
@@ -81,6 +82,16 @@ const listProps = (activeRename: ActiveSidebarRename | null): SidebarProjectList
   backgroundSessionIds: NO_SESSION_IDS,
   attentionSessionIds: NO_SESSION_IDS,
   isProjectStarred: () => false,
+  getProjectStarColor: () => null,
+  projectGroups: NO_GROUPS,
+  allProjectGroups: NO_GROUPS,
+  isProjectGroupCollapsed: () => false,
+  onToggleProjectGroup: noop,
+  onRenameProjectGroup: noop,
+  onDeleteProjectGroup: noop,
+  onSetProjectGroup: noop,
+  onCreateGroupForProject: noop,
+  onSetStarColor: noop,
   onRenameDraftChange: noop,
   onToggleProject: noop,
   onProjectSelect: noop,

@@ -203,6 +203,16 @@ export const api = {
     post('/api/projects/migrate-legacy-stars', { projectIds }),
   toggleProjectStar: (projectId: string) =>
     post(`/api/projects/${encodeURIComponent(projectId)}/toggle-star`),
+  setProjectStarColor: (projectId: string, color: string | null) =>
+    put(`/api/projects/${encodeURIComponent(projectId)}/star`, { color }),
+  setProjectGroup: (projectId: string, groupId: string | null) =>
+    put(`/api/projects/${encodeURIComponent(projectId)}/group`, { groupId }),
+  getProjectGroups: () => get('/api/projects/groups'),
+  createProjectGroup: (name: string) => post('/api/projects/groups', { name }),
+  renameProjectGroup: (groupId: string, name: string) =>
+    put(`/api/projects/groups/${encodeURIComponent(groupId)}`, { name }),
+  deleteProjectGroup: (groupId: string) =>
+    del(`/api/projects/groups/${encodeURIComponent(groupId)}`),
   // A clone is two requests: the details (GitHub token included) go in this
   // POST body, and the returned `cloneId` is all the progress stream's URL
   // carries — URLs land in access logs, proxy logs and browser history.

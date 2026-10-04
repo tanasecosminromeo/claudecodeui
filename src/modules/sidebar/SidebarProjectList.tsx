@@ -1,9 +1,11 @@
-import { useEffect } from 'react';
+import { Fragment, useEffect, useMemo } from 'react';
 
 import type { SidebarProjectListProps } from '@/shared/types';
 import { getPageTitle } from '@/shared/utils';
 import SidebarProjectItem from '@/modules/sidebar/SidebarProjectItem';
 import SidebarProjectsState from '@/modules/sidebar/SidebarProjectsState';
+import SidebarProjectGroup from '@/modules/sidebar/SidebarProjectGroup';
+import { buildProjectSections } from '@/modules/sidebar/utils/sidebarProjectFormatting';
 
 
 /** Rendered by SidebarContent to list the filtered projects, delegating each row to SidebarProjectItem. */
@@ -28,11 +30,20 @@ export default function SidebarProjectList({
   activeSessions,
   backgroundSessionIds,
   attentionSessionIds,
-  isProjectStarred,
+  getProjectStarColor,
+  projectGroups,
+  allProjectGroups,
+  isProjectGroupCollapsed,
+  onToggleProjectGroup,
+  onRenameProjectGroup,
+  onDeleteProjectGroup,
+  onSetProjectGroup,
+  onCreateGroupForProject,
   onRenameDraftChange,
   onToggleProject,
   onProjectSelect,
   onToggleStarProject,
+  onSetStarColor,
   onStartEditingProject,
   onCancelEditingProject,
   onSaveProjectName,
@@ -63,12 +74,17 @@ export default function SidebarProjectList({
   }, [pageTitle]);
 
   const showProjects = !isLoading && projects.length > 0 && filteredProjects.length > 0;
+  const sections = useMemo(
+    () => buildProjectSections(filteredProjects, projectGroups),
+    [filteredProjects, projectGroups],
+  );
 
   return (
       <div className="pb-safe-area-inset-bottom md:space-y-1">
         {!showProjects
           ? state
-          : filteredProjects.map((project) => {
+          : sections.map(({ group, projects: sectionProjects }) => {
+            const rows = sectionProjects.map((project) => {
               // Both renames are resolved here rather than inside the row, so
               // every other row is handed the same scalars on each keystroke and
               // its memo boundary holds.
@@ -91,7 +107,8 @@ export default function SidebarProjectList({
                 selectedSession={selectedSession}
                 isExpanded={isProjectExpanded(project.projectId)}
                 isDeleting={deletingProjects.has(project.projectId)}
-                isStarred={isProjectStarred(project.projectId)}
+                starColor={getProjectStarColor(project.projectId)}
+                projectGroups={allProjectGroups}
                 isEditing={renamingProject !== null}
                 renameDraft={renamingProject?.draft ?? ''}
                 sessions={getProjectSessions(project)}
@@ -106,6 +123,9 @@ export default function SidebarProjectList({
                 onToggleProject={onToggleProject}
                 onProjectSelect={onProjectSelect}
                 onToggleStarProject={onToggleStarProject}
+                onSetStarColor={onSetStarColor}
+                onSetProjectGroup={onSetProjectGroup}
+                onCreateGroupForProject={onCreateGroupForProject}
                 onStartEditingProject={onStartEditingProject}
                 onCancelEditingProject={onCancelEditingProject}
                 onSaveProjectName={onSaveProjectName}
@@ -124,6 +144,26 @@ export default function SidebarProjectList({
                 onSaveEditingSession={onSaveEditingSession}
                 t={t}
               />
+            );
+            });
+
+            if (!group) {
+              return <Fragment key="ungrouped">{rows}</Fragment>;
+            }
+
+            return (
+              <SidebarProjectGroup
+                key={group.groupId}
+                group={group}
+                projectCount={sectionProjects.length}
+                isCollapsed={isProjectGroupCollapsed(group.groupId)}
+                onToggle={onToggleProjectGroup}
+                onRename={onRenameProjectGroup}
+                onDelete={onDeleteProjectGroup}
+                t={t}
+              >
+                {rows}
+              </SidebarProjectGroup>
             );
           })}
     </div>

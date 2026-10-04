@@ -224,6 +224,8 @@ export type SessionUpsertedProject = {
   fullPath: string;
   displayName: string;
   isStarred: boolean;
+  starColor: StarColor | null;
+  groupId: string | null;
 };
 
 /**
@@ -948,6 +950,18 @@ export type ProjectRepositoryRow = {
   custom_project_name: string | null;
   isStarred: number;
   isArchived: number;
+  star_color: string | null;
+  group_id: string | null;
+};
+
+/** Star colors a project can carry, Gmail style. The ordered list is `STAR_COLORS` in shared/utils. */
+export type StarColor = 'yellow' | 'orange' | 'red' | 'green' | 'blue' | 'purple';
+
+/** A named sidebar folder that projects can be filed under. */
+export type ProjectGroupRow = {
+  group_id: string;
+  name: string;
+  created_at: string;
 };
 
 /**
@@ -1145,6 +1159,8 @@ export type WorktreeProjectView = {
   fullPath: string;
   displayName: string;
   isStarred: boolean;
+  starColor: StarColor | null;
+  groupId: string | null;
   sessions: [];
   sessionMeta: { hasMore: false; total: 0 };
 };

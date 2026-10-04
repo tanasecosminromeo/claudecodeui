@@ -1,14 +1,28 @@
-import { memo, useEffect, useRef } from 'react';
-import { Check, ChevronDown, ChevronRight, Edit3, Star, Trash2, X } from 'lucide-react';
+import { memo, useCallback, useEffect, useRef, useState } from 'react';
+import type { MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from 'react';
+import { Check, ChevronDown, ChevronRight, Edit3, FolderInput, Star, Trash2, X } from 'lucide-react';
 import type { TFunction } from 'i18next';
 
 import { Button } from '@/shared/ui';
 import { cn } from '@/shared/utils';
-import type { LLMProvider, MCPServerStatus, Project, ProjectSession, SessionWithProvider } from '@/shared/types';
+import type {
+  LLMProvider,
+  MCPServerStatus,
+  Project,
+  ProjectGroup,
+  ProjectSession,
+  SessionWithProvider,
+  StarColor,
+} from '@/shared/types';
 import { getTaskIndicatorStatus } from '@/modules/sidebar/utils/sidebarProjectFormatting';
 import TaskIndicator from '@/modules/sidebar/TaskIndicator';
 import SidebarProjectSessions from '@/modules/sidebar/SidebarProjectSessions';
 import { useCompactSidebar } from '@/modules/sidebar/hooks/useCompactSidebar';
+import StarColorPalette from '@/modules/sidebar/StarColorPalette';
+import ProjectGroupMenu from '@/modules/sidebar/ProjectGroupMenu';
+import { STAR_COLOR_CLASSES } from '@/modules/sidebar/utils/starColors';
+
+const LONG_PRESS_MS = 500;
 
 type SidebarProjectItemProps = {
   project: Project;
@@ -16,7 +30,8 @@ type SidebarProjectItemProps = {
   selectedSession: ProjectSession | null;
   isExpanded: boolean;
   isDeleting: boolean;
-  isStarred: boolean;
+  starColor: StarColor | null;
+  projectGroups: ProjectGroup[];
   /** Resolved for this row: only the project being renamed re-renders on a keystroke. */
   isEditing: boolean;
   renameDraft: string;
@@ -32,7 +47,11 @@ type SidebarProjectItemProps = {
   onRenameDraftChange: (name: string) => void;
   onToggleProject: (projectId: string) => void;
   onProjectSelect: (project: Project) => void;
+  /** Gmail-style: each click moves to the next color, then back to unstarred. */
   onToggleStarProject: (projectId: string) => void;
+  onSetStarColor: (projectId: string, color: StarColor | null) => void;
+  onSetProjectGroup: (projectId: string, groupId: string | null) => void;
+  onCreateGroupForProject: (projectId: string) => void;
   onStartEditingProject: (project: Project) => void;
   onCancelEditingProject: () => void;
   onSaveProjectName: (projectId: string, nextName: string) => void;
@@ -64,7 +83,8 @@ function SidebarProjectItem({
   selectedSession,
   isExpanded,
   isDeleting,
-  isStarred,
+  starColor,
+  projectGroups,
   isEditing,
   renameDraft,
   sessions,
@@ -79,6 +99,9 @@ function SidebarProjectItem({
   onToggleProject,
   onProjectSelect,
   onToggleStarProject,
+  onSetStarColor,
+  onSetProjectGroup,
+  onCreateGroupForProject,
   onStartEditingProject,
   onCancelEditingProject,
   onSaveProjectName,
@@ -131,7 +154,64 @@ function SidebarProjectItem({
   const isCompact = useCompactSidebar();
 
   const toggleProject = () => onToggleProject(project.projectId);
-  const toggleStarProject = () => onToggleStarProject(project.projectId);
+  const isStarred = starColor !== null;
+  const starClasses = starColor ? STAR_COLOR_CLASSES[starColor] : null;
+  const [paletteAnchor, setPaletteAnchor] = useState<{ x: number; y: number } | null>(null);
+  const [groupMenuAnchor, setGroupMenuAnchor] = useState<{ x: number; y: number } | null>(null);
+  const closePalette = useCallback(() => setPaletteAnchor(null), []);
+  const closeGroupMenu = useCallback(() => setGroupMenuAnchor(null), []);
+  const longPressTimerRef = useRef<number | null>(null);
+  // Set when a long-press opened the palette, so the click that follows the
+  // release does not also cycle the color.
+  const longPressFiredRef = useRef(false);
+
+  const clearLongPress = () => {
+    if (longPressTimerRef.current !== null) {
+      window.clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+  };
+
+  useEffect(() => clearLongPress, []);
+
+  const starHandlers = {
+    onClick: (event: ReactMouseEvent) => {
+      event.stopPropagation();
+      if (longPressFiredRef.current) {
+        longPressFiredRef.current = false;
+        return;
+      }
+      onToggleStarProject(project.projectId);
+    },
+    onContextMenu: (event: ReactMouseEvent) => {
+      event.preventDefault();
+      event.stopPropagation();
+      clearLongPress();
+      setPaletteAnchor({ x: event.clientX, y: event.clientY });
+    },
+    onPointerDown: (event: ReactPointerEvent) => {
+      if (event.pointerType === 'mouse') {
+        return;
+      }
+      longPressFiredRef.current = false;
+      const point = { x: event.clientX, y: event.clientY };
+      clearLongPress();
+      longPressTimerRef.current = window.setTimeout(() => {
+        longPressTimerRef.current = null;
+        longPressFiredRef.current = true;
+        setPaletteAnchor(point);
+      }, LONG_PRESS_MS);
+    },
+    onPointerUp: clearLongPress,
+    onPointerLeave: clearLongPress,
+    onPointerCancel: clearLongPress,
+  };
+  const starTitle = t('tooltips.cycleStarColor');
+  const openGroupMenu = (event: ReactMouseEvent) => {
+    event.stopPropagation();
+    const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
+    setGroupMenuAnchor({ x: rect.right, y: rect.bottom });
+  };
 
   const saveProjectName = () => {
     onSaveProjectName(project.projectId, renameDraft);
@@ -154,9 +234,7 @@ function SidebarProjectItem({
             className={cn(
               'p-3 mx-3 my-1 rounded-lg bg-card border border-border/50 active:scale-[0.98] transition-all duration-150',
               isSelected && 'bg-primary/5 border-primary/20',
-              isStarred &&
-                !isSelected &&
-                'bg-yellow-50/50 dark:bg-yellow-900/5 border-yellow-200/30 dark:border-yellow-800/30',
+              starClasses && !isSelected && starClasses.card,
             )}
             onClick={toggleProject}
           >
@@ -165,21 +243,22 @@ function SidebarProjectItem({
                 <button
                   className={cn(
                     'w-8 h-8 rounded-lg flex items-center justify-center active:scale-90 transition-all duration-150 border',
-                    isStarred
-                      ? 'bg-yellow-500/10 dark:bg-yellow-900/30 border-yellow-200 dark:border-yellow-800'
+                    starClasses
+                      ? starClasses.button
                       : 'bg-gray-500/10 dark:bg-gray-900/30 border-gray-200 dark:border-gray-800',
                   )}
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    toggleStarProject();
-                  }}
-                  title={isStarred ? t('tooltips.removeFromFavorites') : t('tooltips.addToFavorites')}
+                  {...starHandlers}
+                  style={{ WebkitTouchCallout: 'none' }}
+                  title={starTitle}
+                  aria-label={starTitle}
+                  data-testid="project-star"
+                  data-star-color={starColor ?? 'none'}
                 >
                   <Star
                     className={cn(
                       'w-4 h-4 transition-colors',
-                      isStarred
-                        ? 'text-yellow-600 dark:text-yellow-400 fill-current'
+                      starClasses
+                        ? cn(starClasses.icon, 'fill-current')
                         : 'text-gray-600 dark:text-gray-400',
                     )}
                   />
@@ -255,6 +334,16 @@ function SidebarProjectItem({
                 ) : (
                   <>
                     <button
+                      className="flex h-8 w-8 items-center justify-center rounded-lg border border-border bg-muted/40 active:scale-90"
+                      onClick={openGroupMenu}
+                      title={t('tooltips.moveToGroup')}
+                      aria-label={t('tooltips.moveToGroup')}
+                      data-testid="project-move-to-group"
+                    >
+                      <FolderInput className="h-4 w-4 text-muted-foreground" />
+                    </button>
+
+                    <button
                       className="flex h-8 w-8 items-center justify-center rounded-lg border border-red-200 bg-red-500/10 active:scale-90 dark:border-red-800 dark:bg-red-900/30"
                       onClick={(event) => {
                         event.stopPropagation();
@@ -294,14 +383,8 @@ function SidebarProjectItem({
           variant="ghost"
           className={cn(
             'sticky top-0 z-10 flex w-full justify-between p-2 h-auto font-normal hover:bg-accent/50',
-            isSelected
-              ? 'bg-accent text-accent-foreground'
-              : isStarred
-                ? 'bg-background hover:bg-accent/50'
-                : 'bg-background',
-            isStarred &&
-              !isSelected &&
-              'bg-yellow-50/50 dark:bg-yellow-900/10 hover:bg-yellow-100/50 dark:hover:bg-yellow-900/20',
+            isSelected ? 'bg-accent text-accent-foreground' : 'bg-background',
+            starClasses && !isSelected && starClasses.row,
           )}
           onClick={selectAndToggleProject}
         >
@@ -309,22 +392,19 @@ function SidebarProjectItem({
             <div
               className={cn(
                 'w-6 h-6 flex items-center justify-center rounded cursor-pointer transition-all duration-200',
-                isStarred
-                  ? 'hover:bg-yellow-50 dark:hover:bg-yellow-900/20'
-                  : 'opacity-40 hover:opacity-100 hover:bg-accent',
+                isStarred ? 'hover:bg-accent' : 'opacity-40 hover:opacity-100 hover:bg-accent',
               )}
-              onClick={(event) => {
-                event.stopPropagation();
-                toggleStarProject();
-              }}
-              title={isStarred ? t('tooltips.removeFromFavorites') : t('tooltips.addToFavorites')}
+              {...starHandlers}
+              // No aria-label: this sits inside the row's button and would
+              // become the start of the row's accessible name.
+              title={starTitle}
+              data-testid="project-star"
+              data-star-color={starColor ?? 'none'}
             >
               <Star
                 className={cn(
                   'w-3 h-3 transition-colors',
-                  isStarred
-                    ? 'text-yellow-600 dark:text-yellow-400 fill-current'
-                    : 'text-muted-foreground',
+                  starClasses ? cn(starClasses.icon, 'fill-current') : 'text-muted-foreground',
                 )}
               />
             </div>
@@ -395,6 +475,17 @@ function SidebarProjectItem({
             ) : (
               <>
                 <div
+                  className={cn(
+                    'touch:opacity-100 flex h-6 w-6 cursor-pointer items-center justify-center rounded transition-all duration-200 hover:bg-accent group-hover:opacity-100',
+                    groupMenuAnchor ? 'opacity-100' : 'opacity-0',
+                  )}
+                  onClick={openGroupMenu}
+                  title={t('tooltips.moveToGroup')}
+                  data-testid="project-move-to-group"
+                >
+                  <FolderInput className="h-3 w-3" />
+                </div>
+                <div
                   className="touch:opacity-100 flex h-6 w-6 cursor-pointer items-center justify-center rounded opacity-0 transition-all duration-200 hover:bg-accent group-hover:opacity-100"
                   onClick={(event) => {
                     event.stopPropagation();
@@ -425,6 +516,28 @@ function SidebarProjectItem({
         </Button>
         )}
       </div>
+
+      {paletteAnchor && (
+        <StarColorPalette
+          anchor={paletteAnchor}
+          current={starColor}
+          onPick={(color) => onSetStarColor(project.projectId, color)}
+          onClose={closePalette}
+          t={t}
+        />
+      )}
+
+      {groupMenuAnchor && (
+        <ProjectGroupMenu
+          anchor={groupMenuAnchor}
+          groups={projectGroups}
+          currentGroupId={project.groupId ?? null}
+          onMove={(groupId) => onSetProjectGroup(project.projectId, groupId)}
+          onCreate={() => onCreateGroupForProject(project.projectId)}
+          onClose={closeGroupMenu}
+          t={t}
+        />
+      )}
 
       <SidebarProjectSessions
         project={project}

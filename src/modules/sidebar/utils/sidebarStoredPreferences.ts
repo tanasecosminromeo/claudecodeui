@@ -40,3 +40,23 @@ export const clearLegacyStarredProjectIds = () => {
     // Keep UI responsive even if storage is unavailable.
   }
 };
+
+const COLLAPSED_PROJECT_GROUPS_STORAGE_KEY = 'collapsedProjectGroups';
+
+/** Group ids the user collapsed in the Projects list. A per-device view choice, so localStorage. */
+export const readCollapsedProjectGroupIds = (): Set<string> => {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(COLLAPSED_PROJECT_GROUPS_STORAGE_KEY) ?? '[]') as unknown;
+    return new Set(Array.isArray(parsed) ? parsed.map(String) : []);
+  } catch {
+    return new Set();
+  }
+};
+
+export const writeCollapsedProjectGroupIds = (groupIds: ReadonlySet<string>) => {
+  try {
+    localStorage.setItem(COLLAPSED_PROJECT_GROUPS_STORAGE_KEY, JSON.stringify([...groupIds]));
+  } catch {
+    // Keep UI responsive even if storage is unavailable.
+  }
+};

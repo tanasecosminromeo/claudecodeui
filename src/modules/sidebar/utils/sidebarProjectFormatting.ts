@@ -3,11 +3,13 @@ import type { TFunction } from 'i18next';
 import type {
   LLMProvider,
   Project,
+  ProjectGroup,
   ProjectSession,
   ProjectSortOrder,
   SessionWithProvider,
   SettingsProject,
 } from '@/shared/types';
+import { getStarColor, starColorRank } from '@/modules/sidebar/utils/starColors';
 
 // Presentation data the sidebar derives from a session before rendering its row.
 type SessionViewModel = {
@@ -125,16 +127,10 @@ export const sortProjects = (
   const byName = [...projects];
 
   byName.sort((projectA, projectB) => {
-    // Star order now comes from backend `projects.isStarred`.
-    const aStarred = Boolean(projectA.isStarred);
-    const bStarred = Boolean(projectB.isStarred);
-
-    if (aStarred && !bStarred) {
-      return -1;
-    }
-
-    if (!aStarred && bStarred) {
-      return 1;
+    // Starred first, then by color in STAR_COLORS order (Gmail style).
+    const rankDifference = starColorRank(getStarColor(projectA)) - starColorRank(getStarColor(projectB));
+    if (rankDifference !== 0) {
+      return rankDifference;
     }
 
     if (projectSortOrder === 'date') {
@@ -145,6 +141,43 @@ export const sortProjects = (
   });
 
   return byName;
+};
+
+export type ProjectSection = {
+  /** null for the trailing block of ungrouped projects. */
+  group: ProjectGroup | null;
+  projects: Project[];
+};
+
+/**
+ * Splits an already-sorted project list into sidebar folders: groups by name
+ * first, then the ungrouped projects. Each section keeps the incoming order,
+ * and groups with no (visible) projects are left out. A `groupId` pointing at
+ * a group the client does not know yet counts as ungrouped.
+ */
+export const buildProjectSections = (sortedProjects: Project[], groups: ProjectGroup[]): ProjectSection[] => {
+  const projectsByGroupId = new Map<string, Project[]>(groups.map((group) => [group.groupId, []]));
+  const ungrouped: Project[] = [];
+
+  for (const project of sortedProjects) {
+    const bucket = project.groupId ? projectsByGroupId.get(project.groupId) : undefined;
+    if (bucket) {
+      bucket.push(project);
+    } else {
+      ungrouped.push(project);
+    }
+  }
+
+  const sections: ProjectSection[] = [...groups]
+    .sort((groupA, groupB) => groupA.name.localeCompare(groupB.name, undefined, { sensitivity: 'base' }))
+    .map((group) => ({ group, projects: projectsByGroupId.get(group.groupId) ?? [] }))
+    .filter((section) => section.projects.length > 0);
+
+  if (ungrouped.length > 0) {
+    sections.push({ group: null, projects: ungrouped });
+  }
+
+  return sections;
 };
 
 export const filterProjects = (projects: Project[], searchFilter: string): Project[] => {

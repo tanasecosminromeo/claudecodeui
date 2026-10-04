@@ -4,8 +4,8 @@ import path from 'node:path';
 import { projectsDb, sessionsDb } from '@/modules/database/index.js';
 import { sessionSynchronizerService } from '@/modules/providers/index.js';
 import { WS_OPEN_STATE, connectedClients } from '@/modules/websocket/index.js';
-import type { RealtimeClientConnection } from '@/shared/types.js';
-import { AppError } from '@/shared/utils.js';
+import type { RealtimeClientConnection, StarColor } from '@/shared/types.js';
+import { AppError, parseStarColor } from '@/shared/utils.js';
 
 type SessionSummary = {
   id: string;
@@ -29,6 +29,8 @@ export type ProjectListItem = {
   displayName: string;
   fullPath: string;
   isStarred: boolean;
+  starColor: StarColor | null;
+  groupId: string | null;
   sessions: SessionSummary[];
   sessionMeta: {
     hasMore: boolean;
@@ -189,6 +191,8 @@ export async function getProjectsWithSessions(
     project_path: string;
     custom_project_name?: string | null;
     isStarred?: number;
+    star_color?: string | null;
+    group_id?: string | null;
   }>;
   const totalProjects = projectRows.length;
   const projects: ProjectListItem[] = [];
@@ -223,6 +227,8 @@ export async function getProjectsWithSessions(
       displayName,
       fullPath: projectPath,
       isStarred: Boolean(row.isStarred),
+      starColor: parseStarColor(row.star_color),
+      groupId: row.group_id ?? null,
       sessions: sessionsPage.sessions,
       sessionMeta: {
         hasMore: sessionsPage.hasMore,
@@ -257,6 +263,8 @@ export async function getArchivedProjectsWithSessions(
     project_path: string;
     custom_project_name?: string | null;
     isStarred?: number;
+    star_color?: string | null;
+    group_id?: string | null;
   }>;
 
   const archivedProjects: ArchivedProjectListItem[] = [];
@@ -275,6 +283,8 @@ export async function getArchivedProjectsWithSessions(
       displayName,
       fullPath: row.project_path,
       isStarred: Boolean(row.isStarred),
+      starColor: parseStarColor(row.star_color),
+      groupId: row.group_id ?? null,
       isArchived: true,
       sessions: sessionsPage.sessions,
       sessionMeta: {

@@ -7,7 +7,7 @@ import type {
   WorktreeProjectGateway,
   WorktreeProjectView,
 } from '@/shared/types.js';
-import { AppError, normalizeProjectPath } from '@/shared/utils.js';
+import { AppError, normalizeProjectPath, parseStarColor } from '@/shared/utils.js';
 import {
   findWorktreeEntryByPath,
   listWorktreePorcelainEntries,
@@ -20,6 +20,8 @@ function mapRowToProjectView(row: ProjectRepositoryRow): WorktreeProjectView {
     fullPath: row.project_path,
     displayName: row.custom_project_name || path.basename(row.project_path),
     isStarred: Boolean(row.isStarred),
+    starColor: parseStarColor(row.star_color),
+    groupId: row.group_id ?? null,
     sessions: [],
     sessionMeta: { hasMore: false, total: 0 },
   };

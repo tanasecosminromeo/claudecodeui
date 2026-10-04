@@ -4,6 +4,7 @@ import {
   APP_CONFIG_TABLE_SCHEMA_SQL,
   LAST_SCANNED_AT_SQL,
   NOTIFICATION_CHANNEL_ENDPOINTS_TABLE_SCHEMA_SQL,
+  PROJECT_GROUPS_TABLE_SCHEMA_SQL,
   PROJECTS_TABLE_SCHEMA_SQL,
   PROVIDER_MODELS_TABLE_SCHEMA_SQL,
   PUSH_SUBSCRIPTIONS_TABLE_SCHEMA_SQL,
@@ -457,6 +458,24 @@ const addSessionEffortColumn = (db: Database): void => {
   addColumnToTableIfNotExists(db, 'sessions', columnNames, 'effort', 'TEXT');
 };
 
+/**
+ * Adds Gmail-style star colors and sidebar groups to projects.
+ *
+ * Runs after the legacy table rebuild, which does not know these columns.
+ * Projects starred before colors existed become yellow, and `isStarred`
+ * stays as the `star_color IS NOT NULL` mirror so older readers keep working.
+ */
+const addProjectStarColorAndGroupColumns = (db: Database): void => {
+  const columnNames = getTableInfo(db, 'projects').map((column) => column.name);
+  const hadStarColor = columnNames.includes('star_color');
+  addColumnToTableIfNotExists(db, 'projects', columnNames, 'star_color', 'TEXT DEFAULT NULL');
+  addColumnToTableIfNotExists(db, 'projects', columnNames, 'group_id', 'TEXT DEFAULT NULL');
+  if (!hadStarColor) {
+    db.exec("UPDATE projects SET star_color = 'yellow' WHERE isStarred = 1 AND star_color IS NULL");
+  }
+  db.exec(PROJECT_GROUPS_TABLE_SCHEMA_SQL);
+};
+
 const ensureProjectsForSessionPaths = (db: Database): void => {
   if (!tableExists(db, 'sessions')) {
     return;
@@ -513,6 +532,7 @@ export const runMigrations = (db: Database) => {
     rebuildProjectsTableWithPrimaryKeySchema(db);
 
     migrateLegacyWorkspaceTableIntoProjects(db);
+    addProjectStarColorAndGroupColumns(db);
     rebuildSessionsTableWithProjectSchema(db);
     migrateLegacySessionNames(db);
     addProviderSessionIdMapping(db);
@@ -532,6 +552,7 @@ export const runMigrations = (db: Database) => {
     db.exec('CREATE INDEX IF NOT EXISTS idx_sessions_is_archived ON sessions(isArchived)');
     db.exec('CREATE INDEX IF NOT EXISTS idx_projects_is_starred ON projects(isStarred)');
     db.exec('CREATE INDEX IF NOT EXISTS idx_projects_is_archived ON projects(isArchived)');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_projects_group_id ON projects(group_id)');
 
     db.exec('DROP INDEX IF EXISTS idx_session_names_lookup');
     db.exec('DROP INDEX IF EXISTS idx_sessions_workspace_path');

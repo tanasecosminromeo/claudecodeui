@@ -52,7 +52,9 @@
     "clearSearch": "Clear search",
     "openCommandPalette": "Open command palette",
     "attentionRequiredIndicator": "Session needs attention",
-    "backgroundWorkIndicator": "Background work running"
+    "backgroundWorkIndicator": "Background work running",
+    "cycleStarColor": "Star: click to change color, right-click to pick one",
+    "moveToGroup": "Move to group"
   },
   "navigation": {
     "chat": "Chat",
@@ -166,5 +168,29 @@
     "undo": "Undo",
     "dismiss": "Dismiss",
     "menuDescription": "Hide it from the list; Undo is offered for a few seconds."
+  },
+  "starColors": {
+    "title": "Star color",
+    "none": "No star",
+    "yellow": "Yellow",
+    "orange": "Orange",
+    "red": "Red",
+    "green": "Green",
+    "blue": "Blue",
+    "purple": "Purple"
+  },
+  "groups": {
+    "moveToGroup": "Move to group",
+    "newGroup": "New group…",
+    "newGroupPrompt": "Name for the new group",
+    "removeFromGroup": "Remove from group",
+    "renameGroup": "Rename group",
+    "renameGroupPrompt": "New name for the group",
+    "deleteGroup": "Delete group",
+    "deleteGroupConfirm": "Delete the group \"{{name}}\"? Its projects stay, ungrouped.",
+    "groupOptions": "Group options",
+    "projectCount_one": "{{count}} project",
+    "projectCount_other": "{{count}} projects",
+    "saveError": "Could not update groups. Please try again."
   }
 }

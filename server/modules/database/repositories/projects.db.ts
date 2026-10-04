@@ -27,7 +27,7 @@ export const projectsDb = {
             ON CONFLICT(project_path) DO UPDATE SET
             isArchived = 0
             WHERE projects.isArchived = 1
-            RETURNING project_id, project_path, custom_project_name, isStarred, isArchived
+            RETURNING project_id, project_path, custom_project_name, isStarred, isArchived, star_color, group_id
         `).get(attemptedId, normalizedProjectPath, normalizedProjectName) as ProjectRepositoryRow | undefined;
 
         if (row) {
@@ -48,7 +48,7 @@ export const projectsDb = {
         const db = getConnection();
         const normalizedProjectPath = normalizeProjectPath(projectPath);
         const row = db.prepare(`
-            SELECT project_id, project_path, custom_project_name, isStarred, isArchived
+            SELECT project_id, project_path, custom_project_name, isStarred, isArchived, star_color, group_id
             FROM projects
             WHERE project_path = ?
         `).get(normalizedProjectPath) as ProjectRepositoryRow | undefined;
@@ -59,7 +59,7 @@ export const projectsDb = {
     getProjectById(projectId: string): ProjectRepositoryRow | null {
         const db = getConnection();
         const row = db.prepare(`
-            SELECT project_id, project_path, custom_project_name, isStarred, isArchived
+            SELECT project_id, project_path, custom_project_name, isStarred, isArchived, star_color, group_id
             FROM projects
             WHERE project_id = ?
         `).get(projectId) as ProjectRepositoryRow | undefined;
@@ -89,7 +89,7 @@ export const projectsDb = {
     getProjectPaths(): ProjectRepositoryRow[] {
         const db = getConnection();
         return db.prepare(`
-            SELECT project_id, project_path, custom_project_name, isStarred, isArchived
+            SELECT project_id, project_path, custom_project_name, isStarred, isArchived, star_color, group_id
             FROM projects
             WHERE isArchived = 0
         `).all() as ProjectRepositoryRow[];
@@ -102,7 +102,7 @@ export const projectsDb = {
     getArchivedProjectPaths(): ProjectRepositoryRow[] {
         const db = getConnection();
         return db.prepare(`
-            SELECT project_id, project_path, custom_project_name, isStarred, isArchived
+            SELECT project_id, project_path, custom_project_name, isStarred, isArchived, star_color, group_id
             FROM projects
             WHERE isArchived = 1
         `).all() as ProjectRepositoryRow[];
@@ -139,23 +139,46 @@ export const projectsDb = {
         `).run(customProjectName, projectId);
     },
 
+    // The boolean setters keep `star_color` in step: starring picks yellow
+    // unless the project already has a color, unstarring clears it.
     updateProjectIsStarred(projectPath: string, isStarred: boolean): void {
         const db = getConnection();
         const normalizedProjectPath = normalizeProjectPath(projectPath);
         db.prepare(`
             UPDATE projects
-            SET isStarred = ?
+            SET isStarred = ?,
+                star_color = CASE WHEN ? = 1 THEN COALESCE(star_color, 'yellow') ELSE NULL END
             WHERE project_path = ?
-        `).run(isStarred ? 1 : 0, normalizedProjectPath);
+        `).run(isStarred ? 1 : 0, isStarred ? 1 : 0, normalizedProjectPath);
     },
 
     updateProjectIsStarredById(projectId: string, isStarred: boolean): void {
         const db = getConnection();
         db.prepare(`
             UPDATE projects
-            SET isStarred = ?
+            SET isStarred = ?,
+                star_color = CASE WHEN ? = 1 THEN COALESCE(star_color, 'yellow') ELSE NULL END
             WHERE project_id = ?
-        `).run(isStarred ? 1 : 0, projectId);
+        `).run(isStarred ? 1 : 0, isStarred ? 1 : 0, projectId);
+    },
+
+    /** Sets (or clears, with null) the star color; `isStarred` mirrors it. */
+    updateProjectStarColorById(projectId: string, starColor: string | null): void {
+        const db = getConnection();
+        db.prepare(`
+            UPDATE projects
+            SET star_color = ?, isStarred = ?
+            WHERE project_id = ?
+        `).run(starColor, starColor ? 1 : 0, projectId);
+    },
+
+    updateProjectGroupById(projectId: string, groupId: string | null): void {
+        const db = getConnection();
+        db.prepare(`
+            UPDATE projects
+            SET group_id = ?
+            WHERE project_id = ?
+        `).run(groupId, projectId);
     },
 
     updateProjectIsArchived(projectPath: string, isArchived: boolean): void {

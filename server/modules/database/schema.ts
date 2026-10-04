@@ -92,7 +92,17 @@ CREATE TABLE IF NOT EXISTS projects (
     project_path TEXT NOT NULL UNIQUE,
     custom_project_name TEXT DEFAULT NULL,
     isStarred BOOLEAN DEFAULT 0,
-    isArchived BOOLEAN DEFAULT 0
+    isArchived BOOLEAN DEFAULT 0,
+    star_color TEXT DEFAULT NULL,
+    group_id TEXT DEFAULT NULL
+);
+`;
+
+export const PROJECT_GROUPS_TABLE_SCHEMA_SQL = `
+CREATE TABLE IF NOT EXISTS project_groups (
+    group_id TEXT PRIMARY KEY NOT NULL,
+    name TEXT NOT NULL UNIQUE COLLATE NOCASE,
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
 `;
 

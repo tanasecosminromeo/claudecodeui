@@ -1,8 +1,13 @@
 import { projectsDb } from '@/modules/database/index.js';
-import { AppError } from '@/shared/utils.js';
+import type { StarColor } from '@/shared/types.js';
+import { AppError, parseStarColor, STAR_COLORS } from '@/shared/utils.js';
 
 type ToggleProjectStarResult = {
   isStarred: boolean;
+};
+
+type SetProjectStarColorResult = {
+  starColor: StarColor | null;
 };
 
 type ApplyLegacyStarredProjectIdsResult = {
@@ -49,6 +54,43 @@ export function applyLegacyStarredProjectIds(projectIds: string[]): ApplyLegacyS
   }
 
   return { updated };
+}
+
+function requireProject(projectId: string) {
+  const normalizedProjectId = normalizeProjectId(projectId);
+  if (!normalizedProjectId) {
+    throw new AppError('projectId is required', {
+      code: 'PROJECT_ID_REQUIRED',
+      statusCode: 400,
+    });
+  }
+
+  const project = projectsDb.getProjectById(normalizedProjectId);
+  if (!project) {
+    throw new AppError('Project not found', {
+      code: 'PROJECT_NOT_FOUND',
+      statusCode: 404,
+    });
+  }
+
+  return project;
+}
+
+/**
+ * Sets one project's star color; `null` removes the star.
+ */
+export function setProjectStarColor(projectId: string, color: unknown): SetProjectStarColorResult {
+  if (color !== null && parseStarColor(color) === null) {
+    throw new AppError(`color must be one of ${STAR_COLORS.join(', ')} or null`, {
+      code: 'INVALID_STAR_COLOR',
+      statusCode: 400,
+    });
+  }
+
+  const project = requireProject(projectId);
+  const starColor = parseStarColor(color);
+  projectsDb.updateProjectStarColorById(project.project_id, starColor);
+  return { starColor };
 }
 
 /**
