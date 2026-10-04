@@ -24,8 +24,9 @@ argument at 200 bytes (too short for the Bash tool's wrapper shell, whose `-c` s
 264-byte preamble before the command) and keeps at most 12 arguments, so the wrapper re-reads
 `/proc/<pid>/cmdline` as root while the process is still alive and uses that when its argv[0] matches;
 the cut argv is the fallback for processes gone within milliseconds. An argument containing a newline
-keeps its first line only. The hook is `sys_enter_execve`, so a failed exec (an `execvp` PATH walk
-tries one `execve` per directory) is logged as well; same-pid records merge into one node in the tree.
+keeps its first line only. The exec record is written when `execve` returns successfully, so a
+failed attempt (an `execvp` PATH walk tries one `execve` per directory) is not logged, and the
+`/proc` re-read sees the new program rather than the process it was forked from.
 Linux only (bpftrace, BTF); the macOS instance shows live trees without history.
 
 The parser is tested without root by `tests/tracer.test.mjs` (`make test-custom`), which feeds
