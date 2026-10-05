@@ -23,7 +23,7 @@
 
 This is a personal fork of [siteboon/claudecodeui](https://github.com/siteboon/claudecodeui). Everything below is on top of upstream; fork-only code lives in [`custom/`](custom/) so upstream merges rarely conflict.
 
-**Status:** ✅ Works well · 🧪 Work in progress (works, still changing) · 🚧 MVP (does the basic job, more planned) · 🔬 Experimental (needs root or outside services, may change). *Next:* lists what is planned or known to be missing.
+**Status:** ✅ Works well · 🧪 Work in progress (works, still changing) · 🚧 MVP (does the basic job, more planned) · 🔬 Experimental (needs root or outside services, may change). *Next:* lists what is planned or known to be missing; the order of work is in [docs/fork-roadmap.md](docs/fork-roadmap.md).
 
 ### Chat and sessions
 
@@ -34,7 +34,7 @@ This is a personal fork of [siteboon/claudecodeui](https://github.com/siteboon/c
 | Plan approval keeps the mode | ✅ | Approving a plan keeps the permission mode you picked. *Next:* background agents don't follow it yet. |
 | Last-message stamp | ✅ | Time of the last message at the end of the transcript. |
 | Voice shortcut | ✅ | Ctrl+Space (Option+Space on macOS) starts and stops the composer mic; focus stays in the prompt. |
-| "Summarised" read-aloud | ✅ | Reads a short summary of a message instead of all of it. Needs a voice backend with a `/audio/speech/summary` endpoint, which standard OpenAI-style backends don't have. |
+| "Summarised" read-aloud | ✅ | Reads a short summary of a message instead of all of it. Depends on a speech service that will be published at a later date. |
 
 ### Sidebar
 
@@ -64,8 +64,8 @@ This is a personal fork of [siteboon/claudecodeui](https://github.com/siteboon/c
 
 | Feature | Status | What it does |
 |---|---|---|
-| Makefile workflow | 🚧 | `make status / upgrade / sync / rollback / deploy / remote`: merge the latest upstream release, build, test, restart and check, then bring other machines up to date. See the top of the [Makefile](Makefile). |
-| Linux service ([systemd](custom/systemd/)) | 🚧 | Runs the server as a systemd user service that starts on boot and re-applies the UI cleanup on each start. |
+| Makefile workflow | 🧪 | `make status / upgrade / sync / rollback / deploy / remote`: merge the latest upstream release, build, test, restart and check, then bring other machines up to date. See the top of the [Makefile](Makefile). *Next:* keeping several machines in step (`make sync`, `make remote`) doesn't work reliably yet. |
+| Linux service ([systemd](custom/systemd/)) | ✅ | Runs the server as a systemd user service that starts on boot and re-applies the UI cleanup on each start. |
 | macOS service ([launchd](custom/launchd/)) | 🚧 | The same for macOS: a LaunchAgent, macOS's equivalent of a systemd user service. |
 | End-to-end tests ([e2e](custom/e2e/README.md)) | ✅ | `make e2e` builds this checkout into a separate instance with its own port and database, then drives it in a real browser (Playwright) against the real Claude CLI, including real restarts. |
 | Commit guard ([hooks](custom/hooks/README.md)) | 🚧 | Git hooks that stop a commit or push from publishing secrets (checked with gitleaks) or terms from a private denylist, such as personal or client names. The denylist lives outside the repo. |
