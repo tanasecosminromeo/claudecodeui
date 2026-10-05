@@ -28,17 +28,15 @@ Status 🧪. Syncing between machines doesn't work reliably.
   leaves both machines on the same commit, built, restarted, with `make verify` passing.
 
 ### 1.3 Plan approval and background agents
-Status ✅ for the main session. Background agents don't follow the mode picked when you approve a plan.
-- Reproduce: plan mode → approve with "accept edits" → Claude starts a background agent that
-  edits files → see whether the agent asks for each edit.
-- Things to check:
-  - Approving applies the mode with `setMode` (destination `session`) on the main process. Agents
-    already running, or started in the background, may not pick it up.
-  - Claude Code may handle permissions differently for background agents: they can't stop to ask,
-    so anything not approved beforehand may be denied.
-- If the CLI doesn't let us change this, say so in the README row and close the item.
-- **Done:** an e2e scenario where a background agent edits a file after "accept edits" without asking,
-  or a documented CLI limitation.
+Status ✅. Done 2026-10-05.
+- Cause: when you switch to auto, the CLI can refuse the switch: the model has no auto mode (Haiku),
+  or the process isn't ready for input yet. The selector still showed auto while the process
+  stayed in default, so background agents asked for every command. When the switch lands, background
+  agents follow it (e2e 29).
+- A switch the process isn't ready for is retried until it lands (up to 10 seconds).
+- In auto, a permission request that still reaches CloudCLI is allowed, and the chat shows a live-only
+  note: "Auto-allowed <tool>: <command or file> · sub-agent <id> · <the CLI's reason>". It is not in the
+  transcript, so a reload drops it (e2e 30). Questions and plan approvals still ask.
 
 ## 2. UX fixes
 

@@ -694,7 +694,9 @@ type MessageKind =
   | 'session_created'
   | 'history_truncated'
   | 'task_notification'
-  | 'task_status';
+  | 'task_status'
+  /** A live-only note for the chat, e.g. a call auto-allowed in auto mode. Not in the transcript. */
+  | 'notice';
 
 // ---------------------------
 

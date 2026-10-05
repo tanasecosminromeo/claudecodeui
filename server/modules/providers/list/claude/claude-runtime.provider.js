@@ -92,6 +92,26 @@ const TRACKED_BACKGROUND_HOLD_CEILING_MS = parseInt(process.env.CLOUDCLI_TRACKED
 
 const TOOLS_REQUIRING_INTERACTION = new Set(['AskUserQuestion', 'ExitPlanMode']);
 
+/**
+ * One line for the chat about a call allowed on the user's behalf in auto mode:
+ * the tool, what it acts on, whether a sub-agent made it, and the CLI's reason
+ * for asking, e.g. "Auto-allowed Bash: git push · sub-agent agent-1 · Pushes to a remote".
+ */
+function describeAutoAllowedTool(toolName, input, context) {
+  const subject = typeof input?.command === 'string' ? input.command
+    : typeof input?.file_path === 'string' ? input.file_path
+      : typeof input?.url === 'string' ? input.url
+        : JSON.stringify(input ?? {});
+  const parts = [`Auto-allowed ${toolName}: ${subject.length > 200 ? `${subject.slice(0, 200)}…` : subject}`];
+  if (context?.agentID) {
+    parts.push(`sub-agent ${context.agentID}`);
+  }
+  if (context?.decisionReason) {
+    parts.push(context.decisionReason);
+  }
+  return parts.join(' · ');
+}
+
 // How long a new turn waits for the `result` of a turn the user just stopped
 // (the interrupt makes the CLI answer promptly; this only caps a CLI that never does).
 const INTERRUPTED_TURN_RESULT_WAIT_MS = 10 * 1000;
@@ -101,6 +121,10 @@ const TRAILING_PUSH_WAIT_MS = 20 * 1000;
 
 // Permission modes a Claude session can be put in from the composer.
 const CLAUDE_PERMISSION_MODES = new Set(['default', 'auto', 'acceptEdits', 'bypassPermissions', 'plan']);
+
+// How long a mode switch keeps retrying while the process cannot take input yet: 40 × 250 ms.
+const PERMISSION_MODE_RETRY_ATTEMPTS = 40;
+const PERMISSION_MODE_RETRY_MS = 250;
 
 // Ultracode is a session-scoped setting rather than an SDK effort level: it pairs xhigh
 // effort with standing dynamic-workflow orchestration, and the CLI only honours it when
@@ -1164,13 +1188,33 @@ async function startClaudeProcess(command, options = {}, ws, context, reattachRe
     updateRecord({ options: { ...recordedRunOptions(), permissionMode: mode } });
     const cliMode = cliModeFor(mode);
     if (cliMode) {
-      try {
-        await queryInstance.setPermissionMode?.(cliMode);
-      } catch (error) {
-        console.warn('[Claude SDK] Could not switch the live process permission mode:', error?.message || error);
-      }
+      void applyCliPermissionMode(mode, cliMode);
     }
     return true;
+  };
+
+  // A switch that reaches the process before it can take input (still
+  // starting, or between turns) is retried until it lands, instead of being
+  // dropped while the selector already shows the new mode. A newer pick stops
+  // the retries of an older one.
+  const applyCliPermissionMode = async (mode, cliMode) => {
+    for (let attempt = 0; ; attempt += 1) {
+      try {
+        await queryInstance.setPermissionMode?.(cliMode);
+        return;
+      } catch (error) {
+        const message = error?.message || String(error);
+        const notReady = /not ready/i.test(message);
+        if (!notReady || attempt >= PERMISSION_MODE_RETRY_ATTEMPTS || permissionMode !== mode) {
+          console.warn('[Claude SDK] Could not switch the live process permission mode:', message);
+          return;
+        }
+        await new Promise((resolve) => { setTimeout(resolve, PERMISSION_MODE_RETRY_MS); });
+        if (permissionMode !== mode) {
+          return;
+        }
+      }
+    }
   };
 
   // Carries a turn's composer settings onto the live process. Tool rules are
@@ -1395,6 +1439,20 @@ async function startClaudeProcess(command, options = {}, ws, context, reattachRe
 
         if (!requiresInteraction) {
           if (permissionMode === 'bypassPermissions') {
+            return { behavior: 'allow', updatedInput: input };
+          }
+
+          // The user picked auto, yet the CLI still asks: its classifier wants a
+          // human for this call, a sub-agent runs on a model without auto mode,
+          // or the CLI refused the switch. Allow it, and say so in the chat. The
+          // note is live-only: it is not in the transcript, so a reload drops it.
+          if (permissionMode === 'auto') {
+            writer.send(createNormalizedMessage({
+              kind: 'notice',
+              content: describeAutoAllowedTool(toolName, input, context),
+              sessionId: capturedSessionId || sessionId || null,
+              provider: 'claude',
+            }));
             return { behavior: 'allow', updatedInput: input };
           }
 

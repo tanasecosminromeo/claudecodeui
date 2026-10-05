@@ -25,7 +25,11 @@ import type { NormalizedMessage, ProviderRuntimeContext } from '@/shared/types.j
 
 const NATIVE_ID = 'native-mode-session';
 
-type CanUseTool = (toolName: string, input: Record<string, unknown>, context: { signal: AbortSignal }) => Promise<Record<string, unknown>>;
+type CanUseTool = (
+  toolName: string,
+  input: Record<string, unknown>,
+  context: { signal: AbortSignal; agentID?: string; decisionReason?: string },
+) => Promise<Record<string, unknown>>;
 
 type Harness = {
   sent: NormalizedMessage[];
@@ -36,7 +40,7 @@ type Harness = {
 
 async function withProcess(
   sessionId: string,
-  options: { permissionMode?: string; rejectBypass?: boolean },
+  options: { permissionMode?: string; rejectBypass?: boolean; notReadyTimes?: number },
   runTest: (harness: Harness) => Promise<void>,
 ): Promise<void> {
   const cwd = await mkdtemp(path.join(os.tmpdir(), 'claude-permission-mode-'));
@@ -47,6 +51,7 @@ async function withProcess(
   const captured: { canUseTool: CanUseTool | null } = { canUseTool: null };
   const cliModes: string[] = [];
   const sent: NormalizedMessage[] = [];
+  let notReadyLeft = options.notReadyTimes ?? 0;
 
   const createQuery: NonNullable<ProviderRuntimeContext['createQuery']> = ({ prompt, options: sdkOptions }) => {
     captured.canUseTool = sdkOptions.canUseTool as CanUseTool;
@@ -70,6 +75,10 @@ async function withProcess(
       setPermissionMode: async (mode: string) => {
         if (mode === 'bypassPermissions' && options.rejectBypass) {
           throw new Error('Cannot set permission mode to bypassPermissions because the session was not launched with --dangerously-skip-permissions');
+        }
+        if (notReadyLeft > 0) {
+          notReadyLeft -= 1;
+          throw new Error('ProcessTransport is not ready for writing');
         }
         cliModes.push(mode);
       },
@@ -160,5 +169,42 @@ test('an unknown mode is refused', async () => {
   await withProcess('app-mode-invalid', { permissionMode: 'default' }, async (harness) => {
     assert.equal(await setClaudeSDKPermissionMode('app-mode-invalid', 'yolo'), false);
     assert.deepEqual(harness.cliModes, []);
+  });
+});
+
+test('a switch the process is not ready for yet is retried until it lands', async () => {
+  await withProcess('app-mode-not-ready', { permissionMode: 'default', notReadyTimes: 2 }, async (harness) => {
+    assert.equal(await setClaudeSDKPermissionMode('app-mode-not-ready', 'auto'), true);
+    for (let i = 0; i < 40 && harness.cliModes.length === 0; i++) {
+      await settle();
+    }
+    assert.deepEqual(harness.cliModes, ['auto']);
+  });
+});
+
+test('in auto mode a permission request is allowed without a prompt and noted in the chat', async () => {
+  await withProcess('app-mode-auto-allow', { permissionMode: 'auto' }, async (harness) => {
+    const verdict = await harness.canUseTool(
+      'Bash',
+      { command: 'git push origin main' },
+      { signal: signal(), agentID: 'agent-123', decisionReason: 'Pushes to a remote' },
+    );
+
+    assert.equal(verdict.behavior, 'allow');
+    assert.equal(harness.sent.filter((message) => message.kind === 'permission_request').length, 0);
+    const notice = harness.sent.find((message) => message.kind === 'notice') as { content?: string } | undefined;
+    assert.ok(notice, 'a notice was sent to the chat');
+    assert.match(notice.content ?? '', /Bash/);
+    assert.match(notice.content ?? '', /git push origin main/);
+    assert.match(notice.content ?? '', /sub-agent/);
+    assert.match(notice.content ?? '', /Pushes to a remote/);
+  });
+});
+
+test('in auto mode questions and plan approvals still ask', async () => {
+  await withProcess('app-mode-auto-ask', { permissionMode: 'auto' }, async (harness) => {
+    const verdict = await answerPrompt(harness, 'AskUserQuestion', { allow: true });
+    assert.equal(verdict.behavior, 'allow');
+    assert.equal(harness.sent.filter((message) => message.kind === 'notice').length, 0);
   });
 });

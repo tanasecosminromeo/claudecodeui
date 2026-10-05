@@ -31,7 +31,7 @@ This is a personal fork of [siteboon/claudecodeui](https://github.com/siteboon/c
 |---|---|---|
 | One live Claude process per session | 🧪 | Sessions survive CloudCLI restarts and crashes (`CLOUDCLI_DETACHED_CLAUDE=1`) and are never duplicated between the terminal and the web UI. |
 | `/btw` side questions | 🚧 | Ask a quick question while Claude is busy without interrupting the turn. *Next:* keep the questions and answers, with a history you can open. |
-| Plan approval keeps the mode | ✅ | Approving a plan keeps the permission mode you picked. *Next:* background agents don't follow it yet. |
+| Plan approval keeps the mode | ✅ | Approving a plan keeps the permission mode you picked, and switching to auto afterwards also applies to background agents. In auto, anything the CLI still asks about is allowed and noted in the chat (live only, gone after a reload). |
 | Last-message stamp | ✅ | Time of the last message at the end of the transcript. |
 | Voice shortcut | ✅ | Ctrl+Space (Option+Space on macOS) starts and stops the composer mic; focus stays in the prompt. |
 | "Summarised" read-aloud | ✅ | Reads a short summary of a message instead of all of it. Depends on a speech service that will be published at a later date. |

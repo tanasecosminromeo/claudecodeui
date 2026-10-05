@@ -525,6 +525,21 @@ export function normalizedToChatMessages(messages: NormalizedMessage[]): ChatMes
         });
         break;
 
+      // A live-only note from the server (e.g. a call auto-allowed in auto
+      // mode), drawn like a task notification with an amber dot.
+      case 'notice':
+        if (msg.content) {
+          converted.push({
+            type: 'assistant',
+            content: msg.content,
+            timestamp: msg.timestamp,
+            isTaskNotification: true,
+            taskNotificationStatus: 'notice',
+            ...sharedMetadata,
+          });
+        }
+        break;
+
       case 'stream_delta':
         if (msg.content) {
           converted.push({

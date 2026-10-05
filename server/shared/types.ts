@@ -191,7 +191,9 @@ export type MessageKind =
   | 'session_created'
   | 'history_truncated'
   | 'task_notification'
-  | 'task_status';
+  | 'task_status'
+  /** A live-only note for the chat, e.g. a call auto-allowed in auto mode. Not in the transcript. */
+  | 'notice';
 
 /**
  * Event kinds added by the chat gateway layer on top of provider message kinds.
