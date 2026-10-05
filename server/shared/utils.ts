@@ -4,6 +4,7 @@ import {
   access,
   lstat,
   mkdir,
+  open,
   readFile,
   readdir,
   readlink,
@@ -1145,6 +1146,65 @@ export async function readFileTimestamps(
     };
   } catch {
     return {};
+  }
+}
+
+/**
+ * Timestamp of the last record in a JSONL file that has one, read backwards
+ * from the end of the file. `undefined` when no record has a valid
+ * `timestamp` or the file cannot be read.
+ *
+ * A Claude transcript's mtime is not when it was last used: an idle `claude`
+ * process left open in a terminal keeps appending records with no timestamp
+ * (`bridge-session`, `custom-title`, `cost-state`), so a session whose last
+ * activity is weeks old would sort as active minutes ago. Everything that is
+ * activity (messages, replies, tool results, background task events) carries
+ * a timestamp.
+ */
+export async function readLastRecordTimestamp(filePath: string): Promise<string | undefined> {
+  const chunkSize = 64 * 1024;
+  let handle;
+  try {
+    handle = await open(filePath, 'r');
+    let position = (await handle.stat()).size;
+    // Bytes of a line cut by the previous chunk boundary, still incomplete.
+    let carry = Buffer.alloc(0);
+
+    while (position > 0) {
+      const length = Math.min(chunkSize, position);
+      position -= length;
+      const chunk = Buffer.alloc(length);
+      await handle.read(chunk, 0, length, position);
+
+      // Splitting on the newline byte is safe in UTF-8: it never occurs inside a multi-byte character.
+      const lines = Buffer.concat([chunk, carry]).toString('utf8').split('\n');
+      // The first piece may be the tail of a line that starts in an earlier chunk.
+      carry = position > 0 ? Buffer.from(lines.shift() ?? '', 'utf8') : Buffer.alloc(0);
+
+      for (let index = lines.length - 1; index >= 0; index -= 1) {
+        const line = lines[index].trim();
+        if (!line || !line.includes('"timestamp"')) {
+          continue;
+        }
+        try {
+          const record = JSON.parse(line) as { timestamp?: unknown };
+          if (typeof record.timestamp !== 'string') {
+            continue;
+          }
+          const parsed = new Date(record.timestamp);
+          if (!Number.isNaN(parsed.getTime())) {
+            return parsed.toISOString();
+          }
+        } catch {
+          // A malformed line is skipped, like everywhere else JSONL is read.
+        }
+      }
+    }
+    return undefined;
+  } catch {
+    return undefined;
+  } finally {
+    await handle?.close();
   }
 }
 

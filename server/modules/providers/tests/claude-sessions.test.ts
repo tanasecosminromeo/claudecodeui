@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, utimes, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -2057,4 +2057,88 @@ test('synchronizeFile skips non-jsonl files', { concurrency: false }, async () =
     const result = await synchronizer.synchronizeFile('/tmp/not-a-jsonl.txt');
     assert.equal(result, null);
   });
+});
+
+// ---------------------------------------------------------------------------
+// Session activity time
+// ---------------------------------------------------------------------------
+
+test('synchronizeFile dates a session by its last activity, not by metadata appended after it', { concurrency: false }, async () => {
+  const tmp = await mkdtemp(path.join(os.tmpdir(), 'claude-sync-activity-'));
+  const workspacePath = path.join(tmp, 'workspace');
+  await mkdir(workspacePath, { recursive: true });
+  const restoreHomeDir = patchHomeDir(tmp);
+
+  try {
+    // An idle `claude` process left open in a terminal keeps appending records
+    // like these long after the last message, which bumps the file's mtime.
+    // More than 64 KB of them, so the last message is not in the file's tail.
+    const metadata = JSON.stringify({
+      type: 'bridge-session',
+      bridgeSessionId: 'x'.repeat(200),
+      sessionId: 'test-session-1',
+    });
+    await writeSessionJsonl(workspacePath, 'test-session-1.jsonl', [
+      JSON.stringify({
+        parentUuid: 'msg-1',
+        isSidechain: false,
+        message: { role: 'assistant', content: [{ type: 'text', text: 'hello' }] },
+        type: 'assistant',
+        uuid: 'msg-2',
+        timestamp: '2026-09-02T12:18:10.000Z',
+      }),
+      // A background task reporting back after the last reply is activity too.
+      JSON.stringify({
+        type: 'queue-operation',
+        operation: 'enqueue',
+        content: '<task-notification>done</task-notification>',
+        sessionId: 'test-session-1',
+        timestamp: '2026-09-02T12:40:00.000Z',
+      }),
+      ...Array.from({ length: 400 }, () => metadata),
+      JSON.stringify({ type: 'custom-title', customTitle: 'Renamed', sessionId: 'test-session-1' }),
+    ]);
+
+    await withIsolatedDatabase(async () => {
+      const result = await new ClaudeSessionSynchronizer().synchronizeFile(
+        path.join(workspacePath, 'test-session-1.jsonl'),
+      );
+
+      assert.ok(result, 'synchronizeFile should return a session id');
+      const session = sessionsDb.getSessionById(result!);
+      assert.equal(new Date(session!.updated_at!).toISOString(), '2026-09-02T12:40:00.000Z');
+    });
+  } finally {
+    restoreHomeDir();
+    await rm(tmp, { recursive: true, force: true });
+  }
+});
+
+test('synchronizeFile falls back to the file time when no record has a timestamp', { concurrency: false }, async () => {
+  const tmp = await mkdtemp(path.join(os.tmpdir(), 'claude-sync-activity-'));
+  const workspacePath = path.join(tmp, 'workspace');
+  await mkdir(workspacePath, { recursive: true });
+  const restoreHomeDir = patchHomeDir(tmp);
+
+  try {
+    const filePath = path.join(workspacePath, 'test-session-1.jsonl');
+    await writeFile(
+      filePath,
+      `${JSON.stringify({ type: 'user', sessionId: 'test-session-1', cwd: workspacePath, message: { role: 'user', content: 'hi' } })}\n`,
+      'utf8',
+    );
+    const fileTime = new Date('2026-08-01T10:00:00.000Z');
+    await utimes(filePath, fileTime, fileTime);
+
+    await withIsolatedDatabase(async () => {
+      const result = await new ClaudeSessionSynchronizer().synchronizeFile(filePath);
+
+      assert.ok(result, 'synchronizeFile should return a session id');
+      const session = sessionsDb.getSessionById(result!);
+      assert.equal(new Date(session!.updated_at!).toISOString(), fileTime.toISOString());
+    });
+  } finally {
+    restoreHomeDir();
+    await rm(tmp, { recursive: true, force: true });
+  }
 });
