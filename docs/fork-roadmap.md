@@ -8,6 +8,10 @@ when it works once by hand. When an item ships, update its row in the README.
 
 ### 1.1 One live Claude process per session
 Status 🧪. It's not clear this holds up in daily use, even though e2e scenarios 01–18 pass.
+- Fixed 2026-10-05: old conversations jumping to the top of their project after a refresh. That was
+  not this feature: a session's age was its transcript's mtime, and idle `claude` processes left open
+  in a terminal keep appending untimestamped metadata to it. The age is now the last timestamped
+  record (message, reply, tool result, background task event).
 - Collect the cases where it went wrong: two processes on one session, a reply missing after a
   restart, a terminal and the web UI splitting a conversation.
 - Write an e2e scenario that reproduces each case, then fix it.
