@@ -19,6 +19,58 @@
 
 ---
 
+## What's different in this fork
+
+This is a personal fork of [siteboon/claudecodeui](https://github.com/siteboon/claudecodeui). Everything below is on top of upstream; fork-only code lives in [`custom/`](custom/) so upstream merges rarely conflict.
+
+**Status:** ✅ Works well (in daily use, e2e-tested, no recent fixes) · 🧪 Beta (works and is tested, but new or still being fixed) · 🚧 MVP (does the basic job, little or no testing) · 🔬 Experimental (needs root or outside services, may change)
+
+### Chat and sessions
+
+| Feature | Status | What it does |
+|---|---|---|
+| One live Claude process per session | ✅ | Sessions survive CloudCLI restarts and crashes (`CLOUDCLI_DETACHED_CLAUDE=1`) and are never duplicated between the terminal and the web UI. |
+| `/btw` side questions | ✅ | Ask a quick question while Claude is busy without interrupting the turn. |
+| Plan approval keeps the mode | ✅ | Approving a plan keeps the permission mode you picked. |
+| Last-message stamp | ✅ | Time of the last message at the end of the transcript. |
+| "Summarised" read-aloud | 🔬 | Reads a short summary of a message instead of all of it. Needs an external speech/LLM service. |
+| Voice shortcut | 🚧 | Ctrl+Space (Option+Space on macOS) toggles the composer mic. |
+
+### Sidebar
+
+| Feature | Status | What it does |
+|---|---|---|
+| Star colours and project groups | 🧪 | Colour-coded stars and named groups of projects. |
+| Quick archive with Undo | ✅ | Archive a conversation in one click, with an Undo notice. |
+| Running view ([session-radar](custom/session-radar/README.md)) | ✅ | Live sessions grouped Needs you / Running / Idle / Ended, with details and a Stop button. |
+| Per-session process tree | 🧪 | Expand a live session to see the processes it started. |
+| "Needs input" badge | 🚧 | Pulsing favicon and badge when a session is waiting on you; click to open it. |
+
+### Plugins and tools
+
+| Feature | Status | What it does |
+|---|---|---|
+| Usage meter ([claude-usage](custom/claude-usage/README.md)) | ✅ | Header meter for the 5h/7d limits and a Usage tab for every account managed by `claude-swap`. |
+| Account auto-switch | 🧪 | Switches to another account at 95% and back to the default account. |
+| Codex usage | 🚧 | Codex limits in the same Usage tab. |
+| Public share links ([share](custom/share/README.md)) | 🧪 | `publish` skill and `share` CLI make public links that expire after 24h; the Artefacts tab lists them. Install with `make share-install`. |
+| [env-switcher](custom/env-switcher/README.md) | 🚧 | Switch between several CloudCLI instances from the logo without reloading them. |
+| [exec-tracer](custom/exec-tracer/README.md) | 🔬 | Root bpftrace tracer so process trees also show finished commands. Linux only; install with `make exec-tracer`. |
+| [claude-guard](custom/claude-guard/) | 🚧 | Terminal `claude --resume` asks before opening a session that is already running elsewhere. Install with `make claude-guard`. |
+| Extra read-only roots | ✅ | `CLOUDCLI_READ_ONLY_ROOTS` adds read-only folders to the file browser; `~/.claude/plans` is one by default, so plan links in transcripts open. |
+| [UI cleanup](custom/ui-cleanup/README.md) | ✅ | Injected CSS/JS tweaks (fonts, hidden links, Settings in the sidebar header) that survive upstream updates. |
+
+### Running the fork
+
+| Feature | Status | What it does |
+|---|---|---|
+| Makefile workflow | ✅ | `make status / upgrade / sync / rollback / deploy / remote` to merge upstream releases and keep machines in step. See the top of the [Makefile](Makefile). |
+| systemd user unit | ✅ | [`custom/systemd/`](custom/systemd/) runs the server on Linux. |
+| macOS LaunchAgent | 🚧 | [`custom/launchd/`](custom/launchd/) runs the server on macOS. |
+| End-to-end tests | ✅ | `make e2e`: an isolated instance, the real Claude CLI and Playwright. See [custom/e2e](custom/e2e/README.md). |
+| [commit-guard](custom/hooks/README.md) | 🚧 | Git hooks that block commits and pushes containing secrets or denylisted terms. |
+
+
 ## Screenshots
 
 <div align="center">
