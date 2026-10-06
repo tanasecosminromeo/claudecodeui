@@ -44,6 +44,7 @@ This is a personal fork of [siteboon/claudecodeui](https://github.com/siteboon/c
 | Star colours and project groups | 🧪 | Click a project's star to cycle its colour; put projects into named groups. *Next:* like Gmail, clicking again after a few seconds removes the star instead of changing its colour; starring no longer jumps the project to the top, with a Starred filter instead. |
 | Running view ([session-radar](custom/session-radar/README.md)) | 🧪 | Live sessions grouped Needs you / Running / Idle / Ended, with details and a Stop button. |
 | Per-session process tree | 🧪 | Expand a live session in the Running view to see the processes it started. |
+| Push for every session | 🧪 | A push notification on every subscribed device (phone, laptops) when any Claude session needs input, finishes a turn of 3+ minutes or fails, including Shell-tab and terminal sessions. Held while CloudCLI is in use on one of your devices; opening the app clears that device's notifications. iPhones need `VAPID_SUBJECT` in `.env` (see `.env.example`). |
 | "Needs input" badge | 🚧 | While a session waits on you, the favicon pulses and a badge opens that conversation. *Next:* cover every session and keep the marker on the session, so opening a project shows what you need to unblock. |
 
 ### Plugins and tools

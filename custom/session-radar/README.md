@@ -27,6 +27,12 @@ Stop (kill process) sends SIGTERM to a live session's pid after a second click; 
 
 A live process is always listed (even idle for days, or archived in CloudCLI). The "Ended · 24h" group is collapsed by default (remembered in localStorage).
 
+Status changes become push notifications: every 3 s `events.mjs` compares each session's state with the
+previous tick and records **needs input** (entering `waiting`), **failed** (back to idle with an API
+error as the last reply) and **finished** (back to idle after a turn of 3 minutes or more). The first
+tick after a start is silent. CloudCLI polls `GET /events?after=<seq>` and sends them through its own
+notification settings, skipping chats it runs itself (it notifies those already).
+
 Not covered: VS Code extension sessions don't write a status, so they only show via transcript activity. Codex/Cursor/OpenCode sessions aren't included.
 
 Installed by `../ui-cleanup/inject.sh` at service start (CloudCLI ignores symlinked plugin dirs). Debug: `node server.mjs --dump`.
