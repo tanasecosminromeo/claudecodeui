@@ -10,6 +10,7 @@ import webPush from 'web-push';
 import {
   closeConnection,
   initializeDatabase,
+  notificationPreferencesDb,
   pushSubscriptionsDb,
   sessionsDb,
   userDb,
@@ -17,8 +18,11 @@ import {
 
 import {
   buildNotificationPayload,
+  createNotificationEvent,
+  notifyUserIfEnabled,
   sendWebPushPayload,
 } from '../services/notification-orchestrator.service.js';
+import { removeClientPresence, setClientPresence } from '../services/presence.service.js';
 
 async function withIsolatedDatabase(runTest: () => void | Promise<void>): Promise<void> {
   const previousDatabasePath = process.env.DATABASE_PATH;
@@ -87,5 +91,38 @@ test('a rejected web push is logged with its status and reason, and the subscrip
     assert.match(logged[0], /BadJwtToken/);
     assert.match(logged[0], /web\.push\.apple\.com/);
     assert.equal(pushSubscriptionsDb.getSubscriptions(userId).length, 1);
+  });
+});
+
+// createNotificationEvent is plain JS: its sessionId default types the field as null.
+const waiting = (sessionId: string) => ({
+  ...createNotificationEvent({ provider: 'claude', kind: 'action_required', code: 'session.waiting' }),
+  sessionId,
+});
+
+test('web push waits while a device is in use, except the push-enabled confirmation', async () => {
+  await withIsolatedDatabase(async () => {
+    const userId = Number(userDb.createUser('presence-user', 'hash').id);
+    pushSubscriptionsDb.saveSubscription(userId, 'https://web.push.apple.com/p', 'p256dh', 'auth');
+    notificationPreferencesDb.updatePreferences(userId, {
+      channels: { inApp: false, webPush: true, desktop: false, sound: false },
+      events: { actionRequired: true, stop: true, error: true },
+    });
+    const sent: string[] = [];
+    const originalSend = webPush.sendNotification;
+    webPush.sendNotification = async (_sub: unknown, body: string) => { sent.push(JSON.parse(body).data.code); return { statusCode: 201 }; };
+    const tab = {};
+    try {
+      setClientPresence(tab, userId, true);
+      notifyUserIfEnabled({ userId, event: waiting('s1') });
+      notifyUserIfEnabled({ userId, event: createNotificationEvent({ provider: 'system', code: 'push.enabled' }) });
+      setClientPresence(tab, userId, false);
+      notifyUserIfEnabled({ userId, event: waiting('s2') });
+      await new Promise((r) => setTimeout(r, 20));
+    } finally {
+      webPush.sendNotification = originalSend;
+      removeClientPresence(tab);
+    }
+    assert.deepEqual(sent, ['push.enabled', 'session.waiting']);
   });
 });

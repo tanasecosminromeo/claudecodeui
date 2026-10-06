@@ -2,6 +2,7 @@ import webPush from 'web-push';
 
 import { notificationPreferencesDb, pushSubscriptionsDb, sessionsDb } from '@/modules/database/index.js';
 import { sendDesktopNotification as sendDesktopNotificationToClients } from '@/modules/notifications/services/desktop-notification-clients.service.js';
+import { isUserActiveSomewhere } from '@/modules/notifications/services/presence.service.js';
 
 const KIND_TO_PREF_KEY = {
   action_required: 'actionRequired',
@@ -220,7 +221,10 @@ const notificationChannels = [
     id: 'webPush',
     // TODO: Web push still uses push_subscriptions. Do not remove that table until
     // browser push subscriptions are migrated into notification_channel_endpoints.
-    isEnabled: (preferences) => Boolean(preferences?.channels?.webPush),
+    // While the user is using CloudCLI on some device, the in-app badge covers it.
+    // The push-enabled confirmation is sent from the device in use, so it always goes.
+    isEnabled: (preferences, userId, event) => Boolean(preferences?.channels?.webPush)
+      && (event.code === 'push.enabled' || !isUserActiveSomewhere(userId)),
     send: ({ userId, payload }) => sendWebPushPayload(userId, payload)
   },
   {
@@ -246,7 +250,7 @@ function notifyUserIfEnabled({ userId, event }) {
 
   const payload = buildNotificationPayload(normalizedEvent);
   for (const channel of notificationChannels) {
-    if (!channel.isEnabled(preferences)) {
+    if (!channel.isEnabled(preferences, userId, normalizedEvent)) {
       continue;
     }
     Promise.resolve(channel.send({ userId, event: normalizedEvent, payload })).catch((err) => {

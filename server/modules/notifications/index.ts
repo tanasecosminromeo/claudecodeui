@@ -22,3 +22,5 @@ export { handleDesktopNotificationsConnection } from '@/modules/notifications/we
 export { getPublicKey } from './vapid-keys.service.js';
 // configureWebPush: used by the server entrypoint during notification startup.
 export { configureWebPush } from './vapid-keys.service.js';
+// setClientPresence / removeClientPresence: used by the chat websocket to record which tabs are in use.
+export { removeClientPresence, setClientPresence } from '@/modules/notifications/services/presence.service.js';

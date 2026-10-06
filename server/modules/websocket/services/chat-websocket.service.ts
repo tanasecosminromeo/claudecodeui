@@ -21,6 +21,7 @@ import type {
   SessionProcessElsewhere,
 } from '@/shared/types.js';
 import { parseIncomingJsonObject } from '@/shared/utils.js';
+import { removeClientPresence, setClientPresence } from '@/modules/notifications/index.js';
 
 /**
  * Trust boundary for client-supplied image attachments: chat.send options come
@@ -922,6 +923,11 @@ export function handleChatConnection(
         case 'chat.set-permission-mode':
           await handleSetPermissionMode(ws, data, dependencies);
           return;
+        case 'client.presence':
+          if (typeof data.active === 'boolean' && userId !== null) {
+            setClientPresence(ws, userId, data.active);
+          }
+          return;
         default:
           sendProtocolError(ws, 'UNKNOWN_MESSAGE_TYPE', `Unknown message type "${messageType}".`);
           return;
@@ -936,5 +942,6 @@ export function handleChatConnection(
   ws.on('close', () => {
     console.log('[INFO] Chat client disconnected');
     connectedClients.delete(ws);
+    removeClientPresence(ws);
   });
 }
