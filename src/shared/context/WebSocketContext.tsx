@@ -3,6 +3,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { useAuth } from '@/modules/auth';
 import { IS_PLATFORM } from '@/shared/utils';
 import { expireAuthSession, isAuthTokenExpired } from '@/shared/authToken';
+import { usePresenceReporter } from '@/shared/hooks/usePresenceReporter';
 import type { ServerEvent } from '@/shared/types';
 
 
@@ -173,6 +174,9 @@ const useWebSocketProviderState = (): WebSocketContextType => {
       listenersRef.current.delete(listener);
     };
   }, []);
+
+  // Lets the server hold push notifications while this tab is in use.
+  usePresenceReporter(sendMessage, isConnected);
 
   const value: WebSocketContextType = useMemo(() =>
   ({
