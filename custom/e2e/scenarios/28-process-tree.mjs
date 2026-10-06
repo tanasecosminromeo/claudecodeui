@@ -18,8 +18,9 @@ export async function run({ chat, page, app, expect, snapshot, log }) {
   await panel.waitFor({ timeout: 15000 });
   // The test chat's session row, found by its working directory in the tooltip: other live sessions
   // of this user are listed too, and the instance's own database is not the one the radar maps
-  // app ids through, so the row is not marked current.
-  const row = panel.locator(`.sr-row[title*="${app.project.fullPath}"]:not(.sr-other)`).first();
+  // app ids through, so the row is not marked current. Only a running row: an earlier scenario's chat in
+  // the same folder can still be listed (idle, about to end), and expanding that one finds no process.
+  const row = panel.locator(`.sr-row.sr-busy[title*="${app.project.fullPath}"]:not(.sr-other)`).first();
   await row.waitFor({ timeout: 20000 });
   await row.locator('.sr-chev').click();
   await panel.locator('.sr-tree').first().waitFor({ timeout: 5000 });
