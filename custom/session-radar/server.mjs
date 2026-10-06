@@ -5,7 +5,8 @@ import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { machineStats, processDetail, procStartOf, stopSession, transcriptDetail } from './detail.mjs';
+import { machineStats, processDetail, stopSession, transcriptDetail } from './detail.mjs';
+import { STATE_RANK, readStatusRecords } from './events.mjs';
 import { ExecLog } from './proctree.mjs';
 import { otherAgentRows, treeFor } from './tree-route.mjs';
 
@@ -14,7 +15,6 @@ const SESSIONS_DIR = path.join(HOME, '.claude', 'sessions');
 const PROJECTS_DIR = path.join(HOME, '.claude', 'projects');
 const DB_PATH = path.join(HOME, '.cloudcli', 'auth.db');
 const RECENT_MS = 24 * 60 * 60 * 1000;
-const STATE_RANK = { waiting: 0, busy: 1, idle: 2, other: 3, ended: 4 };
 const execLog = new ExecLog(); // the exec tracer's log for this user (custom/exec-tracer), if installed
 
 // ---- CloudCLI titles (optional; node:sqlite is built into Node >= 22.5) ----
@@ -121,15 +121,8 @@ function listSessions() {
   const now = Date.now();
   const bySession = new Map();
 
-  let files = [];
-  try { files = fs.readdirSync(SESSIONS_DIR).filter((f) => f.endsWith('.json')); } catch { /* none */ }
-  for (const f of files) {
-    let d;
-    try { d = JSON.parse(fs.readFileSync(path.join(SESSIONS_DIR, f), 'utf8')); } catch { continue; }
-    if (!d || !d.sessionId || !d.pid) continue;
-    const start = procStartOf(d.pid);
-    if (!start || (d.procStart && String(d.procStart) !== start)) continue; // dead or pid reused
-    const state = d.status === 'waiting' ? 'waiting' : d.status === 'busy' ? 'busy' : 'idle';
+  for (const d of readStatusRecords(SESSIONS_DIR)) {
+    const { state } = d;
     const s = bySession.get(d.sessionId) || {
       sessionId: d.sessionId, cwd: d.cwd, name: d.name || null, entrypoint: d.entrypoint || null,
       state: 'ended', waitingFor: null, pids: [], tasks: 0, statusAt: 0, live: true,
