@@ -2,6 +2,7 @@
 import webPush from 'web-push';
 
 import { getConnection } from '../database/index.js';
+import { resolveVapidSubject } from './vapid-subject.js';
 
 let cachedKeys = null;
 const db = getConnection();
@@ -28,7 +29,7 @@ function getPublicKey() {
 function configureWebPush() {
   const keys = ensureVapidKeys();
   webPush.setVapidDetails(
-    'mailto:noreply@claudecodeui.local',
+    resolveVapidSubject(),
     keys.publicKey,
     keys.privateKey
   );

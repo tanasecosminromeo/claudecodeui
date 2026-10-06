@@ -201,6 +201,11 @@ function sendWebPushPayload(userId, payload) {
         const statusCode = result.reason?.statusCode;
         if (statusCode === 410 || statusCode === 404) {
           pushSubscriptionsDb.removeSubscription(subscriptions[index].endpoint);
+        } else {
+          // Push services answer with a reason (Apple: {"reason":"BadJwtToken"});
+          // without this line a rejected push vanishes without a trace.
+          const host = new URL(subscriptions[index].endpoint).host;
+          console.error(`Web push to ${host} rejected: ${statusCode ?? 'no status'} ${result.reason?.body || result.reason?.message || ''}`.trim());
         }
       }
     });
@@ -306,5 +311,6 @@ export {
   notifyUserIfEnabled,
   notifyRunStopped,
   notifyRunFailed,
-  notifyBackgroundWorkCompleted
+  notifyBackgroundWorkCompleted,
+  sendWebPushPayload
 };
