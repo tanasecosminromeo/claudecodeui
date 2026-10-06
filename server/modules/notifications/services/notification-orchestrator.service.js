@@ -154,6 +154,9 @@ function buildNotificationPayload(event) {
     'permission.required': normalizedEvent.meta?.toolName
       ? `Action Required: Tool "${normalizedEvent.meta.toolName}" needs approval`
       : 'Action Required: A tool needs your approval',
+    'session.waiting': normalizedEvent.meta?.waitingFor
+      ? `Needs input: ${normalizedEvent.meta.waitingFor}`
+      : 'Needs input',
     'run.stopped': normalizedEvent.meta?.stopReason || 'Run Stopped: The run has stopped',
     'run.background_completed': 'Background work finished',
     'run.failed': normalizedEvent.meta?.error ? `Run Failed: ${normalizedEvent.meta.error}` : 'Run Failed: The run encountered an error',

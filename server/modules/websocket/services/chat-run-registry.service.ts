@@ -277,6 +277,14 @@ export const chatRunRegistry = {
     return runs.get(appSessionId)?.status === 'running';
   },
 
+  /** True while CloudCLI has a run (running or kept after completion) for this app or provider session id. */
+  hasRunForSession(sessionId: string): boolean {
+    for (const run of runs.values()) {
+      if (run.appSessionId === sessionId || run.providerSessionId === sessionId) return true;
+    }
+    return false;
+  },
+
   listRunningRuns(): Array<{
     sessionId: string;
     provider: LLMProvider;

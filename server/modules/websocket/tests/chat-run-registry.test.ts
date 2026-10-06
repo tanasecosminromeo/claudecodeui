@@ -311,3 +311,12 @@ test('startRun rejects a second concurrent run for the same session', async () =
     assert.ok(third);
   });
 });
+
+test('hasRunForSession matches app and provider session ids', () => {
+  chatRunRegistry.clearAll();
+  chatRunRegistry.startRun({ appSessionId: 'app-1', provider: 'claude', providerSessionId: 'claude-1', connection: null, userId: null });
+  assert.equal(chatRunRegistry.hasRunForSession('app-1'), true);
+  assert.equal(chatRunRegistry.hasRunForSession('claude-1'), true);
+  assert.equal(chatRunRegistry.hasRunForSession('other'), false);
+  chatRunRegistry.clearAll();
+});

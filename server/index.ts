@@ -57,6 +57,9 @@ import browserUseMcpRoutes from './modules/browser-use/browser-use-mcp.routes.js
 import { browserUseService } from './modules/browser-use/browser-use.service.js';
 import { initializeDatabase, sessionsDb } from './modules/database/index.js';
 import { configureWebPush } from './modules/notifications/index.js';
+// Imported directly, not through the notifications index: the relay reaches into plugins and the
+// websocket run registry, and providers import that index (an import cycle otherwise).
+import { startSessionRadarRelay } from './modules/notifications/services/session-radar-relay.service.js';
 
 const __dirname = getModuleDirectory(import.meta.url);
 // The server source runs from /server, while the compiled output runs from /dist-server/server.
@@ -407,6 +410,8 @@ async function startServer() {
             startEnabledPluginServers().catch(err => {
                 console.error('[Plugins] Error during startup:', err.message);
             });
+            // Push notifications for Claude sessions CloudCLI did not start (Shell tab, terminals).
+            startSessionRadarRelay();
         });
 
         await closeSessionsWatcher();
