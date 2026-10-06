@@ -92,3 +92,36 @@ export function decideStatusEvent(prev, next, now, readLast) {
   if (ran < FINISH_MIN_MS) return null;
   return { kind: 'stop', code: 'run.stopped', meta: { stopReason: `Finished after ${Math.round(ran / 60000)} min` } };
 }
+
+// Numbered events for CloudCLI's relay to page through (GET /events?after=N).
+export class EventLog {
+  constructor(max = 200) { this.max = max; this.seq = 0; this.events = []; }
+  push(e) {
+    this.seq += 1;
+    this.events.push({ seq: this.seq, at: Date.now(), ...e });
+    if (this.events.length > this.max) this.events.shift();
+  }
+  after(seq) { return { seq: this.seq, events: this.events.filter((e) => e.seq > seq) }; }
+}
+
+// One call = one tick. The first tick only records state, so a restart does not
+// re-announce sessions that were already waiting or busy.
+export function createStatusWatcher({ readAggregated, readLast, log, now = Date.now }) {
+  const known = new Map(); // sessionId -> { state, busySince }
+  let primed = false;
+  return function tick() {
+    const t = now();
+    const current = readAggregated();
+    for (const [id, next] of current) {
+      const prev = known.get(id);
+      if (primed) {
+        const ev = decideStatusEvent(prev, next, t, () => readLast(id));
+        if (ev) log.push({ ...ev, sessionId: id, name: next.name || null });
+      }
+      // On the priming tick a busy session's turn is dated from its status file.
+      known.set(id, nextTracked(prev, next, prev ? t : (next.statusAt || t)));
+    }
+    for (const id of [...known.keys()]) if (!current.has(id)) known.delete(id);
+    primed = true;
+  };
+}

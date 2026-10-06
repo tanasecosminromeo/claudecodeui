@@ -6,7 +6,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { machineStats, processDetail, stopSession, transcriptDetail } from './detail.mjs';
-import { STATE_RANK, readStatusRecords } from './events.mjs';
+import {
+  EventLog, STATE_RANK, aggregateStates, createStatusWatcher, findTranscript, lastAssistantEntry, readStatusRecords,
+} from './events.mjs';
 import { ExecLog } from './proctree.mjs';
 import { otherAgentRows, treeFor } from './tree-route.mjs';
 
@@ -16,6 +18,13 @@ const PROJECTS_DIR = path.join(HOME, '.claude', 'projects');
 const DB_PATH = path.join(HOME, '.cloudcli', 'auth.db');
 const RECENT_MS = 24 * 60 * 60 * 1000;
 const execLog = new ExecLog(); // the exec tracer's log for this user (custom/exec-tracer), if installed
+// Status changes CloudCLI turns into push notifications (it polls GET /events).
+const eventLog = new EventLog();
+const watchTick = createStatusWatcher({
+  readAggregated: () => aggregateStates(readStatusRecords(SESSIONS_DIR)),
+  readLast: (id) => lastAssistantEntry(findTranscript(PROJECTS_DIR, id)),
+  log: eventLog,
+});
 
 // ---- CloudCLI titles (optional; node:sqlite is built into Node >= 22.5) ----
 let db = null;
@@ -185,6 +194,12 @@ const server = http.createServer((req, res) => {
     res.end(body);
     return;
   }
+  if (req.method === 'GET' && url.pathname === '/events') {
+    const after = Number.parseInt(url.searchParams.get('after') || '0', 10) || 0;
+    res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' });
+    res.end(JSON.stringify(eventLog.after(after)));
+    return;
+  }
   if (req.method === 'GET' && url.pathname === '/tree') {
     let r;
     try { r = treeFor(url.searchParams.get('sid'), { sessionsDir: SESSIONS_DIR, execLog, uid: process.getuid() }); }
@@ -215,6 +230,11 @@ const server = http.createServer((req, res) => {
 
 server.listen(0, '127.0.0.1', () => {
   console.log(JSON.stringify({ ready: true, port: server.address().port }));
+  if (!process.argv.includes('--dump')) {
+    const safeTick = () => { try { watchTick(); } catch (err) { console.error('session-radar watcher:', err.message); } };
+    safeTick();
+    setInterval(safeTick, 3000).unref();
+  }
 });
 
 // --dump prints the session list; --dump <session id | pid:N> the tree of one session.

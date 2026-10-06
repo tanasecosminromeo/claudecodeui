@@ -6,7 +6,7 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { procStartOf } from '../detail.mjs';
 import {
-  FINISH_MIN_MS, aggregateStates, decideStatusEvent, findTranscript, lastAssistantEntry, nextTracked, readStatusRecords,
+  EventLog, FINISH_MIN_MS, aggregateStates, createStatusWatcher, decideStatusEvent, findTranscript, lastAssistantEntry, nextTracked, readStatusRecords,
 } from '../events.mjs';
 
 const none = () => null;
@@ -80,4 +80,40 @@ test('two pids of one session aggregate to the most urgent state', async () => {
   expect(aggregateStates(records).get('s1')).toEqual({ state: 'waiting', waitingFor: 'permission prompt', name: 'demo', statusAt: 5 });
   a.kill(); b.kill();
   fs.rmSync(dir, { recursive: true });
+});
+
+
+test('EventLog numbers events, pages by seq and keeps the last max', () => {
+  const log = new EventLog(2);
+  log.push({ code: 'a' }); log.push({ code: 'b' }); log.push({ code: 'c' });
+  expect(log.after(0)).toMatchObject({ seq: 3, events: [{ seq: 2, code: 'b' }, { seq: 3, code: 'c' }] });
+  expect(log.after(3)).toEqual({ seq: 3, events: [] });
+});
+
+test('watcher is silent on its first tick, then reports changes', () => {
+  let states = new Map([['s1', { state: 'busy', waitingFor: null, name: 'demo', statusAt: 0 }]]);
+  let t = 0;
+  const log = new EventLog();
+  const tick = createStatusWatcher({ readAggregated: () => states, readLast: () => null, log, now: () => t });
+  tick(); // primes
+  states = new Map([['s1', { state: 'waiting', waitingFor: 'permission prompt', name: 'demo', statusAt: 1 }]]);
+  t = 1000; tick();
+  expect(log.after(0).events).toMatchObject([{ seq: 1, code: 'session.waiting', sessionId: 's1', name: 'demo' }]);
+  states = new Map([['s1', { state: 'idle', waitingFor: null, name: 'demo', statusAt: 2 }]]);
+  t = 4 * 60 * 1000; tick(); // busySince came from statusAt 0 on the priming tick
+  expect(log.after(1).events).toMatchObject([{ code: 'run.stopped', meta: { stopReason: 'Finished after 4 min' } }]);
+  states = new Map(); t += 1000; tick(); // session gone: forgotten, no event
+  expect(log.after(2).events).toEqual([]);
+});
+
+test('GET /events serves the log', async () => {
+  const { spawn: sp } = await import('node:child_process');
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'radar-home-'));
+  const child = sp('node', [new URL('../server.mjs', import.meta.url).pathname], { env: { ...process.env, HOME: home }, stdio: ['ignore', 'pipe', 'inherit'] });
+  const port = await new Promise((resolve) => child.stdout.once('data', (b) => resolve(JSON.parse(String(b).split('\n')[0]).port)));
+  const res = await fetch(`http://127.0.0.1:${port}/events?after=0`);
+  expect(res.status).toBe(200);
+  expect(await res.json()).toEqual({ seq: 0, events: [] });
+  child.kill();
+  fs.rmSync(home, { recursive: true });
 });
