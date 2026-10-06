@@ -109,7 +109,7 @@ export class EventLog {
 export function createStatusWatcher({ readAggregated, readLast, log, now = Date.now }) {
   const known = new Map(); // sessionId -> { state, busySince }
   let primed = false;
-  return function tick() {
+  function tick() {
     const t = now();
     const current = readAggregated();
     for (const [id, next] of current) {
@@ -123,5 +123,9 @@ export function createStatusWatcher({ readAggregated, readLast, log, now = Date.
     }
     for (const id of [...known.keys()]) if (!current.has(id)) known.delete(id);
     primed = true;
-  };
+  }
+  // Sessions waiting on the user right now: CloudCLI re-sends a "needs input" it held back
+  // while a device was in use, if the session is still waiting once nobody is.
+  tick.waitingSessions = () => [...known].filter(([, k]) => k.state === 'waiting').map(([id]) => id);
+  return tick;
 }

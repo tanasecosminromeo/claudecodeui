@@ -106,6 +106,16 @@ test('watcher is silent on its first tick, then reports changes', () => {
   expect(log.after(2).events).toEqual([]);
 });
 
+test('watcher lists the sessions waiting right now', () => {
+  const states = new Map([
+    ['w', { state: 'waiting', waitingFor: 'permission prompt', name: null, statusAt: 0 }],
+    ['b', { state: 'busy', waitingFor: null, name: null, statusAt: 0 }],
+  ]);
+  const tick = createStatusWatcher({ readAggregated: () => states, readLast: () => null, log: new EventLog() });
+  tick();
+  expect(tick.waitingSessions()).toEqual(['w']);
+});
+
 test('GET /events serves the log', async () => {
   const { spawn: sp } = await import('node:child_process');
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'radar-home-'));
@@ -113,7 +123,7 @@ test('GET /events serves the log', async () => {
   const port = await new Promise((resolve) => child.stdout.once('data', (b) => resolve(JSON.parse(String(b).split('\n')[0]).port)));
   const res = await fetch(`http://127.0.0.1:${port}/events?after=0`);
   expect(res.status).toBe(200);
-  expect(await res.json()).toEqual({ seq: 0, events: [] });
+  expect(await res.json()).toEqual({ seq: 0, events: [], waiting: [] });
   child.kill();
   fs.rmSync(home, { recursive: true });
 });

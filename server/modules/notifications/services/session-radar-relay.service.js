@@ -5,11 +5,16 @@ import { sessionsDb, userDb } from '@/modules/database/index.js';
 import { getPluginPort } from '@/modules/plugins/index.js';
 import { chatRunRegistry } from '@/modules/websocket/index.js';
 import { createNotificationEvent, notifyUserIfEnabled } from '@/modules/notifications/services/notification-orchestrator.service.js';
+import { isUserActiveSomewhere } from '@/modules/notifications/services/presence.service.js';
 
 const POLL_MS = 3000;
 
-export function createSessionRadarRelay({ getPort, fetchEvents, isCloudCliRun, getUserId, notify }) {
+export function createSessionRadarRelay({ getPort, fetchEvents, isCloudCliRun, getUserId, isUserActive, notify }) {
   let after = 0;
+  // "Needs input" events whose web push was skipped because a device was in use. Re-sent once
+  // no device is, if Session Radar still lists the session as waiting: walking away from a
+  // laptop must not lose a prompt that is still open.
+  const held = new Map(); // sessionId -> event
   return async function poll() {
     const port = getPort();
     if (!port) return;
@@ -23,18 +28,28 @@ export function createSessionRadarRelay({ getPort, fetchEvents, isCloudCliRun, g
         if (!page || !Array.isArray(page.events)) return;
       }
       const userId = getUserId();
+      const active = Boolean(userId) && isUserActive(userId);
       for (const event of page.events) {
         // CloudCLI's runtime already notifies for chats it runs itself.
-        if (userId && !isCloudCliRun(event.sessionId)) notify(userId, event);
+        if (!userId || isCloudCliRun(event.sessionId)) continue;
+        notify(userId, event);
+        if (active && event.code === 'session.waiting') held.set(event.sessionId, event);
       }
       after = page.seq;
+      if (!active && held.size > 0) {
+        const waiting = new Set(Array.isArray(page.waiting) ? page.waiting : []);
+        for (const [sessionId, event] of held) {
+          if (waiting.has(sessionId)) notify(userId, event, { resend: true });
+        }
+        held.clear();
+      }
     } catch {
       // Plugin restarting or busy: try again next tick.
     }
   };
 }
 
-function notifyFromRadar(userId, event) {
+function notifyFromRadar(userId, event, { resend = false } = {}) {
   const sessionName = sessionsDb.getSessionName(event.sessionId, 'claude') || event.name || null;
   notifyUserIfEnabled({
     userId,
@@ -45,6 +60,8 @@ function notifyFromRadar(userId, event) {
       code: event.code,
       meta: { ...event.meta, sessionName },
       severity: event.kind === 'error' ? 'error' : 'info',
+      // A re-send must not be swallowed by the 20 s dedupe of the original.
+      dedupeKey: resend ? `radar:resend:${event.sessionId}:${event.seq}` : null,
     }),
   });
 }
@@ -58,6 +75,7 @@ export function startSessionRadarRelay() {
     },
     isCloudCliRun: (sessionId) => chatRunRegistry.hasRunForSession(sessionId),
     getUserId: () => userDb.getFirstUser()?.id ?? null,
+    isUserActive: (userId) => isUserActiveSomewhere(userId),
     notify: notifyFromRadar,
   });
   let running = false;

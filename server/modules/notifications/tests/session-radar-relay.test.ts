@@ -15,6 +15,7 @@ function harness(pages: Array<{ seq: number; events: Ev[] }>, owned = new Set<st
     fetchEvents: async (_port: number, after: number) => { asked.push(after); return pages.shift() ?? { seq: after, events: [] }; },
     isCloudCliRun: (id: string) => owned.has(id),
     getUserId: () => 1,
+    isUserActive: () => false,
     notify: (_userId: number, e: Ev) => { sent.push(e); },
   });
   return { poll, asked, sent };
@@ -43,8 +44,8 @@ test('relay starts over when Session Radar restarted (seq went down)', async () 
 
 test('relay does nothing without the plugin or on a fetch error', async () => {
   const sent: unknown[] = [];
-  await createSessionRadarRelay({ getPort: () => null, fetchEvents: async () => { throw new Error('x'); }, isCloudCliRun: () => false, getUserId: () => 1, notify: (_u: number, e: unknown) => { sent.push(e); } })();
-  await createSessionRadarRelay({ getPort: () => 1, fetchEvents: async () => { throw new Error('down'); }, isCloudCliRun: () => false, getUserId: () => 1, notify: (_u: number, e: unknown) => { sent.push(e); } })();
+  await createSessionRadarRelay({ getPort: () => null, fetchEvents: async () => { throw new Error('x'); }, isCloudCliRun: () => false, getUserId: () => 1, isUserActive: () => false, notify: (_u: number, e: unknown) => { sent.push(e); } })();
+  await createSessionRadarRelay({ getPort: () => 1, fetchEvents: async () => { throw new Error('down'); }, isCloudCliRun: () => false, getUserId: () => 1, isUserActive: () => false, notify: (_u: number, e: unknown) => { sent.push(e); } })();
   assert.equal(sent.length, 0);
 });
 
@@ -52,4 +53,33 @@ test('session.waiting has its own notification text', () => {
   const payload = buildNotificationPayload({ provider: 'system', kind: 'action_required', code: 'session.waiting', meta: { waitingFor: 'permission prompt', sessionName: 'demo' } });
   assert.equal(payload.title, 'demo');
   assert.match(payload.body, /Needs input: permission prompt/);
+});
+
+test('needs input held back while a device is in use is re-sent once none is, if the session still waits', async () => {
+  let active = true;
+  const pages = [
+    { seq: 2, events: [ev(1, 'a'), ev(2, 'b')], waiting: ['a', 'b'] },
+    { seq: 2, events: [], waiting: ['a', 'b'] },
+    { seq: 2, events: [], waiting: ['a'] },
+    { seq: 2, events: [], waiting: ['a'] },
+  ];
+  const sent: Array<{ sessionId: string; resend: boolean }> = [];
+  const poll = createSessionRadarRelay({
+    getPort: () => 1,
+    fetchEvents: async () => pages.shift() ?? { seq: 2, events: [], waiting: [] },
+    isCloudCliRun: () => false,
+    getUserId: () => 1,
+    isUserActive: () => active,
+    notify: (_u: number, e: Ev, opts?: { resend?: boolean }) => { sent.push({ sessionId: e.sessionId, resend: Boolean(opts?.resend) }); },
+  });
+  await poll(); // both sent to the orchestrator while active (web push skipped there)
+  await poll(); // still active: nothing re-sent
+  active = false;
+  await poll(); // b was answered meanwhile: only a is re-sent
+  await poll(); // once
+  assert.deepEqual(sent, [
+    { sessionId: 'a', resend: false },
+    { sessionId: 'b', resend: false },
+    { sessionId: 'a', resend: true },
+  ]);
 });

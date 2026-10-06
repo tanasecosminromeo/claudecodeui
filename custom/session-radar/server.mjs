@@ -197,7 +197,7 @@ const server = http.createServer((req, res) => {
   if (req.method === 'GET' && url.pathname === '/events') {
     const after = Number.parseInt(url.searchParams.get('after') || '0', 10) || 0;
     res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' });
-    res.end(JSON.stringify(eventLog.after(after)));
+    res.end(JSON.stringify({ ...eventLog.after(after), waiting: watchTick.waitingSessions() }));
     return;
   }
   if (req.method === 'GET' && url.pathname === '/tree') {

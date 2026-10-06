@@ -32,6 +32,8 @@ previous tick and records **needs input** (entering `waiting`), **failed** (back
 error as the last reply) and **finished** (back to idle after a turn of 3 minutes or more). The first
 tick after a start is silent. CloudCLI polls `GET /events?after=<seq>` and sends them through its own
 notification settings, skipping chats it runs itself (it notifies those already).
+`/events` also lists the sessions waiting right now (`waiting`): a "needs input" held back while a
+CloudCLI tab was in use is re-sent once no tab is, if that session is still waiting.
 
 Not covered: VS Code extension sessions don't write a status, so they only show via transcript activity. Codex/Cursor/OpenCode sessions aren't included.
 
