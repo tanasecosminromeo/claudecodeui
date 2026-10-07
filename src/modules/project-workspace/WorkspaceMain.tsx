@@ -11,6 +11,8 @@ import { TaskMasterPanel, useTaskMasterProjectSync, useTasksSettings } from '@/m
 import type { AppTab, DirectoryRevealRequest, Project, ProjectSession, SessionEstablishedContext, SessionNavigationOptions, SettingsMainTab } from '@/shared/types';
 import { useUiPreferences } from '@/shared/context/UiPreferencesContext';
 import { useFileOpenResolver } from '@/modules/project-workspace/hooks/useFileOpenResolver';
+import type { UnresolvedFileReference } from '@/modules/project-workspace/hooks/useFileOpenResolver';
+import FileLinkNotice from '@/modules/project-workspace/FileLinkNotice';
 import { EditorSidebar, useEditorSidebar } from '@/modules/code-editor';
 import WorkspaceHeader from '@/modules/project-workspace/WorkspaceHeader';
 import WorkspaceStateView from '@/modules/project-workspace/WorkspaceStateView';
@@ -85,9 +87,14 @@ function WorkspaceMain({
     isMobile,
   });
 
+  // A chat file link that names no readable file explains itself here instead
+  // of opening an editor that can only say "File not found".
+  const [fileLinkNotice, setFileLinkNotice] = useState<UnresolvedFileReference | null>(null);
+  const dismissFileLinkNotice = useCallback(() => setFileLinkNotice(null), []);
+
   // Resolves bare/partial file references (e.g. links inside chat messages) to
   // real project files before opening them in the in-app editor.
-  const resolvedFileOpen = useFileOpenResolver(selectedProject, handleFileOpen);
+  const resolvedFileOpen = useFileOpenResolver(selectedProject, handleFileOpen, setFileLinkNotice);
 
   useEffect(() => {
     if (!shouldShowTasksTab && activeTab === 'tasks') {
@@ -114,8 +121,8 @@ function WorkspaceMain({
   }, [handleFileOpen, setActiveTab]);
 
   // Opens the editor side panel in place, keeping the current tab (e.g. chat).
-  const openFileInEditor = useCallback((filePath: string, line?: number | null) => {
-    resolvedFileOpen(filePath, undefined, line);
+  const openFileInEditor = useCallback((filePath: string, line?: number | null, searchHints?: string[]) => {
+    resolvedFileOpen(filePath, undefined, line, searchHints);
   }, [resolvedFileOpen]);
 
   // Directories cannot be read as text: reveal them in the file tree instead.
@@ -238,6 +245,8 @@ function WorkspaceMain({
           projectPath={selectedProject.path}
           fillSpace={activeTab === 'files'}
         />
+
+        <FileLinkNotice notice={fileLinkNotice} onDismiss={dismissFileLinkNotice} />
       </div>
     </div>
   );

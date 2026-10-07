@@ -29,12 +29,12 @@ const clickReference = (markdown: string, linkText: string) => {
 
 test('a `path:line` reference opens the path without its suffix, at that line', () => {
   clickReference('See [src/foo.ts:130](src/foo.ts:130).', 'src/foo.ts:130');
-  assert.deepEqual(openFileInEditor.mock.calls[0], ['src/foo.ts', 130]);
+  assert.deepEqual(openFileInEditor.mock.calls[0], ['src/foo.ts', 130, []]);
 });
 
 test('whitespace around a reference taken from the link text is dropped', () => {
   clickReference('See [`src/foo.ts:12` ]().', 'src/foo.ts:12');
-  assert.deepEqual(openFileInEditor.mock.calls[0], ['src/foo.ts', 12]);
+  assert.deepEqual(openFileInEditor.mock.calls[0], ['src/foo.ts', 12, []]);
 });
 
 test('a directory reference goes to the file tree, not the editor', () => {
@@ -45,5 +45,17 @@ test('a directory reference goes to the file tree, not the editor', () => {
 
 test('a plain file reference opens with no line', () => {
   clickReference('See [src/foo.ts](src/foo.ts).', 'src/foo.ts');
-  assert.deepEqual(openFileInEditor.mock.calls[0], ['src/foo.ts', null]);
+  assert.deepEqual(openFileInEditor.mock.calls[0], ['src/foo.ts', null, []]);
+});
+
+test('a link carries the absolute paths its message mentions, to look for it there', () => {
+  clickReference(
+    'Two reports, both under `~/play/2026-10-04/files/`:\n\n- Staging: [staging-e2e-report.html](staging-e2e-report.html)\n- See https://example.com/a/b and /var/log/app.log.',
+    'staging-e2e-report.html',
+  );
+  assert.deepEqual(openFileInEditor.mock.calls[0], [
+    'staging-e2e-report.html',
+    null,
+    ['~/play/2026-10-04/files/', '/var/log/app.log'],
+  ]);
 });

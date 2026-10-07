@@ -111,6 +111,18 @@ function expandWorkspacePath(workspaceRoot: string, inputPath: string): string {
   return inputPath;
 }
 
+// Transcripts quote paths as `~/…`. Only the reading endpoints expand this, so
+// a write can never be aimed at the home directory through it.
+function expandHomePath(homePath: string, inputPath: string): string {
+  if (inputPath === '~') {
+    return homePath;
+  }
+  if (inputPath.startsWith('~/') || inputPath.startsWith('~\\')) {
+    return path.join(homePath, inputPath.slice(2));
+  }
+  return inputPath;
+}
+
 function createConcurrencyLimiter(maximumConcurrency: number) {
   let activeOperations = 0;
   const pendingOperations: Array<() => void> = [];
@@ -346,7 +358,8 @@ export function createFileTreeService(dependencies: FileTreeServiceDependencies)
    * writing endpoints keep using `resolvePathInsideProject` alone, so nothing
    * outside the project can be changed.
    */
-  async function resolveReadablePath(projectRoot: string, targetPath: string): Promise<string> {
+  async function resolveReadablePath(projectRoot: string, requestedPath: string): Promise<string> {
+    const targetPath = expandHomePath(dependencies.workspace.homePath, requestedPath);
     if (path.isAbsolute(targetPath)) {
       const readOnlyPath = await dependencies.workspace.resolveReadOnlyRootPath(targetPath);
       if (readOnlyPath) {
@@ -488,6 +501,48 @@ export function createFileTreeService(dependencies: FileTreeServiceDependencies)
         contentType: dependencies.resolveMimeType(resolvedPath),
         stream: fileSystem.createReadStream(resolvedPath),
       };
+    },
+
+    async resolveFileReference(projectId, candidates) {
+      const projectRoot = await resolveProjectRoot(projectId);
+      let blockedPath: string | null = null;
+
+      for (const candidate of candidates) {
+        if (typeof candidate !== 'string' || !candidate.trim()) {
+          continue;
+        }
+
+        let readablePath: string;
+        try {
+          readablePath = await resolveReadablePath(projectRoot, candidate);
+        } catch {
+          // Outside every readable root. Still worth knowing whether it exists:
+          // "not found" and "found but not allowed" call for different fixes.
+          if (blockedPath === null) {
+            const outsidePath = path.resolve(projectRoot, expandHomePath(dependencies.workspace.homePath, candidate));
+            try {
+              const stats = await fileSystem.stat(outsidePath);
+              if (!stats.isDirectory()) {
+                blockedPath = outsidePath;
+              }
+            } catch {
+              // Missing: nothing to report for this candidate.
+            }
+          }
+          continue;
+        }
+
+        try {
+          const stats = await fileSystem.stat(readablePath);
+          if (!stats.isDirectory()) {
+            return { path: readablePath, blockedPath: null };
+          }
+        } catch {
+          // Missing: try the next candidate.
+        }
+      }
+
+      return { path: null, blockedPath };
     },
 
     async saveTextFile(projectId, filePath, content) {

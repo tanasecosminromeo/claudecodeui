@@ -1363,6 +1363,11 @@ export type FileTreeProjectGateway = {
  */
 export type FileTreeWorkspaceGateway = {
   rootPath: string;
+  /**
+   * The server user's home directory. A transcript writes paths as `~/…`, so
+   * the reading endpoints expand a leading `~` to it; writes never do.
+   */
+  homePath: string;
   validatePath(candidatePath: string): Promise<WorkspacePathValidationResult>;
   /**
    * Resolves a path readable outside the workspace root — the system temp
@@ -1428,6 +1433,16 @@ export type FileTreeServices = {
   createWorkspaceFolder(folderPath: string): Promise<{ success: true; path: string }>;
   readTextFile(projectId: string, filePath: string): Promise<{ content: string; path: string }>;
   openFile(projectId: string, filePath: string): Promise<{ contentType: string; stream: Readable }>;
+  /**
+   * The first of `candidates` that is a file the viewer may read, as an
+   * absolute path. When none is, `blockedPath` names the first one that exists
+   * but lies outside the project and the read-only roots, so the client can say
+   * why it will not open instead of showing an empty editor.
+   */
+  resolveFileReference(projectId: string, candidates: string[]): Promise<{
+    path: string | null;
+    blockedPath: string | null;
+  }>;
   saveTextFile(projectId: string, filePath: string, content: string): Promise<{
     success: true;
     path: string;

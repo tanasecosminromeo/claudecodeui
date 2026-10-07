@@ -13,6 +13,10 @@ type FileTreeUploadLimits = {
   maximumFileCount: number;
 };
 
+// A message names a handful of directories at most; the cap only stops a
+// crafted request from turning one call into thousands of stats.
+const MAXIMUM_RESOLVE_CANDIDATES = 32;
+
 type UploadedRequest = Request & {
   files?: Express.Multer.File[];
 };
@@ -128,6 +132,16 @@ export function createFileTreeRouter(
   router.get('/projects/:projectId/file', createRouteHandler(async (request, response) => {
     const filePath = readRequiredString(request.query.filePath, 'filePath', 'Invalid file path');
     response.json(await services.readTextFile(readProjectId(request), filePath));
+  }, logger));
+
+  // Finds which of several guesses at a chat file reference is a readable
+  // file, so the client opens the right one or explains why it cannot.
+  router.post('/projects/:projectId/files/resolve', createRouteHandler(async (request, response) => {
+    const body = readBody(request);
+    const candidates = Array.isArray(body.candidates)
+      ? body.candidates.filter((entry): entry is string => typeof entry === 'string').slice(0, MAXIMUM_RESOLVE_CANDIDATES)
+      : [];
+    response.json(await services.resolveFileReference(readProjectId(request), candidates));
   }, logger));
 
   router.get('/projects/:projectId/files/content', createRouteHandler(async (request, response) => {

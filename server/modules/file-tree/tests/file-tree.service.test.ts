@@ -86,6 +86,7 @@ function createDependencies(
     },
     workspace: {
       rootPath: projectRoot,
+      homePath: os.homedir(),
       validatePath: async (candidatePath) => ({ valid: true, resolvedPath: candidatePath }),
       resolveReadOnlyRootPath: async () => null,
     },
@@ -403,7 +404,7 @@ test('createEntry performs filesystem mutation only through the injected adapter
  * which is the only way to exercise the read-only roots: the whole guarantee
  * rests on `realpath` resolving symlinks before the comparison.
  */
-function createRealFileSystemService(projectRoot: string): FileTreeServices {
+function createRealFileSystemService(projectRoot: string, homePath = os.homedir()): FileTreeServices {
   return createFileTreeService({
     fileSystem: {
       access: (candidatePath) => fsPromises.access(candidatePath),
@@ -429,6 +430,7 @@ function createRealFileSystemService(projectRoot: string): FileTreeServices {
     projects: { getProjectPathById: async () => projectRoot },
     workspace: {
       rootPath: projectRoot,
+      homePath,
       validatePath: (candidatePath) => validateWorkspacePath(candidatePath),
       resolveReadOnlyRootPath: (candidatePath) => resolveReadOnlyRootPath(candidatePath),
     },
@@ -568,5 +570,76 @@ test('a relative path out of the project reads from a configured read-only root,
       process.env.CLOUDCLI_READ_ONLY_ROOTS = previousRoots;
     }
     await fsPromises.rm(base, { recursive: true, force: true });
+  }
+});
+
+test('a `~/` path is read from the home directory, under the same read policy', async () => {
+  // The fake home sits in the temp directory, a read-only root, so this checks
+  // the expansion alone; the policy that follows is the one tested above.
+  const homePath = await fsPromises.mkdtemp(path.join(os.tmpdir(), 'file-tree-home-'));
+  const projectRoot = await fsPromises.mkdtemp(path.join(os.tmpdir(), 'file-tree-project-'));
+
+  try {
+    await fsPromises.mkdir(path.join(homePath, 'reports'));
+    await fsPromises.writeFile(path.join(homePath, 'reports', 'report.html'), '<h1>report</h1>', 'utf8');
+
+    const service = createRealFileSystemService(projectRoot, homePath);
+    const opened = await service.readTextFile('project-1', '~/reports/report.html');
+    assert.equal(opened.content, '<h1>report</h1>');
+    assert.equal(opened.path, await fsPromises.realpath(path.join(homePath, 'reports', 'report.html')));
+
+    // Writes never expand it: `~` stays a literal name inside the project.
+    await assert.rejects(
+      service.saveTextFile('project-1', '~/reports/report.html', 'overwritten'),
+      (error: unknown) => (error as AppError).statusCode === 404,
+    );
+    assert.equal(await fsPromises.readFile(path.join(homePath, 'reports', 'report.html'), 'utf8'), '<h1>report</h1>');
+  } finally {
+    await fsPromises.rm(homePath, { recursive: true, force: true });
+    await fsPromises.rm(projectRoot, { recursive: true, force: true });
+  }
+});
+
+test('resolveFileReference returns the first readable file and names one it may not read', async () => {
+  const reportsDirectory = await fsPromises.mkdtemp(path.join(os.tmpdir(), 'file-tree-reports-'));
+  const projectRoot = await fsPromises.mkdtemp(path.join(os.tmpdir(), 'file-tree-project-'));
+  // Under no read-only root, as in the symlink test above.
+  const outsideDirectory = await fsPromises.mkdtemp(path.join(testDirectory, 'file-tree-outside-'));
+
+  try {
+    await fsPromises.mkdir(path.join(reportsDirectory, 'nested'));
+    await fsPromises.writeFile(path.join(reportsDirectory, 'report.html'), 'report', 'utf8');
+    await fsPromises.writeFile(path.join(outsideDirectory, 'report.html'), 'outside', 'utf8');
+    const service = createRealFileSystemService(projectRoot);
+
+    // A missing guess, a directory and an unreadable file are all passed over
+    // for the readable one, whatever their order.
+    assert.deepEqual(
+      await service.resolveFileReference('project-1', [
+        'report.html',
+        path.join(outsideDirectory, 'report.html'),
+        path.join(reportsDirectory, 'nested'),
+        path.join(reportsDirectory, 'report.html'),
+      ]),
+      { path: await fsPromises.realpath(path.join(reportsDirectory, 'report.html')), blockedPath: null },
+    );
+
+    assert.deepEqual(
+      await service.resolveFileReference('project-1', [
+        'report.html',
+        path.join(outsideDirectory, 'missing.html'),
+        path.join(outsideDirectory, 'report.html'),
+      ]),
+      { path: null, blockedPath: path.join(outsideDirectory, 'report.html') },
+    );
+
+    assert.deepEqual(
+      await service.resolveFileReference('project-1', ['report.html', path.join(reportsDirectory, 'nested')]),
+      { path: null, blockedPath: null },
+    );
+  } finally {
+    await fsPromises.rm(reportsDirectory, { recursive: true, force: true });
+    await fsPromises.rm(projectRoot, { recursive: true, force: true });
+    await fsPromises.rm(outsideDirectory, { recursive: true, force: true });
   }
 });

@@ -1,4 +1,4 @@
-import React, { memo, useMemo, useState } from 'react';
+import React, { memo, useMemo, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkBreaks from 'remark-breaks';
 import remarkGfm from 'remark-gfm';
@@ -10,6 +10,7 @@ import { useTranslation } from 'react-i18next';
 import { MermaidDiagram } from '@/modules/code-editor';
 import { MarkdownImage } from '@/modules/chat/transcript/MarkdownImage';
 import { normalizeInlineCodeFences } from '@/modules/chat/utils/chatFormatting';
+import { extractPathHints } from '@/modules/chat/utils/pathHints';
 import { copyTextToClipboard } from '@/shared/utils';
 import { SyntaxHighlighter } from '@/shared/syntaxHighlighter';
 import { usePaletteOps } from '@/modules/command-palette';
@@ -279,6 +280,10 @@ function MarkdownBodyRenderer({ children, breaks = false }: Omit<MarkdownProps, 
   );
   const rehypePlugins = useMemo(() => (hasMath ? [rehypeKatex] : EMPTY_PLUGINS), [hasMath]);
   const { openFileInEditor, openDirectory } = usePaletteOps();
+  // Read at click time through a ref: as a dependency of `components` it would
+  // remount every link in the message on each streamed chunk.
+  const pathHintsRef = useRef<string[]>([]);
+  pathHintsRef.current = useMemo(() => extractPathHints(content), [content]);
 
   const components = useMemo(
     () => ({
@@ -305,7 +310,7 @@ function MarkdownBodyRenderer({ children, breaks = false }: Omit<MarkdownProps, 
                   openDirectory(reference);
                   return;
                 }
-                openFileInEditor(stripLineSuffix(reference), lineFromRef(reference));
+                openFileInEditor(stripLineSuffix(reference), lineFromRef(reference), pathHintsRef.current);
               }}
             >
               {linkChildren}
