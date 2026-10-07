@@ -61,11 +61,24 @@ export function processDetail(pid) {
   return { rssKb: kb, procs: tree.length, commands };
 }
 
+const SUMMARY_MAX = 120;
+
+/** What a tool request is about, for a "waiting on" line: the command, file or URL. */
+export function pendingSummary(name, input) {
+  const i = input || {};
+  const raw = name === 'Bash' ? i.command
+    : name === 'WebFetch' ? i.url
+      : i.file_path || i.notebook_path || '';
+  const text = String(raw || '').replace(/\s+/g, ' ').trim();
+  return text.length > SUMMARY_MAX ? `${text.slice(0, SUMMARY_MAX - 1)}…` : text;
+}
+
 /** Parse transcript JSONL lines (the tail of a file) into session facts. */
 export function parseTranscriptTail(text) {
   const lines = text.split('\n');
   const toolUses = new Map(); // id -> { name, background }
   const done = new Set();
+  const asked = new Map(); // main-thread tool_use id -> { tool, summary }, until its result
   let model = null; let usage = null; let branch = null; let mode = null;
   for (const line of lines) {
     if (!line) continue;
@@ -82,12 +95,17 @@ export function parseTranscriptTail(text) {
       if (j.message.model && j.message.model !== '<synthetic>') model = j.message.model;
       if (j.message.usage) usage = j.message.usage;
       for (const c of content) {
+        if (c.type === 'tool_use' && !j.isSidechain) {
+          asked.delete(c.id);
+          asked.set(c.id, { tool: c.name, summary: pendingSummary(c.name, c.input) });
+        }
         if (c.type === 'tool_use' && AGENT_TOOLS.has(c.name)) {
           toolUses.set(c.id, { background: Boolean(c.input && c.input.run_in_background) });
         }
       }
     } else if (j.type === 'user') {
       for (const c of content) {
+        if (c.type === 'tool_result') asked.delete(c.tool_use_id);
         if (c.type !== 'tool_result' || !toolUses.has(c.tool_use_id)) continue;
         // A background agent answers at once ("launched"); it only ends with its notification.
         if (!toolUses.get(c.tool_use_id).background) done.add(c.tool_use_id);
@@ -99,7 +117,9 @@ export function parseTranscriptTail(text) {
   const context = usage
     ? (usage.input_tokens || 0) + (usage.cache_read_input_tokens || 0) + (usage.cache_creation_input_tokens || 0)
     : null;
-  return { model, branch, mode, contextTokens: context, agents };
+  // The most recent request still without a result: what a waiting session is asking about.
+  const pending = asked.size > 0 ? [...asked.values()].pop() : null;
+  return { model, branch, mode, contextTokens: context, agents, pending };
 }
 
 export function transcriptDetail(file) {

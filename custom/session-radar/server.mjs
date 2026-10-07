@@ -122,6 +122,8 @@ function liveDetail(s, transcript) {
     rssMb: Math.round(rssKb / 1024), procs, commands: commands.slice(0, 5),
     agents: t.agents || 0, model: t.model || null, branch: t.branch || null,
     mode: t.mode || null, contextTokens: t.contextTokens || null,
+    // What a waiting session asks about (its last tool request without a result).
+    pending: s.state === 'waiting' ? t.pending || null : null,
   };
 }
 

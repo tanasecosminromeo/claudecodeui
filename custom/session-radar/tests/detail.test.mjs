@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
-import { livePidsOf, machineStats, parseTranscriptTail, procStartOf, rssKb, shellCommand, stopSession } from '../detail.mjs';
+import { livePidsOf, machineStats, parseTranscriptTail, pendingSummary, procStartOf, rssKb, shellCommand, stopSession } from '../detail.mjs';
 
 const line = (o) => JSON.stringify(o);
 
@@ -63,4 +63,30 @@ test('machineStats reports memory and load', () => {
   expect(m.memTotalMb).toBeGreaterThan(0);
   expect(m.cpus).toBeGreaterThan(0);
   expect(m.load).toHaveLength(3);
+});
+
+const ask = (id, name, input, extra = {}) => line({ type: 'assistant', ...extra, message: { content: [{ type: 'tool_use', id, name, input }] } });
+const answer = (id) => line({ type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: id }] } });
+
+test('pending is the latest main-thread tool request without a result', () => {
+  expect(parseTranscriptTail(ask('a', 'Bash', { command: 'touch /tmp/x.txt' })).pending)
+    .toEqual({ tool: 'Bash', summary: 'touch /tmp/x.txt' });
+  expect(parseTranscriptTail([ask('a', 'Bash', { command: 'ls' }), answer('a')].join('\n')).pending).toBe(null);
+  expect(parseTranscriptTail([ask('a', 'Bash', { command: 'ls' }), ask('b', 'Edit', { file_path: '/w/a.js' })].join('\n')).pending)
+    .toEqual({ tool: 'Edit', summary: '/w/a.js' });
+  // a subagent's request is not what the session's own prompt is about
+  expect(parseTranscriptTail([ask('a', 'Bash', { command: 'ls' }), ask('s', 'Bash', { command: 'rm x' }, { isSidechain: true })].join('\n')).pending)
+    .toEqual({ tool: 'Bash', summary: 'ls' });
+  expect(parseTranscriptTail('').pending).toBe(null);
+});
+
+test('pendingSummary names what a tool request is about', () => {
+  expect(pendingSummary('Bash', { command: 'git   status\n  --short' })).toBe('git status --short');
+  expect(pendingSummary('Write', { file_path: '/w/b.md' })).toBe('/w/b.md');
+  expect(pendingSummary('NotebookEdit', { notebook_path: '/w/n.ipynb' })).toBe('/w/n.ipynb');
+  expect(pendingSummary('WebFetch', { url: 'https://example.com' })).toBe('https://example.com');
+  expect(pendingSummary('mcp__x__y', { a: 1 })).toBe('');
+  const long = pendingSummary('Bash', { command: 'x'.repeat(300) });
+  expect(long.length).toBe(120);
+  expect(long.endsWith('…')).toBe(true);
 });
