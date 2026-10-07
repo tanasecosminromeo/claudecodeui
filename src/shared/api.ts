@@ -280,6 +280,10 @@ export const api = {
     get(fileContentPath(projectId, filePath), options),
   saveFile: (projectId: string, filePath: string, content: string) =>
     put(`/api/file-tree/projects/${projectId}/file`, { filePath, content }),
+  // Which of several guesses at a chat file reference is a file the viewer
+  // may read: `{ path, blockedPath }`, see the server's resolveFileReference.
+  resolveFile: (projectId: string, candidates: string[]) =>
+    post(`/api/file-tree/projects/${projectId}/files/resolve`, { candidates }),
   getFiles: (projectId: string, options: ApiRequestOptions = {}) =>
     get(`/api/file-tree/projects/${projectId}/files${query({ respectGitignore: true })}`, options),
 

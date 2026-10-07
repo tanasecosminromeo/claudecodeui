@@ -7,7 +7,9 @@ export type PaletteOps = {
   openFile: (path: string) => void;
   // Opens a file in the editor side panel without changing the active tab
   // (used by in-chat file links so they behave like the inline edit view).
-  openFileInEditor: (path: string, line?: number | null) => void;
+  // `searchHints` are absolute paths the link's message mentions, tried as
+  // places to find a reference the project does not contain.
+  openFileInEditor: (path: string, line?: number | null, searchHints?: string[]) => void;
   // Directories cannot be read as text: they open in the file tree instead.
   openDirectory: (path: string) => void;
   openSettings: (tab?: string) => void;
@@ -46,8 +48,8 @@ export function usePaletteOps(): PaletteOps {
   return useMemo<PaletteOps>(
     () => ({
       openFile: (path) => (ref?.current.openFile ?? defaultOps.openFile)(path),
-      openFileInEditor: (path, line) =>
-        (ref?.current.openFileInEditor ?? defaultOps.openFileInEditor)(path, line),
+      openFileInEditor: (path, line, searchHints) =>
+        (ref?.current.openFileInEditor ?? defaultOps.openFileInEditor)(path, line, searchHints),
       openDirectory: (path) => (ref?.current.openDirectory ?? defaultOps.openDirectory)(path),
       openSettings: (tab) => (ref?.current.openSettings ?? defaultOps.openSettings)(tab),
       refreshProjects: () => (ref?.current.refreshProjects ?? defaultOps.refreshProjects)(),

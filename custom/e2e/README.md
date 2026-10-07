@@ -61,6 +61,7 @@ scenarios use Haiku); time: about 6 minutes plus the build.
 | `28-process-tree` | A live row in the sidebar Running view has a chevron; expanding it shows the session's process tree, with the `timeout 35 tail -f /dev/null` the agent is running as live nodes under the claude process (a foreground command starting with `sleep` is refused by the Bash tool). With `make exec-tracer` installed the node stays after the command ends, dimmed, with its duration; without it the tree says "Command history needs the exec tracer". Needs the installed plugin copy refreshed first (`make restart`, or `custom/ui-cleanup/inject.sh` alone): the instance uses `~/.claude-code-ui/plugins`. |
 | `29-plan-build-then-auto-bg-agent` | Plan mode → Build (continues in default) → switch to auto right away: after three reads, a background agent runs `echo ok > bg-proof.txt` and no approval prompt appears. Runs on Sonnet, where auto mode exists. |
 | `30-auto-unavailable-allows-and-notes` | The same on Haiku, where the CLI refuses auto mode and the process stays in default: CloudCLI, in auto, allows the agent's Bash call itself (no prompt) and the chat shows a live-only "Auto-allowed Bash: … · sub-agent …" note. |
+| `32-chat-file-link-resolution` | A reply names a temp folder and links `report.html` by bare name: clicking it opens the report from that folder in the editor. A link to a file that exists nowhere shows the "File not found" notice instead of an editor. |
 
 ### Bugs these scenarios found (all fixed)
 
