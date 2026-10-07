@@ -433,8 +433,56 @@
     }
     syncPulse();
     renderBadge();
+    renderWaitBanner();
   }
   addEventListener('envsw:waiting', syncPulse);
+
+  // ---- Waiting in a terminal: banner above the composer ----
+  // A terminal session's prompt belongs to the terminal's claude process: this page shows the
+  // conversation but no dialog, so say what it waits for and where to answer it.
+  const WAIT_BANNER = 'data-uic-wait-banner';
+
+  function terminalWaitingHere() {
+    const here = currentPath();
+    return waitingNow.find((s) => s.entrypoint === 'cli'
+      && (sessionPath(s) === here || `/session/${encodeURIComponent(s.sessionId)}` === here)) || null;
+  }
+
+  function renderWaitBanner() {
+    const s = terminalWaitingHere();
+    const shell = s && document.querySelector('.chat-composer-shell');
+    document.querySelectorAll(`[${WAIT_BANNER}]`).forEach((el) => { if (!shell || el.parentElement !== shell) el.remove(); });
+    if (!shell) return;
+    let el = shell.querySelector(`:scope > [${WAIT_BANNER}]`);
+    if (!el) {
+      el = document.createElement('div');
+      el.setAttribute(WAIT_BANNER, '');
+      el.setAttribute('role', 'status');
+      const head = document.createElement('div'); head.className = 'uic-wait-head';
+      const hint = document.createElement('div'); hint.className = 'uic-wait-hint';
+      hint.textContent = 'Answer it in that terminal, or send a message here to take the session over '
+        + "(stops the terminal's Claude; the pending request won't run).";
+      el.append(head, hint);
+    }
+    if (shell.firstElementChild !== el) shell.prepend(el);
+    // Runs on every DOM change: rewriting unchanged text would trigger the observer again, forever.
+    const key = JSON.stringify([s.waitingFor, s.pending]);
+    if (el.dataset.key === key) return;
+    el.dataset.key = key;
+    const head = el.querySelector('.uic-wait-head');
+    head.textContent = '';
+    const strong = document.createElement('strong');
+    strong.textContent = `Waiting in a terminal: ${s.waitingFor || 'your input'}`;
+    head.append(strong);
+    if (s.pending && s.pending.tool) {
+      head.append(document.createTextNode(` — ${s.pending.tool} `));
+      if (s.pending.summary) {
+        const code = document.createElement('code');
+        code.textContent = s.pending.summary;
+        head.append(code);
+      }
+    }
+  }
 
   async function pollAlert() {
     let delay = ALERT_POLL_MS;
@@ -449,7 +497,7 @@
       setTimeout(pollAlert, delay);
     }
   }
-  addEventListener('popstate', () => setTimeout(renderBadge, 0));
+  addEventListener('popstate', () => setTimeout(() => { renderBadge(); renderWaitBanner(); }, 0));
 
   // The list between header and footer (the only flex-1 child) is hidden while a mode tab with a
   // plugin panel is pressed, and the panel is mounted in its place.
@@ -545,6 +593,7 @@
     scheduled = false;
     try { hideWorkspaceTabs(); } catch (err) { console.warn('[ui-cleanup] workspace tabs', err); }
     try { ensureComposerMeters(); } catch (err) { console.warn('[ui-cleanup] composer meter', err); }
+    try { renderWaitBanner(); } catch (err) { console.warn('[ui-cleanup] wait banner', err); }
     try {
       const footer = footerOf(document);
       const root = footer && footer.parentElement;
@@ -624,6 +673,12 @@
     schedule();
     pollAlert();
     pollUsage();
+  }
+
+  const testHook = globalThis.__UIC_TEST__;
+  if (testHook && typeof testHook === 'object') {
+    Object.assign(testHook, { updateAlert, renderWaitBanner });
+    return;
   }
 
   if (document.body) start();

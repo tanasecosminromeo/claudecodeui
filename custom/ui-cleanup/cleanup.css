@@ -166,3 +166,23 @@ body.pwa-mode { --header-base-padding: 0px; } /* extra gap under the notch in ho
 .wt-keybar { padding: 3px 4px !important; gap: 4px !important; }
 .wt-key { height: 30px !important; min-width: 36px !important; padding: 0 8px !important; font-size: 12px !important; }
 .wt-key svg { width: 14px !important; height: 14px !important; }
+
+/* Waiting in a terminal: banner above the composer of a session whose prompt is in a terminal. */
+[data-uic-wait-banner] {
+  max-width: 54.25rem;
+  margin: 0 auto 8px;
+  padding: 8px 12px;
+  border: 1px solid rgba(245, 158, 11, 0.35);
+  border-radius: 12px;
+  background: rgba(245, 158, 11, 0.1);
+  color: #92400e;
+  font: 12px/1.4 var(--uic-font);
+}
+[data-uic-wait-banner] .uic-wait-head strong { font-weight: 600; }
+[data-uic-wait-banner] code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11.5px;
+  word-break: break-all;
+}
+[data-uic-wait-banner] .uic-wait-hint { margin-top: 2px; opacity: 0.85; }
+.dark [data-uic-wait-banner] { color: #fcd34d; border-color: rgba(245, 158, 11, 0.4); }
