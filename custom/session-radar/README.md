@@ -8,7 +8,7 @@ Data sources (all local, read-only):
 - Child shells sourcing `~/.claude/shell-snapshots/`: running Bash-tool work (background tasks, Monitors), shown as "N tasks running".
 - `~/.claude/projects/*/<id>.jsonl` mtime: last message time, and sessions that already exited.
 - `~/.cloudcli/auth.db` (read-only, `node:sqlite`): titles and the app session id CloudCLI routes on. UI-started chats have an app id different from Claude's id.
-- `detail.mjs`, for live sessions only: memory (`VmRSS`, summed over the process tree), the commands of running Bash-tool children, and from the last 256 KB of the transcript the model, permission mode, git branch, context size and running agents (foreground agents without a result; background agents until their task-notification). Shown as chips in the row and in its tooltip, with a "N live · M GB" summary on top.
+- `detail.mjs`, for live sessions only: memory (`VmRSS`, summed over the process tree), the commands of running Bash-tool children, and from the last 256 KB of the transcript the model, permission mode, git branch, context size and running agents (foreground agents without a result; background agents until their task-notification). While a session is `waiting`, `pending` names the request it waits on: the last main-thread tool call without a result (`{ tool, summary }`, the command, file or URL). Shown as chips in the row and in its tooltip, with a "N live · M GB" summary on top.
 
 - `/var/log/agent-exec/<uid>.jsonl` (written by `../exec-tracer`, optional): every process a session
   started and its exit. `GET /tree?sid=<claude session id | pid:<n>>` merges it with the live `/proc`
