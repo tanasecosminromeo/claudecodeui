@@ -65,6 +65,8 @@ scenarios use Haiku); time: about 6 minutes plus the build.
 | `32-chat-file-link-resolution` | A reply names a temp folder and links `report.html` by bare name: clicking it opens the report from that folder in the editor. A link to a file that exists nowhere shows the "File not found" notice instead of an editor. |
 | `33-claude-killed-mid-turn` | The session's Claude process SIGKILLed mid-turn (from outside, as the OOM killer does): the chat leaves the working state within 15 s, shows that the process stopped unexpectedly, and the next message starts a fresh process. |
 | `34-needs-input-pill-keeps-tabs` | With a session waiting (faked in the browser's copy of the Session Radar answer, so nothing is written to `~/.claude/sessions`), the "Needs input" pill sits in the header beside the tabs: every tab stays in view and clickable at 1400×900; at 390×844 the pill shrinks to a dot and covers no tab. |
+| `33-compact-from-slash-menu` | After three exchanges, typing `/comp` lists `/compact` (the Claude CLI's own command) in the slash menu; picking it writes `/compact ` into the composer, focus instructions follow, and Send hands the text to the CLI as typed (not to the command API). The chat shows one "Compacted · manual" row, and still one after a reload. |
+| `34-compact-refused-once` | `/compact` as the first message of a new chat (one exchange is already enough context for the CLI to compact): the CLI refuses ("Not enough messages to compact."), reporting it twice and repeating it as text; the chat shows one "Compaction failed: …" row live, and the same one row after a reload (on disk only the command's reply remains). |
 
 ### Bugs these scenarios found (all fixed)
 
