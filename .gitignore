@@ -156,3 +156,5 @@ public/e2e-reports/
 
 # Specs and plans are tracked here, despite the global ignore
 !docs/superpowers
+# Implementation plans are private working notes (hostnames, homelab paths); specs are tracked
+docs/superpowers/plans/
