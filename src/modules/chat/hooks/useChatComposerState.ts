@@ -15,6 +15,7 @@ import { useTranslation } from 'react-i18next';
 import { api } from '@/shared/api';
 import { PROVIDER_PERMISSION_PREFERENCE_KEYS } from '@/shared/constants';
 import { readUserPreference } from '@/shared/userSettings';
+import { isCliCommand } from '@/shared/utils';
 import type { CommandModalPayload, CostCommandData, HelpCommandData, MarkSessionProcessing, ModelCommandData, QueuedDraft, SideQuestionCommandData, StatusCommandData,QueuedSendOptions,ChatAttachment,ChatMessage,PendingPermissionRequest,PermissionMode,SessionEstablishedContext,Project,ProjectSession,LLMProvider,SlashCommand } from '@/shared/types';
 import { grantClaudeToolPermission } from '@/modules/chat/utils/chatPermissions';
 import {
@@ -715,13 +716,15 @@ export function useChatComposerState({
 
       // Intercept slash commands only when "/" is the first input character.
       // Also accept exact "help" as a convenience alias for users who expect CLI-style help.
+      // The Claude CLI's own commands are never matched: the CLI runs them
+      // from the message text, so they are sent as typed, arguments included.
       const commandInput = currentInput.trimEnd();
       const isHelpAlias = commandInput.trim().toLowerCase() === 'help';
       let matchedCommand: SlashCommand | undefined;
       if (commandInput.startsWith('/') || isHelpAlias) {
         const commandName = isHelpAlias ? '/help' : commandInput.split(/\s/, 1)[0];
         matchedCommand =
-          slashCommands.find((cmd: SlashCommand) => cmd.name === commandName) ||
+          slashCommands.find((cmd: SlashCommand) => cmd.name === commandName && !isCliCommand(cmd)) ||
           (commandName === '/help'
             ? ({
                 name: '/help',

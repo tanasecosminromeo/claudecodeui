@@ -71,10 +71,21 @@ async function executeCommand(
     sideQuestions?: ReturnType<typeof createSideQuestionService>;
   } = {},
 ): Promise<Record<string, unknown>> {
+  return postCommands('execute', { commandName, args, context }, sessionModels, sideQuestions);
+}
+
+async function postCommands(
+  route: 'list' | 'execute',
+  body: Record<string, unknown>,
+  sessionModels: Record<string, string> = {},
+  sideQuestions: ReturnType<typeof createSideQuestionService> = createSideQuestions().service,
+): Promise<Record<string, unknown>> {
   const router = createCommandsRouter({
     sideQuestions,
     fileSystem: {
       readFile: async () => JSON.stringify({ name: 'claude-code-ui', version: '0.0.0-test' }),
+      // No `.claude/commands` folder anywhere: only the server's own lists remain.
+      access: async () => { throw Object.assign(new Error('missing'), { code: 'ENOENT' }); },
     } as unknown as typeof import('node:fs/promises'),
     homeDirectory: () => '/home/test',
     appRoot: '/app',
@@ -90,9 +101,9 @@ async function executeCommand(
   await once(server, 'listening');
   try {
     const address = server.address() as AddressInfo;
-    const response = await fetch(`http://127.0.0.1:${address.port}/api/commands/execute`, {
+    const response = await fetch(`http://127.0.0.1:${address.port}/api/commands/${route}`, {
       method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ commandName, args, context }),
+      body: JSON.stringify(body),
     });
     assert.equal(response.status, 200);
     return await response.json() as Record<string, unknown>;
@@ -198,4 +209,28 @@ test('btw reports a provider without side questions as unsupported', async () =>
   const data = result.data as { status: string; message: string };
   assert.equal(data.status, 'unsupported');
   assert.equal(data.message, '/btw is only available in Claude sessions.');
+});
+
+type ListedCommand = { name: string; description: string; namespace: string; metadata: { type: string } };
+
+test('the list offers the Claude CLI\'s own commands apart from the built-ins, marked to pass through', async () => {
+  const listed = await postCommands('list', { projectPath: '/work/app' });
+  const cli = listed.cli as ListedCommand[];
+  const builtIn = listed.builtIn as ListedCommand[];
+
+  assert.deepEqual(cli.find((command) => command.name === '/compact'), {
+    name: '/compact',
+    description: 'Summarize the conversation to free up context (add focus instructions after it)',
+    namespace: 'cli',
+    metadata: { type: 'cli' },
+  });
+  assert.ok(cli.every((command) => command.namespace === 'cli' && command.metadata.type === 'cli'));
+  // What the app answers itself is never handed to the CLI as well, and what
+  // the app cannot follow (a new session, a terminal-only screen) is not offered.
+  const builtInNames = new Set(builtIn.map((command) => command.name));
+  assert.ok(cli.every((command) => !builtInNames.has(command.name)));
+  for (const name of ['/clear', '/usage', '/cost', '/heapdump', '/usage-credits']) {
+    assert.equal(cli.some((command) => command.name === name), false, `${name} is not offered`);
+  }
+  assert.equal((listed.custom as ListedCommand[]).some((command) => command.namespace === 'cli'), false);
 });

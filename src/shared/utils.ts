@@ -241,6 +241,14 @@ export const getPageTitle = (
 export const isSkillCommand = (command: SlashCommand): boolean =>
   command.type === 'skill' || command.metadata?.type === 'skill';
 
+/**
+ * Whether a slash command is one of the Claude CLI's own (`/compact`, ...),
+ * which the CLI runs when it arrives as the message text. The composer never
+ * executes these itself; it sends them as typed.
+ */
+export const isCliCommand = (command: SlashCommand): boolean =>
+  command.type === 'cli' || command.metadata?.type === 'cli';
+
 // ---------------------------
 
 //----------------- QUICK SETTINGS PANEL ------------

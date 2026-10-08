@@ -4,7 +4,7 @@ import type { Dispatch, KeyboardEvent, RefObject, SetStateAction } from 'react';
 import { safeLocalStorage } from '@/modules/chat/utils/chatStorage';
 import { useProjectSlashCommands } from '@/shared/hooks/useProjectSlashCommands';
 import type { LLMProvider, Project, SlashCommand } from '@/shared/types';
-import { isSkillCommand } from '@/shared/utils';
+import { isCliCommand, isSkillCommand } from '@/shared/utils';
 
 const COMMAND_QUERY_DEBOUNCE_MS = 150;
 
@@ -38,7 +38,13 @@ const saveCommandHistory = (projectName: string, history: Record<string, number>
   safeLocalStorage.setItem(getCommandHistoryKey(projectName), JSON.stringify(history));
 };
 
-const isPromiseLike = (value: unknown): value is Promise<unknown> =>
+// Skills and the Claude CLI's own commands run in the provider, from the
+// message text, and may take instructions after the name: picking one writes
+// it into the composer rather than running it.
+const insertsIntoInput = (command: SlashCommand): boolean =>
+  isSkillCommand(command) || isCliCommand(command);
+
+const isPromiseLike =(value: unknown): value is Promise<unknown> =>
   Boolean(value) && typeof (value as Promise<unknown>).then === 'function';
 
 const filterSlashCommands = (
@@ -211,7 +217,7 @@ export function useSlashCommands({
 
   const selectCommandFromKeyboard = useCallback(
     (command: SlashCommand) => {
-      if (isSkillCommand(command)) {
+      if (insertsIntoInput(command)) {
         insertCommandIntoInput(command);
         return;
       }
@@ -233,7 +239,7 @@ export function useSlashCommands({
       }
 
       trackCommandUsage(command);
-      if (isSkillCommand(command)) {
+      if (insertsIntoInput(command)) {
         insertCommandIntoInput(command);
         return;
       }

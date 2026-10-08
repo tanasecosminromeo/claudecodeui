@@ -66,10 +66,11 @@ const mapSkillToSlashCommand = (skill: ProviderSkill): SlashCommand => ({
 
 /**
  * Used by the chat module (composer `/` menu) and the quick-settings-panel
- * module (Commands tab) to load the slash commands — built-in, provider skills
- * and custom — available to a project. Both surfaces must offer the same list,
- * so the fetch and mapping live here; ordering and filtering stay with the
- * consumer. Returns the list in built-in → skills → custom order. A consumer
+ * module (Commands tab) to load the slash commands — built-in, the Claude
+ * CLI's own (Claude only), provider skills and custom — available to a
+ * project. Both surfaces must offer the same list, so the fetch and mapping
+ * live here; ordering and filtering stay with the consumer. Returns the list
+ * in built-in → CLI → skills → custom order. A consumer
  * that only shows the list sometimes passes `enabled: false` meanwhile so
  * project switches do not cost a second round-trip; re-enabling refetches.
  */
@@ -121,16 +122,27 @@ export function useProjectSlashCommands(
           : null;
         const skillCommands = dedupeProviderSkills(skillsData?.data?.skills || [])
           .map(mapSkillToSlashCommand);
+        const customCommands = ((data.custom || []) as SlashCommand[]).map((command) => ({
+          ...command,
+          type: 'custom',
+        }));
+        // The Claude CLI's own commands go to the CLI as typed, so they mean
+        // nothing to another provider. A skill or custom command of the same
+        // name is what would run under that name, so it keeps the entry.
+        const shadowedNames = new Set([...skillCommands, ...customCommands].map((command) => command.name));
+        const cliCommands = provider === 'claude'
+          ? ((data.cli || []) as SlashCommand[])
+            .filter((command) => !shadowedNames.has(command.name))
+            .map((command) => ({ ...command, type: 'cli' }))
+          : [];
         const allCommands: SlashCommand[] = [
           ...((data.builtIn || []) as SlashCommand[]).map((command) => ({
             ...command,
             type: 'built-in',
           })),
+          ...cliCommands,
           ...skillCommands,
-          ...((data.custom || []) as SlashCommand[]).map((command) => ({
-            ...command,
-            type: 'custom',
-          })),
+          ...customCommands,
         ];
 
         if (!cancelled) {

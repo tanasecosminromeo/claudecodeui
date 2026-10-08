@@ -821,13 +821,13 @@ export type ComposerMenuAnchor = {
   maxWidth: number;
 };
 
-/** One selectable slash command — built-in, user-defined or skill-backed — as listed in the chat composer's command menu and executed when the user picks it. */
+/** One selectable slash command — built-in, the Claude CLI's own, user-defined or skill-backed — as listed in the chat composer's command menu and executed when the user picks it. */
 export type SlashCommand = {
   name: string;
   description?: string;
   namespace?: string;
   path?: string;
-  type?: 'built-in' | 'custom' | 'skill' | string;
+  type?: 'built-in' | 'cli' | 'custom' | 'skill' | string;
   metadata?: Record<string, unknown>;
   [key: string]: unknown;
 };

@@ -214,6 +214,49 @@ const builtInCommands = [
   },
 ];
 
+/**
+ * The Claude CLI's own slash commands that do their job when a chat sends them
+ * as plain text: the composer passes them through untouched (arguments
+ * included) and the CLI runs them inside the session. Curated rather than read
+ * from the CLI's `init.slash_commands`, which only arrives once a session runs
+ * and also names commands this list leaves out on purpose: what the app
+ * already answers itself (`/cost` alias `/usage`, `/status`, `/help`, ...),
+ * `/clear` (starts a session the chat would not follow), and account or
+ * debugging screens (`/usage-credits`, `/heapdump`). Claude sessions only.
+ */
+const cliCommands = [
+  {
+    name: "/compact",
+    description: "Summarize the conversation to free up context (add focus instructions after it)",
+    namespace: "cli",
+    metadata: { type: "cli" },
+  },
+  {
+    name: "/context",
+    description: "Show current context usage",
+    namespace: "cli",
+    metadata: { type: "cli" },
+  },
+  {
+    name: "/init",
+    description: "Initialize a new CLAUDE.md file with codebase documentation",
+    namespace: "cli",
+    metadata: { type: "cli" },
+  },
+  {
+    name: "/review",
+    description: "Review a pull request",
+    namespace: "cli",
+    metadata: { type: "cli" },
+  },
+  {
+    name: "/security-review",
+    description: "Complete a security review of the pending changes on the current branch",
+    namespace: "cli",
+    metadata: { type: "cli" },
+  },
+];
+
 // Fallback wording for each `/btw` outcome that is not an answer; the client
 // shows its own translated text and uses these only when it has none.
 const SIDE_QUESTION_MESSAGES = {
@@ -517,6 +560,7 @@ router.post("/list", async (req, res) => {
     res.json({
       builtIn: builtInCommands,
       custom: customCommands,
+      cli: cliCommands,
       count: allCommands.length,
     });
   } catch (error) {

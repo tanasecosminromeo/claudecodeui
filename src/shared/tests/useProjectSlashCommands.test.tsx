@@ -127,3 +127,31 @@ test('a disabled consumer does not request until it is enabled', async () => {
   await waitFor(() => assert.equal(result.current.commands.length, 1));
   assert.equal(listCommands.mock.calls.length, 1);
 });
+
+test("the Claude CLI's own commands are offered in Claude chats only, after the built-ins", async () => {
+  listCommands.mockResolvedValue(jsonResponse({
+    builtIn: [{ name: '/help', description: 'Show help' }],
+    custom: [{ name: '/deploy', description: 'Deploy it' }],
+    cli: [
+      { name: '/compact', description: 'Summarize', namespace: 'cli', metadata: { type: 'cli' } },
+      { name: '/review', description: 'Review a pull request', namespace: 'cli', metadata: { type: 'cli' } },
+    ],
+  }));
+  // A skill of the same name wins: it is what the CLI would run for that name too.
+  listSkills.mockResolvedValue(jsonResponse({
+    data: { skills: [{ name: 'review', command: '/review', scope: 'user', description: 'My review' }] },
+  }));
+
+  const { useProjectSlashCommands } = await import('@/shared/hooks/useProjectSlashCommands');
+  const claude = renderHook(() => useProjectSlashCommands(project, 'claude'));
+  await waitFor(() => assert.equal(claude.result.current.isLoading, false));
+  assert.deepEqual(
+    claude.result.current.commands.map((command) => [command.name, command.type]),
+    [['/help', 'built-in'], ['/compact', 'cli'], ['/review', 'skill'], ['/deploy', 'custom']],
+  );
+  assert.equal(claude.result.current.commands[1].namespace, 'cli');
+
+  const codex = renderHook(() => useProjectSlashCommands(project, 'codex'));
+  await waitFor(() => assert.equal(codex.result.current.isLoading, false));
+  assert.equal(codex.result.current.commands.some((command) => command.type === 'cli'), false);
+});
