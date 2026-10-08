@@ -119,6 +119,21 @@ function appendCompactionRow(
     return true;
   }
 
+  // A compaction the CLI refuses arrives as two identical failure reports and
+  // then the reason once more as plain assistant text. All of it repeats the
+  // failed row directly above, so only that row stays.
+  const above = converted[converted.length - 1];
+  if (above?.compact?.phase === 'failed' && text) {
+    const repeatsFailure = msg.compact?.phase === 'failed' && text === (above.content || '').trim();
+    const repeatsReason = !msg.compact
+      && msg.kind === 'text'
+      && msg.role === 'assistant'
+      && text === above.compact.error;
+    if (repeatsFailure || repeatsReason) {
+      return true;
+    }
+  }
+
   if (msg.isCompactSummary) {
     state.foldedSummaries.add(text);
 

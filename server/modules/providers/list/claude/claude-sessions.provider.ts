@@ -1017,6 +1017,71 @@ function buildLocalCommandDisplayText(payload: ClaudeLocalCommandPayload): strin
   return commandArgs ? `${baseCommand} ${commandArgs}` : baseCommand;
 }
 
+/**
+ * Local command stdout is written to Claude's transcript as a row of its own,
+ * but it is terminal output produced in response to the command. Re-label it
+ * as assistant text so the chat transcript matches the actual conversational
+ * flow seen by the user. Returns `null` when `content` is not command output.
+ */
+function localCommandStdoutRows(
+  content: string,
+  envelope: { id: string; sessionId: string | null; timestamp: string },
+): NormalizedMessage[] | null {
+  const localCommandStdout = extractTaggedContent(content, 'local-command-stdout');
+  if (localCommandStdout === null) {
+    return null;
+  }
+
+  const stdoutText = stripAnsiSequences(localCommandStdout).trim();
+  return stdoutText
+    ? [createNormalizedMessage({
+        ...envelope,
+        provider: PROVIDER,
+        kind: 'text',
+        role: 'assistant',
+        content: stdoutText,
+        isLocalCommandStdout: true,
+      })]
+    : [];
+}
+
+/** What a failed compaction says, live (its `status` event) or from history. */
+function describeFailedCompaction(error: string | null): { content: string; compact: CompactionInfo } {
+  return {
+    content: `Compaction failed${error ? `: ${error}` : ''}`,
+    compact: { phase: 'failed', error },
+  };
+}
+
+/** The CLI's reply to a `/compact` that worked. */
+const COMPACTED_REPLY = /^Compacted\b/;
+
+/**
+ * A `/compact` the CLI refuses ("Not enough messages to compact.") leaves no
+ * `status` event on disk, only the command and the CLI's reply right after it.
+ * Redraws that reply as the failed-compaction row the live stream shows, so a
+ * reload reads the same as the moment it happened.
+ *
+ * Mutates and returns the given array; callers own it.
+ */
+function markRefusedCompactions(messages: NormalizedMessage[]): NormalizedMessage[] {
+  for (let index = 1; index < messages.length; index += 1) {
+    const message = messages[index];
+    const text = (message.content || '').trim();
+    if (
+      !message.isLocalCommandStdout
+      || messages[index - 1].commandName?.trim() !== '/compact'
+      || COMPACTED_REPLY.test(text)
+    ) {
+      continue;
+    }
+
+    const failed = describeFailedCompaction(text || null);
+    messages[index] = { ...message, content: failed.content, compact: failed.compact, isLocalCommandStdout: undefined };
+  }
+  return messages;
+}
+
 /** The `task_status` fields of a normalized message, minus the envelope. */
 type ClaudeTaskStatusEvent = Pick<
   NormalizedMessage,
@@ -1310,14 +1375,17 @@ export class ClaudeSessionsProvider implements IProviderSessions {
         return compactionRow('Compacting conversation…', { phase: 'running' });
       }
       if (raw.compact_result === 'failed') {
-        const error = typeof raw.compact_error === 'string' ? raw.compact_error : null;
-        return compactionRow(`Compaction failed${error ? `: ${error}` : ''}`, {
-          phase: 'failed',
-          error,
-        });
+        const failed = describeFailedCompaction(typeof raw.compact_error === 'string' ? raw.compact_error : null);
+        return compactionRow(failed.content, failed.compact);
       }
 
       return [];
+    }
+
+    // Current CLIs file a local command's output as a `system` row of its own
+    // rather than the `user` row handled below; it is the same reply.
+    if (raw.type === 'system' && raw.subtype === 'local_command' && typeof raw.content === 'string') {
+      return localCommandStdoutRows(raw.content, { id: baseId, sessionId, timestamp: ts }) ?? [];
     }
 
     if (raw.message?.role === 'user' && raw.message?.content && raw.isMeta !== true) {
@@ -1468,28 +1536,10 @@ export class ClaudeSessionsProvider implements IProviderSessions {
           return messages;
         }
 
-        /**
-         * Local command stdout is also written as a "user" row in Claude's
-         * transcript, but it is terminal output produced in response to the
-         * command. Re-label it as assistant text so the chat transcript matches
-         * the actual conversational flow seen by the user.
-         */
-        const localCommandStdout = extractTaggedContent(text, 'local-command-stdout');
-        if (localCommandStdout !== null) {
-          const stdoutText = stripAnsiSequences(localCommandStdout).trim();
-          if (stdoutText) {
-            messages.push(createNormalizedMessage({
-              id: baseId,
-              sessionId,
-              timestamp: ts,
-              provider: PROVIDER,
-              kind: 'text',
-              role: 'assistant',
-              content: stdoutText,
-              isLocalCommandStdout: true,
-            }));
-          }
-          return messages;
+        // Local command stdout, written as a "user" row: the command's reply.
+        const stdoutRows = localCommandStdoutRows(text, { id: baseId, sessionId, timestamp: ts });
+        if (stdoutRows) {
+          return stdoutRows;
         }
 
         const parsedFiles = parseFilesInputTag(text);
@@ -1795,7 +1845,7 @@ export class ClaudeSessionsProvider implements IProviderSessions {
 
     // Everything the transcript draws, and nothing else — so a page of N rows
     // is N rows the user sees, and `total` counts the same thing.
-    const transcript = prepareTranscriptMessages(normalized);
+    const transcript = prepareTranscriptMessages(markRefusedCompactions(normalized));
     const total = transcript.length;
     const normalizedOffset = Math.max(0, offset);
     const normalizedLimit = limit === null ? null : Math.max(0, limit);

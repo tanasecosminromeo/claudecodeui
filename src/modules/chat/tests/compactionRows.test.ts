@@ -122,6 +122,43 @@ describe('compaction rows', () => {
     expect(converted[1].compactSummary).toBe('The summary body');
   });
 
+  it('shows a refused compaction once: the CLI reports it twice and then says it again', () => {
+    const error = 'Not enough messages to compact.';
+    const failed = () => row({ content: `Compaction failed: ${error}`, compact: { phase: 'failed', error } });
+
+    const converted = normalizedToChatMessages([
+      row({ content: '/compact', role: 'user' }),
+      row({ content: 'Compacting conversation…', compact: { phase: 'running' } }),
+      failed(),
+      failed(),
+      row({ content: error }),
+    ]);
+
+    expect(converted.map((message) => message.content)).toEqual(['/compact', `Compaction failed: ${error}`]);
+    expect(converted[1].compact?.phase).toBe('failed');
+  });
+
+  it('keeps a second refusal that is not directly under the first, and the words said elsewhere', () => {
+    const error = 'Not enough messages to compact.';
+    const failed = () => row({ content: `Compaction failed: ${error}`, compact: { phase: 'failed', error } });
+
+    const converted = normalizedToChatMessages([
+      failed(),
+      row({ content: '/compact', role: 'user' }),
+      failed(),
+      row({ content: 'more work' }),
+      row({ content: error }),
+    ]);
+
+    expect(converted.map((message) => message.content)).toEqual([
+      `Compaction failed: ${error}`,
+      '/compact',
+      `Compaction failed: ${error}`,
+      'more work',
+      error,
+    ]);
+  });
+
   it('keeps a running compaction, and its phase, so the row can say so', () => {
     const converted = normalizedToChatMessages([
       row({ content: 'Compacting conversation…', compact: { phase: 'running' } }),
