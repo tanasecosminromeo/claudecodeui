@@ -62,13 +62,14 @@ export default function FileTree({ selectedProject, onFileOpen, revealDirectory 
   const [outsideRoot, setOutsideRoot] = useState<{ projectId?: string; path: string } | null>(null);
   const readOnlyRoot = outsideRoot && outsideRoot.projectId === projectId ? outsideRoot.path : null;
 
-  useEffect(() => {
-    if (!revealDirectory || !projectRoot) {
-      return;
-    }
+  // Each new reveal request decides once which tree is shown, during render
+  // rather than in an effect, so the wrong tree is never fetched first.
+  const [seenRevealRequest, setSeenRevealRequest] = useState<DirectoryRevealRequest | null>(null);
+  if (revealDirectory && projectRoot && revealDirectory !== seenRevealRequest) {
+    setSeenRevealRequest(revealDirectory);
     const outsidePath = outsideProjectDirectory(projectRoot, revealDirectory.path);
     setOutsideRoot(outsidePath ? { projectId, path: outsidePath } : null);
-  }, [revealDirectory, projectRoot, projectId]);
+  }
 
   const { files, filesRootPath, loading, error, refreshFiles } = useFileTreeData(selectedProject, readOnlyRoot);
   const { viewMode, changeViewMode } = useFileTreeViewMode();
