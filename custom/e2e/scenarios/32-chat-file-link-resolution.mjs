@@ -16,7 +16,7 @@ export const meta = {
 const MARKER = 'e2e-report-body-7f3a';
 
 export async function run({ chat, page, expect, snapshot }) {
-  // The temp directory is a read-only root, so the server may read it.
+  // Outside the project: the server reads any file the OS lets it read.
   const filesDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cloudcli-e2e-links-'));
   fs.writeFileSync(path.join(filesDir, 'report.html'), `<!doctype html><p>${MARKER}</p>\n`);
 
