@@ -36,14 +36,14 @@ export async function run({ chat, page, expect }) {
   await chat.composer().pressSequentially('keep the fruit words');
   await page.getByRole('button', { name: 'Send', exact: true }).click();
 
-  await chat.waitForAssistant(ROW, 180000);
+  await chat.waitForAssistant(/Compacted · manual/, 180000);
   await chat.waitIdle(60000);
   const text = await chat.assistantText();
   expect((text.match(ROW) || []).length === 1, 'one "Compacted · manual" row');
   expect(!/Error executing command/.test(text), 'the composer did not run it as an app command');
 
   await page.reload();
-  await chat.waitForAssistant(ROW, 30000);
+  await chat.waitForAssistant(/Compacted · manual/, 30000);
   const reloaded = await chat.assistantText();
   expect((reloaded.match(ROW) || []).length === 1, 'after a reload, still one "Compacted · manual" row');
 }
