@@ -95,7 +95,8 @@ function createRouteHandler(
       await operation(request, response);
     } catch (error) {
       if (error instanceof AppError) {
-        response.status(error.statusCode).json({ error: error.message });
+        // The code lets the client tell a refused read from a missing file.
+        response.status(error.statusCode).json({ error: error.message, code: error.code });
         return;
       }
 
@@ -176,8 +177,11 @@ export function createFileTreeRouter(
   }, logger));
 
   router.get('/projects/:projectId/files', createRouteHandler(async (request, response) => {
+    // `root` asks for a folder outside the project instead, shown read-only.
+    const rootPath = readOptionalString(request.query.root);
     response.json(await services.listProjectFiles(readProjectId(request), {
       respectGitignore: request.query.respectGitignore === 'true',
+      ...(rootPath ? { rootPath } : {}),
     }));
   }, logger));
 

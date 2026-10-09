@@ -14,7 +14,7 @@ import type {
   FileTreeProjectGateway,
   FileTreeWorkspaceGateway,
 } from '@/shared/types.js';
-import { WORKSPACES_ROOT, resolveReadOnlyRootPath, validateWorkspacePath } from '@/shared/utils.js';
+import { WORKSPACES_ROOT, validateWorkspacePath } from '@/shared/utils.js';
 
 const MAXIMUM_UPLOAD_SIZE_MEGABYTES = 200;
 const MAXIMUM_UPLOAD_SIZE_BYTES = MAXIMUM_UPLOAD_SIZE_MEGABYTES * 1024 * 1024;
@@ -33,7 +33,7 @@ function readFileSystemConcurrency(): number {
  * import Node's mutable filesystem APIs themselves.
  */
 const fileTreeFileSystem: FileTreeFileSystem = {
-  access: (candidatePath) => fsPromises.access(candidatePath),
+  access: (candidatePath, mode) => fsPromises.access(candidatePath, mode),
   stat: (candidatePath) => fsPromises.stat(candidatePath),
   lstat: (candidatePath) => fsPromises.lstat(candidatePath),
   // `opendir` streams entries in batches and the handle is closed by the
@@ -74,7 +74,6 @@ const fileTreeWorkspace: FileTreeWorkspaceGateway = {
   rootPath: WORKSPACES_ROOT,
   homePath: os.homedir(),
   validatePath: (candidatePath) => validateWorkspacePath(candidatePath),
-  resolveReadOnlyRootPath: (candidatePath) => resolveReadOnlyRootPath(candidatePath),
 };
 
 const fileTreeLogger: FileTreeLogger = {

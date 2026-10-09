@@ -7,6 +7,7 @@ import express, { type RequestHandler } from 'express';
 
 import { createFileTreeRouter } from '@/modules/file-tree/file-tree.routes.js';
 import type { FileTreeServices } from '@/shared/types.js';
+import { AppError } from '@/shared/utils.js';
 
 function createFakeServices(overrides: Partial<FileTreeServices> = {}): FileTreeServices {
   const unexpectedOperation = async (): Promise<never> => {
@@ -96,6 +97,41 @@ test('project files route requests gitignore filtering when explicitly enabled',
   assert.deepEqual(inputs, [['project-1', { respectGitignore: true }]]);
 });
 
+test('project files route lists a folder outside the project when asked for one', async () => {
+  const inputs: Parameters<FileTreeServices['listProjectFiles']>[] = [];
+  const services = createFakeServices({
+    listProjectFiles: async (...input) => {
+      inputs.push(input);
+      return [];
+    },
+  });
+
+  await withFileTreeServer(services, async (baseUrl) => {
+    const response = await fetch(
+      `${baseUrl}/api/file-tree/projects/project-1/files?respectGitignore=true&root=${encodeURIComponent('~/reports')}`,
+    );
+
+    assert.equal(response.status, 200);
+  });
+
+  assert.deepEqual(inputs, [['project-1', { respectGitignore: true, rootPath: '~/reports' }]]);
+});
+
+test('a refused read carries its code, so the client can tell permission from absence', async () => {
+  const services = createFakeServices({
+    readTextFile: async () => {
+      throw new AppError('Permission denied', { statusCode: 403, code: 'PERMISSION_DENIED' });
+    },
+  });
+
+  await withFileTreeServer(services, async (baseUrl) => {
+    const response = await fetch(`${baseUrl}/api/file-tree/projects/project-1/file?filePath=%2Fsrv%2Flocked.txt`);
+
+    assert.equal(response.status, 403);
+    assert.deepEqual(await response.json(), { error: 'Permission denied', code: 'PERMISSION_DENIED' });
+  });
+});
+
 test('create route parses the transport payload before invoking the service', async () => {
   const inputs: Parameters<FileTreeServices['createEntry']>[0][] = [];
   const services = createFakeServices({
@@ -162,7 +198,7 @@ test('resolve route forwards string candidates only, capped', async () => {
   const services = createFakeServices({
     resolveFileReference: async (...input) => {
       inputs.push(input);
-      return { path: '/reports/report.html', blockedPath: null };
+      return { path: '/reports/report.html', directoryPath: null, deniedPath: null };
     },
   });
 
@@ -175,7 +211,7 @@ test('resolve route forwards string candidates only, capped', async () => {
     });
 
     assert.equal(response.status, 200);
-    assert.deepEqual(await response.json(), { path: '/reports/report.html', blockedPath: null });
+    assert.deepEqual(await response.json(), { path: '/reports/report.html', directoryPath: null, deniedPath: null });
   });
 
   assert.equal(inputs.length, 1);

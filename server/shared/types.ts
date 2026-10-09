@@ -1395,7 +1395,8 @@ export type FileTreeStats = {
  * cannot inspect, write, rename, or delete developer files.
  */
 export type FileTreeFileSystem = {
-  access(candidatePath: string): Promise<void>;
+  // `mode` is an `fs.constants` access mode; without one only existence is checked.
+  access(candidatePath: string, mode?: number): Promise<void>;
   stat(candidatePath: string): Promise<FileTreeStats>;
   lstat(candidatePath: string): Promise<FileTreeStats>;
   // Streamed rather than returned as an array so a directory with millions of
@@ -1423,10 +1424,12 @@ export type FileTreeProjectGateway = {
 };
 
 /**
- * Workspace validation boundary used by filesystem browsing and folder creation.
+ * Workspace validation boundary used by folder creation.
  *
  * The injected validator enforces the configured workspace root and resolves
- * symlinks before the File Tree service exposes or mutates paths.
+ * symlinks before the File Tree service creates a workspace folder. Browsing
+ * and reading are not limited by it: they reach whatever the server process
+ * may read.
  */
 export type FileTreeWorkspaceGateway = {
   rootPath: string;
@@ -1436,13 +1439,6 @@ export type FileTreeWorkspaceGateway = {
    */
   homePath: string;
   validatePath(candidatePath: string): Promise<WorkspacePathValidationResult>;
-  /**
-   * Resolves a path readable outside the workspace root — the system temp
-   * directory and the Claude projects directory — or `null` when it is not
-   * one. Read-only: the write policy is `validatePath` and it does not consult
-   * this.
-   */
-  resolveReadOnlyRootPath(candidatePath: string): Promise<string | null>;
 };
 
 /**
@@ -1502,22 +1498,29 @@ export type FileTreeServices = {
   openFile(projectId: string, filePath: string): Promise<{ contentType: string; stream: Readable }>;
   /**
    * The first of `candidates` that is a file the viewer may read, as an
-   * absolute path. When none is, `blockedPath` names the first one that exists
-   * but lies outside the project and the read-only roots, so the client can say
+   * absolute path. When none is, `directoryPath` names the first one that is a
+   * folder, which the client opens in the file tree, and `deniedPath` the first
+   * one that exists but the server process may not read, so the client can say
    * why it will not open instead of showing an empty editor.
    */
   resolveFileReference(projectId: string, candidates: string[]): Promise<{
     path: string | null;
-    blockedPath: string | null;
+    directoryPath: string | null;
+    deniedPath: string | null;
   }>;
   saveTextFile(projectId: string, filePath: string, content: string): Promise<{
     success: true;
     path: string;
     message: string;
   }>;
+  /**
+   * The project's tree, or with `rootPath` the tree of any folder the server
+   * process may read — `~/` and project-relative paths included — for the
+   * file tree's read-only view of a folder outside the project.
+   */
   listProjectFiles(
     projectId: string,
-    options?: { respectGitignore: boolean },
+    options?: { respectGitignore: boolean; rootPath?: string },
   ): Promise<FileTreeNode[]>;
   createEntry(input: {
     projectId: string;

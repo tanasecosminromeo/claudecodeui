@@ -1,3 +1,4 @@
+import { constants as fileSystemConstants } from 'node:fs';
 import path from 'node:path';
 
 import ignore from 'ignore';
@@ -151,17 +152,40 @@ function createConcurrencyLimiter(maximumConcurrency: number) {
   return { acquire, release };
 }
 
+type MappedFileSystemError = { message: string; statusCode: number; code?: string };
+
 function mapFileSystemError(
   error: unknown,
-  messages: Partial<Record<string, { message: string; statusCode: number }>>,
+  messages: Partial<Record<string, MappedFileSystemError>>,
 ): never {
   const errorCode = readErrorCode(error);
   const mappedError = errorCode ? messages[errorCode] : undefined;
   if (mappedError) {
-    throw createFileTreeError(mappedError.message, mappedError.statusCode, errorCode ?? 'FILE_TREE_ERROR');
+    throw createFileTreeError(
+      mappedError.message,
+      mappedError.statusCode,
+      mappedError.code ?? errorCode ?? 'FILE_TREE_ERROR',
+    );
   }
 
   throw error;
+}
+
+// What a read outside the project can run into. The OS is the only gate there,
+// so a refusal is reported as one: the client says "no permission to read"
+// rather than "not found", which would send the user looking for a typo.
+const PERMISSION_DENIED: MappedFileSystemError = { message: 'Permission denied', statusCode: 403, code: 'PERMISSION_DENIED' };
+const FILE_NOT_FOUND: MappedFileSystemError = { message: 'File not found', statusCode: 404, code: 'FILE_NOT_FOUND' };
+const READ_ERRORS: Partial<Record<string, MappedFileSystemError>> = {
+  ENOENT: FILE_NOT_FOUND,
+  ENOTDIR: FILE_NOT_FOUND,
+  EACCES: PERMISSION_DENIED,
+  EPERM: PERMISSION_DENIED,
+};
+
+function isPermissionError(error: unknown): boolean {
+  const errorCode = readErrorCode(error);
+  return errorCode === 'EACCES' || errorCode === 'EPERM';
 }
 
 function createGitignoreEntryFilter(
@@ -325,60 +349,35 @@ export function createFileTreeService(dependencies: FileTreeServiceDependencies)
   }
 
   /**
-   * Resolves a directory the browser may list.
+   * Resolves a path the viewer may read: an absolute one as given, `~/…` in
+   * the home directory, anything else against the project root, `..` included.
    *
-   * The read-only roots (the system temp directory and the Claude projects
-   * directory, see `READ_ONLY_ROOTS` in shared/utils) are browsable but never
-   * writable, so they are checked before the workspace policy rejects them.
-   * `createWorkspaceFolder` deliberately does not do this, which is what keeps
-   * them read-only.
+   * There is no allow-list: whatever the server process may read can be
+   * viewed, and the OS answers for what it may not. Reading is all this grants.
+   * The writing endpoints resolve with `resolvePathInsideProject` alone, so
+   * nothing outside the project can be changed through the file API.
    */
-  async function resolveBrowsablePath(targetPath: string): Promise<string> {
-    const readOnlyPath = await dependencies.workspace.resolveReadOnlyRootPath(targetPath);
-    if (readOnlyPath) {
-      return readOnlyPath;
-    }
-
-    const validation = await dependencies.workspace.validatePath(targetPath);
-    if (!validation.valid) {
-      throw createFileTreeError(validation.error ?? 'Path is outside the workspace root', 403, 'INVALID_WORKSPACE_PATH');
-    }
-
-    return validation.resolvedPath || targetPath;
+  function resolveReadablePath(projectRoot: string, requestedPath: string): string {
+    return path.resolve(projectRoot, expandHomePath(dependencies.workspace.homePath, requestedPath));
   }
 
   /**
-   * Resolves a path the viewer is allowed to read.
-   *
-   * A file reference in a transcript is normally inside the project, but a
-   * background command's log lives in the system temp directory and a
-   * background agent's output file is a link from there into the Claude
-   * projects directory, and the transcript quotes those paths verbatim. Those
-   * resolve through the read-only root policy instead of the project root; the
-   * writing endpoints keep using `resolvePathInsideProject` alone, so nothing
-   * outside the project can be changed.
+   * Checks that `directoryPath` is a folder the server process may list, with
+   * the same not-found / permission split as a file read.
    */
-  async function resolveReadablePath(projectRoot: string, requestedPath: string): Promise<string> {
-    const targetPath = expandHomePath(dependencies.workspace.homePath, requestedPath);
-    if (path.isAbsolute(targetPath)) {
-      const readOnlyPath = await dependencies.workspace.resolveReadOnlyRootPath(targetPath);
-      if (readOnlyPath) {
-        return readOnlyPath;
-      }
-      return resolvePathInsideProject(projectRoot, targetPath);
-    }
-
+  async function assertReadableDirectory(directoryPath: string, notFoundCode: string): Promise<void> {
     try {
-      return resolvePathInsideProject(projectRoot, targetPath);
-    } catch (error) {
-      // A relative reference can climb out of the project too, e.g. a report an
-      // agent wrote to `../_play/report.html`; anchored at the project root it
-      // gets the same read-only root check as an absolute one.
-      const readOnlyPath = await dependencies.workspace.resolveReadOnlyRootPath(path.resolve(projectRoot, targetPath));
-      if (readOnlyPath) {
-        return readOnlyPath;
+      await fileSystem.access(directoryPath, fileSystemConstants.R_OK);
+      const stats = await fileSystem.stat(directoryPath);
+      if (!stats.isDirectory()) {
+        throw createFileTreeError('Path is not a directory', 400, 'NOT_A_DIRECTORY');
       }
-      throw error;
+    } catch (error) {
+      if (error instanceof AppError) throw error;
+      if (isPermissionError(error)) {
+        throw createFileTreeError('Permission denied', 403, 'PERMISSION_DENIED');
+      }
+      throw createFileTreeError('Directory not accessible', 404, notFoundCode);
     }
   }
 
@@ -397,19 +396,11 @@ export function createFileTreeService(dependencies: FileTreeServiceDependencies)
       const requestedPath = inputPath
         ? expandWorkspacePath(dependencies.workspace.rootPath, inputPath)
         : dependencies.workspace.rootPath;
-      const targetPath = path.resolve(requestedPath);
-      const resolvedPath = await resolveBrowsablePath(targetPath);
-
-      try {
-        await fileSystem.access(resolvedPath);
-        const stats = await fileSystem.stat(resolvedPath);
-        if (!stats.isDirectory()) {
-          throw createFileTreeError('Path is not a directory', 400, 'NOT_A_DIRECTORY');
-        }
-      } catch (error) {
-        if (error instanceof AppError) throw error;
-        throw createFileTreeError('Directory not accessible', 404, 'DIRECTORY_NOT_ACCESSIBLE');
-      }
+      // Browsing only lists folder names, so like every read it reaches any
+      // folder the server process may read; creating one is still held to the
+      // workspace root by `createWorkspaceFolder`.
+      const resolvedPath = path.resolve(requestedPath);
+      await assertReadableDirectory(resolvedPath, 'DIRECTORY_NOT_ACCESSIBLE');
 
       const fileTree = await buildFileTree(resolvedPath, 1);
       const directories = fileTree
@@ -475,14 +466,13 @@ export function createFileTreeService(dependencies: FileTreeServiceDependencies)
 
     async readTextFile(projectId, filePath) {
       const projectRoot = await resolveProjectRoot(projectId);
-      const resolvedPath = await resolveReadablePath(projectRoot, filePath);
+      const resolvedPath = resolveReadablePath(projectRoot, filePath);
       try {
         const content = await fileSystem.readTextFile(resolvedPath);
         return { content, path: resolvedPath };
       } catch (error) {
         mapFileSystemError(error, {
-          ENOENT: { message: 'File not found', statusCode: 404 },
-          EACCES: { message: 'Permission denied', statusCode: 403 },
+          ...READ_ERRORS,
           EISDIR: { message: 'Path is a directory, not a file', statusCode: 400 },
         });
       }
@@ -490,11 +480,13 @@ export function createFileTreeService(dependencies: FileTreeServiceDependencies)
 
     async openFile(projectId, filePath) {
       const projectRoot = await resolveProjectRoot(projectId);
-      const resolvedPath = await resolveReadablePath(projectRoot, filePath);
+      const resolvedPath = resolveReadablePath(projectRoot, filePath);
       try {
-        await fileSystem.access(resolvedPath);
-      } catch {
-        throw createFileTreeError('File not found', 404, 'FILE_NOT_FOUND');
+        // Checked for reading, not mere existence: the stream would otherwise
+        // fail only after the response headers had gone out.
+        await fileSystem.access(resolvedPath, fileSystemConstants.R_OK);
+      } catch (error) {
+        mapFileSystemError(error, READ_ERRORS);
       }
 
       return {
@@ -505,44 +497,33 @@ export function createFileTreeService(dependencies: FileTreeServiceDependencies)
 
     async resolveFileReference(projectId, candidates) {
       const projectRoot = await resolveProjectRoot(projectId);
-      let blockedPath: string | null = null;
+      let directoryPath: string | null = null;
+      let deniedPath: string | null = null;
 
       for (const candidate of candidates) {
         if (typeof candidate !== 'string' || !candidate.trim()) {
           continue;
         }
 
-        let readablePath: string;
-        try {
-          readablePath = await resolveReadablePath(projectRoot, candidate);
-        } catch {
-          // Outside every readable root. Still worth knowing whether it exists:
-          // "not found" and "found but not allowed" call for different fixes.
-          if (blockedPath === null) {
-            const outsidePath = path.resolve(projectRoot, expandHomePath(dependencies.workspace.homePath, candidate));
-            try {
-              const stats = await fileSystem.stat(outsidePath);
-              if (!stats.isDirectory()) {
-                blockedPath = outsidePath;
-              }
-            } catch {
-              // Missing: nothing to report for this candidate.
-            }
-          }
-          continue;
-        }
-
+        const readablePath = resolveReadablePath(projectRoot, candidate);
         try {
           const stats = await fileSystem.stat(readablePath);
-          if (!stats.isDirectory()) {
-            return { path: readablePath, blockedPath: null };
+          if (stats.isDirectory()) {
+            directoryPath ??= readablePath;
+            continue;
           }
-        } catch {
-          // Missing: try the next candidate.
+          await fileSystem.access(readablePath, fileSystemConstants.R_OK);
+          return { path: readablePath, directoryPath: null, deniedPath: null };
+        } catch (error) {
+          // "Not found" and "found but not readable" call for different fixes,
+          // so the first refusal is kept to explain itself if nothing opens.
+          if (isPermissionError(error)) {
+            deniedPath ??= readablePath;
+          }
         }
       }
 
-      return { path: null, blockedPath };
+      return { path: null, directoryPath, deniedPath };
     },
 
     async saveTextFile(projectId, filePath, content) {
@@ -562,25 +543,33 @@ export function createFileTreeService(dependencies: FileTreeServiceDependencies)
 
     async listProjectFiles(projectId, options) {
       const projectRoot = await resolveProjectRoot(projectId);
-      try {
-        await fileSystem.access(projectRoot);
-      } catch {
-        throw createFileTreeError(`Project path not found: ${projectRoot}`, 404, 'PROJECT_PATH_NOT_FOUND');
+      let treeRoot = projectRoot;
+      if (options?.rootPath) {
+        // A folder a chat message named outside the project, listed read-only:
+        // the same walk, filters and entry cap as the project's own tree.
+        treeRoot = resolveReadablePath(projectRoot, options.rootPath);
+        await assertReadableDirectory(treeRoot, 'DIRECTORY_NOT_FOUND');
+      } else {
+        try {
+          await fileSystem.access(projectRoot);
+        } catch {
+          throw createFileTreeError(`Project path not found: ${projectRoot}`, 404, 'PROJECT_PATH_NOT_FOUND');
+        }
       }
 
       let includeEntry: FileTreeEntryFilter | undefined;
       if (options?.respectGitignore) {
         try {
-          const gitignoreContent = await fileSystem.readTextFile(path.join(projectRoot, '.gitignore'));
-          includeEntry = createGitignoreEntryFilter(projectRoot, gitignoreContent);
+          const gitignoreContent = await fileSystem.readTextFile(path.join(treeRoot, '.gitignore'));
+          includeEntry = createGitignoreEntryFilter(treeRoot, gitignoreContent);
         } catch (error) {
           if (readErrorCode(error) !== 'ENOENT') {
-            dependencies.logger.error(`Error reading .gitignore in "${projectRoot}"`, error);
+            dependencies.logger.error(`Error reading .gitignore in "${treeRoot}"`, error);
           }
         }
       }
 
-      return buildFileTree(projectRoot, 10, 0, includeEntry);
+      return buildFileTree(treeRoot, 10, 0, includeEntry);
     },
 
     async createEntry(input) {
