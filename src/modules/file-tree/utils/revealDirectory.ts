@@ -50,3 +50,41 @@ export function directoryRevealPaths(
 
   return paths;
 }
+
+// Folds `.` and `..` segments; `..` never climbs above the first segment, which
+// for an absolute path is the empty string before its leading `/`.
+const collapseDotSegments = (value: string): string => {
+  const segments: string[] = [];
+  for (const segment of value.split('/')) {
+    if (segment === '.' || (segment === '' && segments.length > 0)) {
+      continue;
+    }
+    if (segment === '..') {
+      if (segments.length > 1) {
+        segments.pop();
+      }
+      continue;
+    }
+    segments.push(segment);
+  }
+  return segments.join('/') || '/';
+};
+
+/**
+ * The folder to show read-only when `reference` lies outside the project, or
+ * `null` when it is inside it and is revealed in the project's own tree.
+ *
+ * A relative reference is placed against the project root, so `../other/` is
+ * outside. A `~/` one is passed on as written: only the server knows whose
+ * home that is, and it expands it when listing.
+ */
+export function outsideProjectDirectory(projectPath: string, reference: string): string | null {
+  const target = reference.replace(/\\/g, '/').replace(/\/+$/, '');
+  if (target === '~' || target.startsWith('~/')) {
+    return target;
+  }
+
+  const root = normalizePath(projectPath);
+  const absolute = collapseDotSegments(isAbsolutePath(target) ? target : `${root}/${target}`);
+  return absolute === root || absolute.startsWith(`${root}/`) ? null : absolute;
+}

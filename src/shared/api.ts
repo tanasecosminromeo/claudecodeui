@@ -310,11 +310,16 @@ export const api = {
   saveFile: (projectId: string, filePath: string, content: string) =>
     put(`/api/file-tree/projects/${projectId}/file`, { filePath, content }),
   // Which of several guesses at a chat file reference is a file the viewer
-  // may read: `{ path, blockedPath }`, see the server's resolveFileReference.
+  // may read: `{ path, directoryPath, deniedPath }`, see the server's
+  // resolveFileReference.
   resolveFile: (projectId: string, candidates: string[]) =>
     post(`/api/file-tree/projects/${projectId}/files/resolve`, { candidates }),
   getFiles: (projectId: string, options: ApiRequestOptions = {}) =>
     get(`/api/file-tree/projects/${projectId}/files${query({ respectGitignore: true })}`, options),
+  // The tree of a folder outside the project, for the file tree's read-only
+  // view; `rootPath` may be absolute, `~/…` or relative to the project.
+  getFolderFiles: (projectId: string, rootPath: string, options: ApiRequestOptions = {}) =>
+    get(`/api/file-tree/projects/${projectId}/files${query({ respectGitignore: true, root: rootPath })}`, options),
 
   // File operations
   createFile: (

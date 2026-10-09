@@ -1,7 +1,7 @@
 import { useCallback, useState, useEffect, useRef } from 'react';
 import type { ChangeEvent } from 'react';
 import { useTranslation } from 'react-i18next';
-import { AlertTriangle, Check, X, Loader2, Folder, Upload } from 'lucide-react';
+import { AlertTriangle, Check, X, Loader2, Folder, Lock, Upload } from 'lucide-react';
 
 import { cn } from '@/shared/utils';
 import { ICON_SIZE_CLASS, getFileIconData } from '@/modules/file-tree/utils/fileIcons';
@@ -13,7 +13,7 @@ import { useFileTreeViewMode } from '@/modules/file-tree/hooks/useFileTreeViewMo
 import { useFileTreeUpload } from '@/modules/file-tree/hooks/useFileTreeUpload';
 import type { DirectoryRevealRequest, FileTreeImageSelection, FileTreeNode,Project } from '@/shared/types';
 import { formatFileSize, formatRelativeTime, isImageFile } from '@/modules/file-tree/utils/fileTreeUtils';
-import { directoryRevealPaths } from '@/modules/file-tree/utils/revealDirectory';
+import { directoryRevealPaths, outsideProjectDirectory } from '@/modules/file-tree/utils/revealDirectory';
 import { ScrollArea, Input } from '@/shared/ui';
 import FileTreeBody from '@/modules/file-tree/FileTreeBody';
 import FileTreeDetailedColumns from '@/modules/file-tree/FileTreeDetailedColumns';
@@ -27,7 +27,8 @@ type FileTreeProps = {
   selectedProject: Project | null;
   onFileOpen?: (filePath: string) => void;
   // Directory to reveal (from an in-chat `path/` reference): its ancestors are
-  // expanded so the folder is visible without hunting through the tree.
+  // expanded so the folder is visible without hunting through the tree. One
+  // outside the project replaces the tree with that folder's, read-only.
   revealDirectory?: DirectoryRevealRequest | null;
 };
 
@@ -52,7 +53,24 @@ export default function FileTree({ selectedProject, onFileOpen, revealDirectory 
     }
   }, [toast]);
 
-  const { files, loading, error, refreshFiles } = useFileTreeData(selectedProject);
+  const projectRoot = selectedProject?.path || selectedProject?.fullPath;
+  const projectId = selectedProject?.projectId;
+
+  // A folder outside the project a chat message pointed at, shown read-only in
+  // place of the project's tree. Tied to the project it was opened from, so
+  // switching projects returns to that project's own tree.
+  const [outsideRoot, setOutsideRoot] = useState<{ projectId?: string; path: string } | null>(null);
+  const readOnlyRoot = outsideRoot && outsideRoot.projectId === projectId ? outsideRoot.path : null;
+
+  useEffect(() => {
+    if (!revealDirectory || !projectRoot) {
+      return;
+    }
+    const outsidePath = outsideProjectDirectory(projectRoot, revealDirectory.path);
+    setOutsideRoot(outsidePath ? { projectId, path: outsidePath } : null);
+  }, [revealDirectory, projectRoot, projectId]);
+
+  const { files, filesRootPath, loading, error, refreshFiles } = useFileTreeData(selectedProject, readOnlyRoot);
   const { viewMode, changeViewMode } = useFileTreeViewMode();
   const { expandedDirs, toggleDirectory, expandDirectories, collapseAll } = useExpandedDirectories();
   const { searchQuery, setSearchQuery, filteredFiles } = useFileTreeSearch({
@@ -68,8 +86,10 @@ export default function FileTree({ selectedProject, onFileOpen, revealDirectory 
   // A request that arrives before the tree finds nothing to expand and is
   // retried when `files` lands.
   useEffect(() => {
-    const projectRoot = selectedProject?.path || selectedProject?.fullPath;
-    if (!revealDirectory || !projectRoot || revealedRef.current === revealDirectory) {
+    // Only the project's own tree holds the folder; an outside tree still on
+    // screen could hold a same-named one.
+    if (!revealDirectory || !projectRoot || readOnlyRoot || filesRootPath !== null
+      || revealedRef.current === revealDirectory) {
       return;
     }
     const paths = directoryRevealPaths(files, projectRoot, revealDirectory.path);
@@ -78,7 +98,7 @@ export default function FileTree({ selectedProject, onFileOpen, revealDirectory 
     }
     revealedRef.current = revealDirectory;
     expandDirectories(paths);
-  }, [revealDirectory, selectedProject?.path, selectedProject?.fullPath, expandDirectories, files]);
+  }, [revealDirectory, projectRoot, readOnlyRoot, filesRootPath, expandDirectories, files]);
 
   // File operations
   const operations = useFileTreeOperations({
@@ -177,10 +197,12 @@ export default function FileTree({ selectedProject, onFileOpen, revealDirectory 
     <div
       ref={treeRef}
       className="relative flex h-full flex-col bg-background"
-      onDragEnter={upload.handleDragEnter}
-      onDragOver={upload.handleDragOver}
-      onDragLeave={upload.handleDragLeave}
-      onDrop={upload.handleDrop}
+      // Nothing outside the project can be written, so nothing is offered:
+      // no drop target, no create, upload, rename or delete.
+      onDragEnter={readOnlyRoot ? undefined : upload.handleDragEnter}
+      onDragOver={readOnlyRoot ? undefined : upload.handleDragOver}
+      onDragLeave={readOnlyRoot ? undefined : upload.handleDragLeave}
+      onDrop={readOnlyRoot ? undefined : upload.handleDrop}
     >
       {/* Hidden input for folder-targeted uploads (context menu / hover button) */}
       <input
@@ -214,9 +236,9 @@ export default function FileTree({ selectedProject, onFileOpen, revealDirectory 
         onViewModeChange={changeViewMode}
         searchQuery={searchQuery}
         onSearchQueryChange={setSearchQuery}
-        onUploadFiles={upload.handleFileSelect}
-        onNewFile={() => operations.handleStartCreate('', 'file')}
-        onNewFolder={() => operations.handleStartCreate('', 'directory')}
+        onUploadFiles={readOnlyRoot ? undefined : upload.handleFileSelect}
+        onNewFile={readOnlyRoot ? undefined : () => operations.handleStartCreate('', 'file')}
+        onNewFolder={readOnlyRoot ? undefined : () => operations.handleStartCreate('', 'directory')}
         onRefresh={refreshFiles}
         onCollapseAll={collapseAll}
         loading={loading}
@@ -224,6 +246,24 @@ export default function FileTree({ selectedProject, onFileOpen, revealDirectory 
         isUploading={upload.uploadProgress?.status === 'uploading'}
         uploadProgress={upload.uploadProgress?.progress ?? null}
       />
+
+      {readOnlyRoot && (
+        <div
+          data-testid="file-tree-read-only-root"
+          className="flex items-center gap-2 border-b border-border bg-muted/40 px-3 py-1.5 text-xs"
+        >
+          <Lock className="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground" aria-hidden="true" />
+          <span className="min-w-0 flex-1 truncate font-mono" title={readOnlyRoot}>{readOnlyRoot}</span>
+          <span className="flex-shrink-0 text-muted-foreground">{t('fileTree.readOnly', 'Read-only')}</span>
+          <button
+            type="button"
+            className="flex-shrink-0 rounded px-1.5 py-0.5 text-primary hover:bg-accent"
+            onClick={() => setOutsideRoot(null)}
+          >
+            {t('fileTree.backToProject', 'Back to project')}
+          </button>
+        </div>
+      )}
 
       <FileTreeUploadProgress upload={upload.uploadProgress} />
 
@@ -273,16 +313,16 @@ export default function FileTree({ selectedProject, onFileOpen, revealDirectory 
           renderFileIcon={renderFileIcon}
           formatFileSize={formatFileSize}
           formatRelativeTime={formatRelativeTimeLabel}
-          onRename={operations.handleStartRename}
-          onDelete={operations.handleStartDelete}
-          onNewFile={(path) => operations.handleStartCreate(path, 'file')}
-          onNewFolder={(path) => operations.handleStartCreate(path, 'directory')}
+          onRename={readOnlyRoot ? undefined : operations.handleStartRename}
+          onDelete={readOnlyRoot ? undefined : operations.handleStartDelete}
+          onNewFile={readOnlyRoot ? undefined : (path) => operations.handleStartCreate(path, 'file')}
+          onNewFolder={readOnlyRoot ? undefined : (path) => operations.handleStartCreate(path, 'directory')}
           onCopyPath={operations.handleCopyPath}
           onDownload={operations.handleDownload}
-          onUpload={handleUploadToFolder}
+          onUpload={readOnlyRoot ? undefined : handleUploadToFolder}
           onRefresh={refreshFiles}
-          dropTarget={upload.dropTarget}
-          onItemDragOver={upload.handleItemDragOver}
+          dropTarget={readOnlyRoot ? null : upload.dropTarget}
+          onItemDragOver={readOnlyRoot ? undefined : upload.handleItemDragOver}
           // Pass rename state and handlers for inline editing
           renamingItem={operations.renamingItem}
           renameValue={operations.renameValue}

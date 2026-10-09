@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 
 import { test } from 'vitest';
 
-import { directoryRevealPaths } from '@/modules/file-tree/utils/revealDirectory';
+import { directoryRevealPaths, outsideProjectDirectory } from '@/modules/file-tree/utils/revealDirectory';
 import type { FileTreeNode } from '@/shared/types';
 
 /**
@@ -87,4 +87,17 @@ test('windows separators and a ./ prefix are levelled before matching', () => {
   assert.deepEqual(directoryRevealPaths(windowsFiles, windowsRoot, 'C:\\Users\\odoo\\personal\\src'), [
     'C:\\Users\\odoo\\personal\\src',
   ]);
+});
+
+test('a folder outside the project is named for the read-only view; one inside is not', () => {
+  assert.equal(outsideProjectDirectory(ROOT, '/etc/ssl/'), '/etc/ssl');
+  assert.equal(outsideProjectDirectory(ROOT, `${ROOT}-backup/src`), `${ROOT}-backup/src`);
+  assert.equal(outsideProjectDirectory(ROOT, '../other/reports/'), ROOT.replace(/personal$/, 'other/reports'));
+  // `~` is the server's home, which only the server can expand.
+  assert.equal(outsideProjectDirectory(ROOT, '~/Work/x/.claude/worktrees/foo'), '~/Work/x/.claude/worktrees/foo');
+
+  assert.equal(outsideProjectDirectory(ROOT, 'decisions/'), null);
+  assert.equal(outsideProjectDirectory(ROOT, './src/../src/modules'), null);
+  assert.equal(outsideProjectDirectory(ROOT, `${ROOT}/src/modules`), null);
+  assert.equal(outsideProjectDirectory(ROOT, ROOT), null);
 });

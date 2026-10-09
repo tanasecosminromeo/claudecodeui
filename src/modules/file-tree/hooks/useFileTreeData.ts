@@ -5,6 +5,9 @@ import type { Project,FileTreeNode } from '@/shared/types';
 
 type UseFileTreeDataResult = {
   files: FileTreeNode[];
+  // The `rootPath` that `files` was loaded for (`null`: the project), so a
+  // caller can tell a tree still on screen from the one it asked for.
+  filesRootPath: string | null;
   loading: boolean;
   error: string | null;
   refreshFiles: () => void;
@@ -27,8 +30,13 @@ function readResponseErrorMessage(responseBody: string): string | null {
   }
 }
 
-export function useFileTreeData(selectedProject: Project | null): UseFileTreeDataResult {
+/**
+ * The project's file tree, or with `rootPath` the tree of a folder outside the
+ * project that a chat message pointed at.
+ */
+export function useFileTreeData(selectedProject: Project | null, rootPath: string | null = null): UseFileTreeDataResult {
   const [files, setFiles] = useState<FileTreeNode[]>([]);
+  const [filesRootPath, setFilesRootPath] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
@@ -65,7 +73,10 @@ export function useFileTreeData(selectedProject: Project | null): UseFileTreeDat
         setError(null);
       }
       try {
-        const response = await api.getFiles(projectId, { signal: abortControllerRef.current!.signal });
+        const signal = abortControllerRef.current!.signal;
+        const response = rootPath
+          ? await api.getFolderFiles(projectId, rootPath, { signal })
+          : await api.getFiles(projectId, { signal });
 
         if (!response.ok) {
           const errorText = await response.text();
@@ -80,6 +91,7 @@ export function useFileTreeData(selectedProject: Project | null): UseFileTreeDat
         const data = (await response.json()) as FileTreeNode[];
         if (isActive) {
           setFiles(data);
+          setFilesRootPath(rootPath);
         }
       } catch (error) {
         if ((error as { name?: string }).name === 'AbortError') {
@@ -104,10 +116,11 @@ export function useFileTreeData(selectedProject: Project | null): UseFileTreeDat
       isActive = false;
       abortControllerRef.current?.abort();
     };
-  }, [selectedProject?.projectId, refreshKey]);
+  }, [selectedProject?.projectId, rootPath, refreshKey]);
 
   return {
     files,
+    filesRootPath,
     loading,
     error,
     refreshFiles,
