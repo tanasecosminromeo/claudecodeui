@@ -12,6 +12,7 @@ import { MarkdownImage } from '@/modules/chat/transcript/MarkdownImage';
 import { normalizeInlineCodeFences } from '@/modules/chat/utils/chatFormatting';
 import { extractPathHints } from '@/modules/chat/utils/pathHints';
 import { normalizeLatexDelimiters } from '@/modules/chat/utils/latexDelimiters';
+import remarkFileReferences from '@/modules/chat/utils/remarkFileReferences';
 import { copyTextToClipboard } from '@/shared/utils';
 import { SyntaxHighlighter } from '@/shared/syntaxHighlighter';
 import { usePaletteOps } from '@/modules/command-palette';
@@ -276,6 +277,8 @@ function MarkdownBodyRenderer({ children, breaks = false }: Omit<MarkdownProps, 
       if (hasMath) {
         plugins.push([remarkMath, { singleDollarTextMath: false }]);
       }
+      // After GFM, so its autolinked URLs are links already and left alone.
+      plugins.push(remarkFileReferences);
       if (breaks) {
         plugins.push(remarkBreaks);
       }
@@ -293,17 +296,28 @@ function MarkdownBodyRenderer({ children, breaks = false }: Omit<MarkdownProps, 
   const components = useMemo(
     () => ({
       ...markdownComponents,
-      a: ({ href, children: linkChildren }: { href?: string; children?: React.ReactNode }) => {
-        // Prefer the href when it is a real path; otherwise fall back to the
-        // link text, since models often emit `[src/foo.ts]()` with an empty href.
+      a: ({ href, node, children: linkChildren }: {
+        href?: string;
+        node?: { properties?: Record<string, unknown> };
+        children?: React.ReactNode;
+      }) => {
+        // A path remarkFileReferences found in inline code or plain text
+        // arrives as written, before the href was percent-encoded. Otherwise
+        // prefer the href when it is a real path, and fall back to the link
+        // text, since models often emit `[src/foo.ts]()` with an empty href.
+        const detectedRef = node?.properties?.dataFileRef;
         const linkText = childrenToText(linkChildren);
-        const fileRef = looksLikeFilePath(href) ? href : looksLikeFilePath(linkText) ? linkText : undefined;
+        const fileRef = typeof detectedRef === 'string'
+          ? detectedRef
+          : looksLikeFilePath(href) ? href : looksLikeFilePath(linkText) ? linkText : undefined;
 
         if (fileRef && !isExternalHref(href)) {
           return (
             <a
               href={href || fileRef}
-              className="cursor-pointer text-blue-600 hover:underline dark:text-blue-400"
+              data-file-ref={typeof detectedRef === 'string' ? detectedRef : undefined}
+              // A path in inline code keeps its code look and takes the link colour.
+              className="cursor-pointer text-blue-600 hover:underline dark:text-blue-400 [&>code]:text-inherit"
               onClick={(event) => {
                 event.preventDefault();
                 // Normalized once for every branch below: the href arrives

@@ -59,3 +59,45 @@ test('a link carries the absolute paths its message mentions, to look for it the
     ['~/play/2026-10-04/files/', '/var/log/app.log'],
   ]);
 });
+
+test('a path in inline code is a link that keeps its code look', () => {
+  clickReference('The file is `/srv/u/projects/x/notes.md:12`.', '/srv/u/projects/x/notes.md:12');
+  assert.deepEqual(openFileInEditor.mock.calls[0], ['/srv/u/projects/x/notes.md', 12, ['/srv/u/projects/x/notes.md:12']]);
+  const code = screen.getByText('/srv/u/projects/x/notes.md:12');
+  assert.equal(code.tagName, 'CODE');
+  assert.equal(code.closest('a')?.getAttribute('data-file-ref'), '/srv/u/projects/x/notes.md:12');
+});
+
+test('a path in plain text is a link, without the sentence punctuation after it', () => {
+  clickReference('Saved the report to ~/play/report.html. Open it.', '~/play/report.html');
+  assert.deepEqual(openFileInEditor.mock.calls[0], ['~/play/report.html', null, ['~/play/report.html']]);
+});
+
+test('a folder in inline code goes to the file tree', () => {
+  clickReference('Everything is under `src/modules/`.', 'src/modules/');
+  assert.equal(openFileInEditor.mock.calls.length, 0);
+  assert.deepEqual(openDirectory.mock.calls[0], ['src/modules/']);
+});
+
+test('a folder without a trailing slash still goes through the resolver, which knows it is one', () => {
+  clickReference('The worktree is `/srv/u/projects/x/.claude/worktrees/foo`.', '/srv/u/projects/x/.claude/worktrees/foo');
+  assert.deepEqual(openFileInEditor.mock.calls[0][0], '/srv/u/projects/x/.claude/worktrees/foo');
+});
+
+test('paths in fenced code, URLs and commands are left alone', () => {
+  render(
+    <Markdown>
+      {'```\ncat /etc/hosts\n```\n\nRun `/compact`, read https://example.com/a/b.html and `npm run build`.'}
+    </Markdown>,
+  );
+  assert.equal(screen.getByText(/cat \/etc\/hosts/).closest('a'), null);
+  assert.equal(screen.getByText('/compact').closest('a'), null);
+  assert.equal(screen.getByText('npm run build').closest('a'), null);
+  assert.equal(screen.getByText('https://example.com/a/b.html').closest('a')?.getAttribute('target'), '_blank');
+});
+
+test('a markdown link around a path is not linked twice', () => {
+  render(<Markdown>{'See [`src/foo.ts`](src/foo.ts) and [the docs](docs/README.md).'}</Markdown>);
+  assert.equal(document.querySelectorAll('a a').length, 0);
+  assert.equal(screen.getByText('src/foo.ts').closest('a')?.getAttribute('href'), 'src/foo.ts');
+});
