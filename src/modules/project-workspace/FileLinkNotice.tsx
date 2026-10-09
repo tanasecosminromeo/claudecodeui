@@ -15,8 +15,9 @@ type FileLinkNoticeProps = {
 
 /**
  * Rendered by WorkspaceMain when a file link in chat names no readable file,
- * in place of an editor that would only say "File not found". A file that
- * exists outside the project gets the setting that would make it readable.
+ * in place of an editor that would only say "File not found". Any file the
+ * server process may read opens, so what is left is a missing file or one the
+ * OS refuses, and the notice says which.
  *
  * Placed like QuickArchiveNotices: bottom-right on desktop, above the composer
  * on phones.
@@ -36,7 +37,7 @@ export default function FileLinkNotice({ notice, onDismiss }: FileLinkNoticeProp
     return null;
   }
 
-  const shownPath = notice.blockedPath ?? notice.reference;
+  const shownPath = notice.deniedPath ?? notice.reference;
 
   return createPortal(
     <div
@@ -51,18 +52,18 @@ export default function FileLinkNotice({ notice, onDismiss }: FileLinkNoticeProp
         <FileX className="mt-0.5 h-4 w-4 flex-shrink-0 text-muted-foreground" aria-hidden="true" />
         <div className="min-w-0 flex-1">
           <div className="font-medium">
-            {notice.blockedPath
-              ? t('fileLink.outsideRoots', 'This file is outside the project')
+            {notice.deniedPath
+              ? t('fileLink.permissionDenied', 'No permission to read this file')
               : t('fileLink.notFound', 'File not found')}
           </div>
           <div className="break-all font-mono text-xs text-muted-foreground" title={shownPath}>
             {shownPath}
           </div>
           <div className="mt-1 text-xs text-muted-foreground">
-            {notice.blockedPath
+            {notice.deniedPath
               ? t(
-                  'fileLink.outsideRootsHint',
-                  'Add its folder to CLOUDCLI_READ_ONLY_ROOTS on the server to open files there.',
+                  'fileLink.permissionDeniedHint',
+                  'The user CloudCLI runs as cannot read it.',
                 )
               : t(
                   'fileLink.notFoundHint',

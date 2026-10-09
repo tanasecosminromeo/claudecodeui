@@ -28,15 +28,15 @@ type ResolvingFileOpen = (
 ) => void;
 
 /**
- * A reference that names no readable file. `blockedPath` is set when one of
- * the guesses exists but lies outside the project and the read-only roots.
+ * A reference that names no readable file. `deniedPath` is set when one of
+ * the guesses exists but the server process has no permission to read it.
  */
 export type UnresolvedFileReference = {
   reference: string;
-  blockedPath: string | null;
+  deniedPath: string | null;
 };
 
-type ResolveResponse = { path: string | null; blockedPath: string | null };
+type ResolveResponse = { path: string | null; directoryPath?: string | null; deniedPath: string | null };
 
 const normalize = (value: string): string => value.replace(/\\/g, '/');
 
@@ -108,13 +108,15 @@ const findBestMatch = (files: FlatFile[], ref: string): string | null => {
  * Wraps an `onFileOpen` handler so a possibly bare/partial file reference is
  * resolved before the file is opened in the in-app editor: against the
  * project's file tree (cached per project) first, then by asking the server
- * which guess is a readable file. A reference that names none goes to
- * `onUnresolved` rather than opening an editor on a file that is not there.
+ * which guess is a readable file. A reference that names a folder goes to
+ * `onDirectory`, and one that names neither to `onUnresolved` rather than
+ * opening an editor on a file that is not there.
  */
 export function useFileOpenResolver(
   selectedProject: Project | null | undefined,
   onFileOpen: OnFileOpen,
   onUnresolved?: (unresolved: UnresolvedFileReference) => void,
+  onDirectory?: (directoryPath: string) => void,
 ): ResolvingFileOpen {
   const projectId = selectedProject?.projectId;
   const cacheRef = useRef<{ projectId?: string; files: Promise<FlatFile[]> | null }>({
@@ -187,8 +189,10 @@ export function useFileOpenResolver(
         const resolved = await resolveOnServer(buildCandidates(ref, searchHints));
         if (resolved?.path) {
           onFileOpen(resolved.path, diffInfo, line);
+        } else if (resolved?.directoryPath && onDirectory) {
+          onDirectory(resolved.directoryPath);
         } else if (resolved && onUnresolved) {
-          onUnresolved({ reference: ref, blockedPath: resolved.blockedPath });
+          onUnresolved({ reference: ref, deniedPath: resolved.deniedPath });
         } else {
           // No answer from the server (offline, or one without the resolve
           // endpoint): open the reference as given, as before, and let the
@@ -197,6 +201,6 @@ export function useFileOpenResolver(
         }
       })();
     },
-    [loadFiles, onFileOpen, onUnresolved, resolveOnServer],
+    [loadFiles, onDirectory, onFileOpen, onUnresolved, resolveOnServer],
   );
 }

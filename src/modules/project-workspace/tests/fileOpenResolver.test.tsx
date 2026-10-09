@@ -47,10 +47,13 @@ const tree = [
 ];
 
 // Stands in for the server: the first candidate in `readable` wins, else the
-// first in `blocked` is reported. Paths come back expanded, as the server's are.
+// first in `directories`, and the first in `denied` is reported. Paths come
+// back expanded, as the server's are.
+const expand = (candidate?: string) => candidate?.replace(/^~/, '/u/me') ?? null;
 const setup = ({
   readable = [] as string[],
-  blocked = [] as string[],
+  directories = [] as string[],
+  denied = [] as string[],
   resolveStatus = 200,
 } = {}) => {
   getFiles.mockReset();
@@ -59,18 +62,26 @@ const setup = ({
   resolveFile.mockImplementation(async (_projectId: string, candidates: string[]) => ({
     ok: resolveStatus === 200,
     json: async () => ({
-      path: candidates.find((candidate) => readable.includes(candidate))?.replace(/^~/, '/u/me') ?? null,
-      blockedPath: candidates.find((candidate) => blocked.includes(candidate)) ?? null,
+      path: expand(candidates.find((candidate) => readable.includes(candidate))),
+      directoryPath: expand(candidates.find((candidate) => directories.includes(candidate))),
+      deniedPath: expand(candidates.find((candidate) => denied.includes(candidate))),
     }),
   }));
   const onFileOpen = vi.fn();
   const onUnresolved = vi.fn();
-  const { result } = renderHook(() => useFileOpenResolver(project, onFileOpen, onUnresolved));
-  return { resolve: result.current, onFileOpen, onUnresolved };
+  const onDirectory = vi.fn();
+  const { result } = renderHook(() => useFileOpenResolver(project, onFileOpen, onUnresolved, onDirectory));
+  return { resolve: result.current, onFileOpen, onUnresolved, onDirectory };
 };
 
-const settled = async (onFileOpen: ReturnType<typeof vi.fn>, onUnresolved: ReturnType<typeof vi.fn>) =>
-  waitFor(() => assert.equal(onFileOpen.mock.calls.length + onUnresolved.mock.calls.length, 1));
+const settled = async (
+  onFileOpen: ReturnType<typeof vi.fn>,
+  onUnresolved: ReturnType<typeof vi.fn>,
+  onDirectory?: ReturnType<typeof vi.fn>,
+) => waitFor(() => assert.equal(
+  onFileOpen.mock.calls.length + onUnresolved.mock.calls.length + (onDirectory?.mock.calls.length ?? 0),
+  1,
+));
 
 test('an absolute path outside the project opens that path, never a same-named project file', async () => {
   const { resolve, onFileOpen, onUnresolved } = setup({ readable: ['/u/me/.claude/CLAUDE.md'] });
@@ -87,7 +98,7 @@ test('an absolute path that does not exist is reported, not opened', async () =>
   resolve('/u/me/.claude/CLAUDE.md');
   await settled(onFileOpen, onUnresolved);
   assert.equal(onFileOpen.mock.calls.length, 0);
-  assert.deepEqual(onUnresolved.mock.calls[0][0], { reference: '/u/me/.claude/CLAUDE.md', blockedPath: null });
+  assert.deepEqual(onUnresolved.mock.calls[0][0], { reference: '/u/me/.claude/CLAUDE.md', deniedPath: null });
 });
 
 test('an absolute path inside the project resolves to itself, as before', async () => {
@@ -122,12 +133,21 @@ test('a bare name the project lacks is found in a folder its message mentions', 
   ]);
 });
 
-test('a file outside every readable root is reported with its path', async () => {
-  const { resolve, onFileOpen, onUnresolved } = setup({ blocked: ['/srv/play/report.html'] });
+test('a file the server may not read is reported with its path', async () => {
+  const { resolve, onFileOpen, onUnresolved } = setup({ denied: ['/srv/play/report.html'] });
   resolve('report.html', undefined, null, ['/srv/play']);
   await settled(onFileOpen, onUnresolved);
   assert.equal(onFileOpen.mock.calls.length, 0);
-  assert.deepEqual(onUnresolved.mock.calls[0][0], { reference: 'report.html', blockedPath: '/srv/play/report.html' });
+  assert.deepEqual(onUnresolved.mock.calls[0][0], { reference: 'report.html', deniedPath: '/srv/play/report.html' });
+});
+
+test('a reference that names a folder opens it in the file tree', async () => {
+  const { resolve, onFileOpen, onUnresolved, onDirectory } = setup({
+    directories: ['~/Work/x/.claude/worktrees/foo'],
+  });
+  resolve('~/Work/x/.claude/worktrees/foo');
+  await settled(onFileOpen, onUnresolved, onDirectory);
+  assert.deepEqual(onDirectory.mock.calls[0], ['/u/me/Work/x/.claude/worktrees/foo']);
 });
 
 test('with no answer from the server the reference opens as given, as before', async () => {

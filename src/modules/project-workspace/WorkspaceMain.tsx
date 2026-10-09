@@ -96,9 +96,17 @@ function WorkspaceMain({
   const [fileLinkNotice, setFileLinkNotice] = useState<UnresolvedFileReference | null>(null);
   const dismissFileLinkNotice = useCallback(() => setFileLinkNotice(null), []);
 
+  // Directories cannot be read as text: reveal them in the file tree instead,
+  // which shows one outside the project read-only.
+  const openDirectory = useCallback((directoryPath: string) => {
+    setActiveTab('files');
+    setRevealDirectory({ path: directoryPath });
+  }, [setActiveTab]);
+
   // Resolves bare/partial file references (e.g. links inside chat messages) to
-  // real project files before opening them in the in-app editor.
-  const resolvedFileOpen = useFileOpenResolver(selectedProject, handleFileOpen, setFileLinkNotice);
+  // real project files before opening them in the in-app editor; one that
+  // names a folder opens it in the file tree.
+  const resolvedFileOpen = useFileOpenResolver(selectedProject, handleFileOpen, setFileLinkNotice, openDirectory);
 
   useEffect(() => {
     if (!shouldShowTasksTab && activeTab === 'tasks') {
@@ -129,12 +137,6 @@ function WorkspaceMain({
   const openFileInEditor = useCallback((filePath: string, line?: number | null, searchHints?: string[]) => {
     resolvedFileOpen(filePath, undefined, line, searchHints);
   }, [resolvedFileOpen]);
-
-  // Directories cannot be read as text: reveal them in the file tree instead.
-  const openDirectory = useCallback((directoryPath: string) => {
-    setActiveTab('files');
-    setRevealDirectory({ path: directoryPath });
-  }, [setActiveTab]);
 
   // Stable arguments keep usePaletteOpsRegister's effect from tearing down and
   // rewriting the whole palette registry on every render.
