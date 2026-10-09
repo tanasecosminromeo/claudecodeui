@@ -335,6 +335,7 @@ test('readTextFile follows a path out of the project to the file it names', asyn
   const projectRoot = path.resolve('file-tree-test-project');
   const readPaths: string[] = [];
   const fileSystem = createFakeFileSystem({
+    access: async () => undefined,
     readTextFile: async (filePath) => {
       readPaths.push(filePath);
       return 'next to the project';
@@ -343,7 +344,11 @@ test('readTextFile follows a path out of the project to the file it names', asyn
   const service = createFileTreeService(createDependencies(fileSystem, projectRoot));
 
   const result = await service.readTextFile('project-1', '../notes.txt');
-  assert.deepEqual(result, { content: 'next to the project', path: path.resolve(projectRoot, '../notes.txt') });
+  assert.deepEqual(result, {
+    content: 'next to the project',
+    path: path.resolve(projectRoot, '../notes.txt'),
+    writable: true,
+  });
   assert.deepEqual(readPaths, [path.resolve(projectRoot, '../notes.txt')]);
 });
 
@@ -441,7 +446,7 @@ const isAppError = (code: string, statusCode: number) => (error: unknown) => err
   && error.code === code
   && error.statusCode === statusCode;
 
-test('a folder outside the project can be browsed and read, but never written to', async () => {
+test('a folder outside the project can be browsed and read; creating, renaming and deleting there stay refused', async () => {
   // Beside this file rather than under the temp directory: no folder is special any more.
   const outsideDirectory = await fsPromises.mkdtemp(path.join(testDirectory, 'file-tree-outside-'));
   const projectRoot = await fsPromises.mkdtemp(path.join(os.tmpdir(), 'file-tree-project-'));
@@ -463,15 +468,12 @@ test('a folder outside the project can be browsed and read, but never written to
     const opened = await service.readTextFile('project-1', outputPath);
     assert.equal(opened.content, 'what the agent found');
     assert.equal(opened.path, outputPath);
+    assert.equal(opened.writable, true);
 
     const streamed = await service.openFile('project-1', outputPath);
     streamed.stream.destroy();
 
-    // Read-only means read-only: nothing may be created or changed there.
-    await assert.rejects(
-      service.saveTextFile('project-1', outputPath, 'overwritten'),
-      isAppError('PATH_OUTSIDE_PROJECT', 403),
-    );
+    // Saving follows the OS (see the save tests below); nothing new may be created or moved there.
     await assert.rejects(
       service.createWorkspaceFolder(path.join(os.tmpdir(), 'file-tree-new-folder')),
       (error: unknown) => (error as AppError).code === 'INVALID_WORKSPACE_PATH',
@@ -513,7 +515,7 @@ test('a folder outside the project can be browsed and read, but never written to
   }
 });
 
-test('a relative path out of the project is read from where it points, and never written there', async () => {
+test('a relative path out of the project is read and saved where it points', async () => {
   const base = await fsPromises.mkdtemp(path.join(testDirectory, 'file-tree-play-'));
   const projectRoot = path.join(base, 'repo');
   const playRoot = path.join(base, '_play');
@@ -530,11 +532,8 @@ test('a relative path out of the project is read from where it points, and never
     assert.equal(opened.path, path.join(playRoot, 'report.html'));
     (await service.openFile('project-1', '../_play/report.html')).stream.destroy();
 
-    await assert.rejects(
-      service.saveTextFile('project-1', '../_play/report.html', 'overwritten'),
-      isAppError('PATH_OUTSIDE_PROJECT', 403),
-    );
-    assert.equal(await fsPromises.readFile(path.join(playRoot, 'report.html'), 'utf8'), report);
+    await service.saveTextFile('project-1', '../_play/report.html', 'overwritten');
+    assert.equal(await fsPromises.readFile(path.join(playRoot, 'report.html'), 'utf8'), 'overwritten');
   } finally {
     await fsPromises.rm(base, { recursive: true, force: true });
   }
@@ -588,14 +587,64 @@ test('a `~/` path is read from the home directory, under the same read policy', 
     const listed = await service.listProjectFiles('project-1', { respectGitignore: true, rootPath: '~/reports' });
     assert.deepEqual(listed.map((entry) => entry.path), [path.join(homePath, 'reports', 'report.html')]);
 
-    // Writes never expand it: `~` stays a literal name inside the project.
-    await assert.rejects(
-      service.saveTextFile('project-1', '~/reports/report.html', 'overwritten'),
-      (error: unknown) => (error as AppError).statusCode === 404,
-    );
-    assert.equal(await fsPromises.readFile(path.join(homePath, 'reports', 'report.html'), 'utf8'), '<h1>report</h1>');
+    // Saving resolves `~/` the way reading does, so it overwrites the file in the home directory.
+    await service.saveTextFile('project-1', '~/reports/report.html', '<h1>saved</h1>');
+    assert.equal(await fsPromises.readFile(path.join(homePath, 'reports', 'report.html'), 'utf8'), '<h1>saved</h1>');
+    assert.equal(await fsPromises.readdir(projectRoot).then((names) => names.length), 0);
   } finally {
     await fsPromises.rm(homePath, { recursive: true, force: true });
+    await fsPromises.rm(projectRoot, { recursive: true, force: true });
+  }
+});
+
+test('saving outside the project follows the OS: a writable file is overwritten, a read-only one is refused', { skip: runsAsRoot }, async () => {
+  const outsideDirectory = await fsPromises.mkdtemp(path.join(testDirectory, 'file-tree-outside-'));
+  const projectRoot = await fsPromises.mkdtemp(path.join(os.tmpdir(), 'file-tree-project-'));
+  const writablePath = path.join(outsideDirectory, 'writable.txt');
+  const readOnlyPath = path.join(outsideDirectory, 'read-only.txt');
+
+  try {
+    await fsPromises.writeFile(writablePath, 'before', 'utf8');
+    await fsPromises.writeFile(readOnlyPath, 'locked', 'utf8');
+    await fsPromises.chmod(readOnlyPath, 0o444);
+    const service = createRealFileSystemService(projectRoot);
+
+    assert.equal((await service.readTextFile('project-1', writablePath)).writable, true);
+    assert.equal((await service.readTextFile('project-1', readOnlyPath)).writable, false);
+
+    assert.equal((await service.saveTextFile('project-1', writablePath, 'after')).success, true);
+    assert.equal(await fsPromises.readFile(writablePath, 'utf8'), 'after');
+
+    await assert.rejects(
+      service.saveTextFile('project-1', readOnlyPath, 'overwritten'),
+      isAppError('PERMISSION_DENIED', 403),
+    );
+    assert.equal(await fsPromises.readFile(readOnlyPath, 'utf8'), 'locked');
+  } finally {
+    await fsPromises.chmod(readOnlyPath, 0o600).catch(() => undefined);
+    await fsPromises.rm(outsideDirectory, { recursive: true, force: true });
+    await fsPromises.rm(projectRoot, { recursive: true, force: true });
+  }
+});
+
+test('saving a path outside the project that does not exist is not found and creates nothing', async () => {
+  const outsideDirectory = await fsPromises.mkdtemp(path.join(testDirectory, 'file-tree-outside-'));
+  const projectRoot = await fsPromises.mkdtemp(path.join(os.tmpdir(), 'file-tree-project-'));
+
+  try {
+    const service = createRealFileSystemService(projectRoot);
+
+    await assert.rejects(
+      service.saveTextFile('project-1', path.join(outsideDirectory, 'missing.txt'), 'new'),
+      isAppError('FILE_NOT_FOUND', 404),
+    );
+    assert.deepEqual(await fsPromises.readdir(outsideDirectory), []);
+
+    // Inside the project a save still writes the file it names, as before.
+    await service.saveTextFile('project-1', 'created-inside.txt', 'new');
+    assert.equal(await fsPromises.readFile(path.join(projectRoot, 'created-inside.txt'), 'utf8'), 'new');
+  } finally {
+    await fsPromises.rm(outsideDirectory, { recursive: true, force: true });
     await fsPromises.rm(projectRoot, { recursive: true, force: true });
   }
 });
