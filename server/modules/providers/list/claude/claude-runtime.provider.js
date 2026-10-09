@@ -117,8 +117,17 @@ function describeAutoAllowedTool(toolName, input, context) {
 // (the interrupt makes the CLI answer promptly; this only caps a CLI that never does).
 const INTERRUPTED_TURN_RESULT_WAIT_MS = 10 * 1000;
 // How long a run stays open after a `result` that a mid-turn push had overtaken,
-// waiting for the turn that push starts, before it is ended anyway.
+// or that a slash command pushed mid-turn runs after, waiting for the run that
+// push starts, before it is ended anyway. Any output from that run ends the wait.
 const TRAILING_PUSH_WAIT_MS = 20 * 1000;
+
+/**
+ * Whether the CLI queues this text, pushed mid-turn, as a run of its own after
+ * the turn instead of folding it in: anything starting with `/` (commands,
+ * skills, unknown names and paths alike, as observed). Read off the message as
+ * built: a message carrying images is a content array, not counted.
+ */
+const isQueuedByCli = (text) => typeof text === 'string' && text.trimStart().startsWith('/');
 
 // Permission modes a Claude session can be put in from the composer.
 const CLAUDE_PERMISSION_MODES = new Set(['default', 'auto', 'acceptEdits', 'bypassPermissions', 'plan']);
@@ -1155,6 +1164,14 @@ async function startClaudeProcess(command, options = {}, ws, context, reattachRe
   // turn: the run must not end on that result, and the process must not be
   // released under it.
   let pushedSinceLastOutput = false;
+  // How many `/`-leading messages were pushed into this turn and have not had
+  // their own run yet. The CLI never folds one into the running turn — a
+  // `/compact`, a skill, an unknown command, even `/tmp/x is a path` alike —
+  // but queues it and runs it after the turn's `result`, ending in a `result`
+  // of its own. Each such result is the turn still going, so the process is
+  // not let go under the command (in detached mode that is a SIGTERM two
+  // seconds later, mid-compaction).
+  let commandRunsAwaited = 0;
   // Guards the wait for the turn that follows such a result: a CLI that,
   // against expectation, folded the message without a word of output would
   // otherwise leave the run open for good.
@@ -1368,6 +1385,9 @@ async function startClaudeProcess(command, options = {}, ws, context, reattachRe
       // already on its way (see the result handling): the turn is then not
       // over when that result lands.
       pushedSinceLastOutput = true;
+      if (isQueuedByCli(messages[0]?.message?.content)) {
+        commandRunsAwaited += 1;
+      }
       return true;
     },
 
@@ -1636,6 +1656,7 @@ async function startClaudeProcess(command, options = {}, ws, context, reattachRe
       const settleTurn = () => {
         clearTimeout(trailingPushTimer);
         trailingPushTimer = null;
+        commandRunsAwaited = 0;
         // An aborted turn's terminal `complete` (aborted: true) already went
         // out from the abort handler. The flag is spent on this result: the
         // process can outlive the abort, and the next turn is not aborted.
@@ -1789,11 +1810,20 @@ async function startClaudeProcess(command, options = {}, ws, context, reattachRe
           releasePromptStream();
         }
 
-        if (message.type === 'result' && pushedSinceLastOutput) {
-          // The CLI wrote this result before the pushed message reached it;
-          // that message now starts a new turn, which will end this run. Only
-          // if nothing at all follows is the run ended from here.
-          console.log(`[Claude SDK] Result overtaken by a message pushed mid-turn; waiting for the turn it starts (session ${sessionKey()})`);
+        // A stopped turn waits for none of the commands pushed into it.
+        const awaitsCommandRun = commandRunsAwaited > 0 && !abortedSessionIds.has(sessionKey());
+        if (message.type === 'result' && (pushedSinceLastOutput || awaitsCommandRun)) {
+          // Either the CLI wrote this result before the pushed message reached
+          // it, or a slash command pushed into the turn runs now that it is
+          // over. Either way a run of its own follows and will end this one.
+          // One result accounts for one command: when the push was also the
+          // one this result overtook, that is the same run. Only if nothing
+          // at all follows is the run ended from here — the bound on a count
+          // that is wrong, e.g. a CLI that did fold the text in after all.
+          if (commandRunsAwaited > 0) {
+            commandRunsAwaited -= 1;
+          }
+          console.log(`[Claude SDK] Result followed by a run a mid-turn message starts; waiting for it (session ${sessionKey()})`);
           clearTimeout(trailingPushTimer);
           trailingPushTimer = setTimeout(() => {
             trailingPushTimer = null;

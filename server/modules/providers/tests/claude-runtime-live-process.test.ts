@@ -532,3 +532,124 @@ test('a push that a result had already overtaken keeps the run open until the ne
     assert.ok(turnWriter.sent.some((message) => message.kind === 'text' && message.content === 'One more thing done.'), 'streamed into the same run');
   });
 });
+
+/**
+ * The CLI never folds `/`-leading text into the running turn: a `/compact`, a
+ * skill, even `/tmp/x is a path` waits for the turn to end and then runs on
+ * its own, ending in a `result` of its own. Settling on the turn's result let
+ * the process go under that run — in detached mode, SIGTERM two seconds later,
+ * mid-compaction.
+ */
+const compactingStatus = () => ({ type: 'system', subtype: 'status', status: 'compacting', session_id: NATIVE_ID });
+const compactBoundary = () => ({
+  type: 'system', subtype: 'compact_boundary', session_id: NATIVE_ID,
+  compact_metadata: { trigger: 'manual', pre_tokens: 14_000, post_tokens: 2_000, duration_ms: 15_000 },
+});
+
+/** Starts a turn that is mid tool call, and pushes `pushed` into it. */
+async function midTurnPush(harness: Harness, sessionId: string, pushed: string[]) {
+  const turnWriter = harness.writer();
+  const turn = queryClaudeSDK('run the slow command', { sessionId, cwd: harness.cwd }, turnWriter as never, harness.context);
+  await settle();
+  const cli = harness.processes[0];
+  cli.emit(init());
+  cli.emit(toolUse('toolu_1', 'Bash', { command: 'sleep 6' }));
+  await settle();
+  for (const text of pushed) {
+    assert.equal(await sendClaudeSDKInput(sessionId, text, { cwd: harness.cwd }), true);
+  }
+  // The turn goes on after the push: the CLI is answering.
+  cli.emit(text('FINISHED'));
+  cli.emit(result());
+  await settle();
+  return { cli, turn, turnWriter, completes: () => turnWriter.sent.filter((message) => message.kind === 'complete').length };
+}
+
+test('a /compact sent mid-turn keeps the turn open through the run it starts after the result', async () => {
+  await withHarness(async (harness) => {
+    const { cli, turn, turnWriter, completes } = await midTurnPush(harness, 'app-live-midturn-compact', ['/compact focus on X']);
+
+    assert.equal(completes(), 0, 'the turn\'s own result does not end the run');
+    assert.equal(cli.released(), false, 'and the process is not let go under the queued command');
+
+    cli.emit(compactingStatus());
+    cli.emit(init());
+    cli.emit(compactBoundary());
+    cli.emit(result());
+    await turn;
+
+    assert.equal(completes(), 1, 'the command\'s result ends it');
+    assert.equal(cli.released(), true, 'nothing outstanding: the process goes, as after any turn');
+    const said = turnWriter.sent.filter((message) => message.kind === 'text').map((message) => message.content);
+    assert.ok(said.includes('FINISHED'), 'the turn\'s own reply streamed');
+    assert.ok(said.some((content) => content?.startsWith('Compacted · manual')), 'and so did the compaction');
+  });
+});
+
+test('every slash command pushed mid-turn gets its own run before the turn settles', async () => {
+  await withHarness(async (harness) => {
+    const { cli, turn, completes } = await midTurnPush(harness, 'app-live-midturn-two', ['/compact', '/say-kiwi']);
+
+    cli.emit(init());
+    cli.emit(compactBoundary());
+    cli.emit(result());
+    await settle();
+    assert.equal(completes(), 0, 'one command still to run');
+    assert.equal(cli.released(), false);
+
+    cli.emit(init());
+    cli.emit(text('KIWI'));
+    cli.emit(result());
+    await turn;
+    assert.equal(completes(), 1);
+  });
+});
+
+test('plain text pushed mid-turn still settles on the turn\'s result', async () => {
+  await withHarness(async (harness) => {
+    const { turn, completes } = await midTurnPush(harness, 'app-live-midturn-plain', ['also check lint']);
+    await turn;
+    assert.equal(completes(), 1);
+  });
+});
+
+test('a slash push the CLI answers with no run of its own still lets the turn end', async (t) => {
+  await withHarness(async (harness) => {
+    const { cli, turn, completes } = await midTurnPush(harness, 'app-live-midturn-silent', ['/compact']);
+    assert.equal(completes(), 0);
+
+    // Nothing follows the result: after the wait, the turn ends and the
+    // process goes rather than being held for good.
+    t.mock.timers.enable({ apis: ['setTimeout'] });
+    try {
+      t.mock.timers.tick(20_000);
+    } finally {
+      t.mock.timers.reset();
+    }
+    await turn;
+    assert.equal(completes(), 1);
+    assert.equal(cli.released(), true);
+  });
+});
+
+test('stopping the turn does not wait for a slash command pushed into it', async () => {
+  await withHarness(async (harness) => {
+    const sessionId = 'app-live-midturn-stop';
+    const turnWriter = harness.writer();
+    const turn = queryClaudeSDK('run the slow command', { sessionId, cwd: harness.cwd }, turnWriter as never, harness.context);
+    await settle();
+    const cli = harness.processes[0];
+    cli.emit(init());
+    cli.emit(toolUse('toolu_1', 'Bash', { command: 'sleep 6' }));
+    await settle();
+    assert.equal(await sendClaudeSDKInput(sessionId, '/compact', { cwd: harness.cwd }), true);
+    cli.emit(text('stopping'));
+    await settle();
+
+    await abortClaudeSDKSession(sessionId);
+    cli.emit(result());
+    await turn;
+    await settle();
+    assert.equal(cli.released(), true, 'the stopped turn lets the process go on its result');
+  });
+});

@@ -46,7 +46,7 @@ afterEach(() => {
   localStorage.clear();
 });
 
-const renderComposer = (sent: Array<Record<string, unknown>>) => renderHook(() =>
+const renderComposer = (sent: Array<Record<string, unknown>>, isLoading = false) => renderHook(() =>
   useChatComposerState({
     selectedProject: PROJECT,
     selectedSession: SESSION,
@@ -57,8 +57,8 @@ const renderComposer = (sent: Array<Record<string, unknown>>) => renderHook(() =
     resolvePermissionModeForProvider: () => 'default' as PermissionMode,
     currentProviderModel: 'test-model',
     currentProviderEffort: 'medium',
-    isLoading: false,
-    canAbortSession: false,
+    isLoading,
+    canAbortSession: isLoading,
     tokenBudget: null,
     sendMessage: (message) => { sent.push(message as Record<string, unknown>); },
     scrollToBottom: () => undefined,
@@ -81,6 +81,21 @@ test('a CLI command is sent to the session as typed, arguments included, never e
   assert.equal(sent[0]?.type, 'chat.send');
   assert.equal(sent[0]?.content, '/compact focus on the parser');
   assert.equal(view.result.current.input, '');
+});
+
+test('a CLI command sent while a turn runs goes to the session at once, like any message', async () => {
+  const sent: Array<Record<string, unknown>> = [];
+  const view = renderComposer(sent, true);
+  await waitFor(() => assert.ok(view.result.current.slashCommandsCount > 1));
+
+  await act(async () => { view.result.current.setInput('/compact'); });
+  await act(async () => { await view.result.current.handleSubmit({ preventDefault: () => undefined } as never); });
+
+  // The server keeps the turn open until the CLI has run it after the turn.
+  assert.equal(executeCalls, 0);
+  assert.equal(view.result.current.queuedDraft, null, 'not held back in the composer');
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0]?.content, '/compact');
 });
 
 test('picking a CLI command in the menu puts it in the composer instead of running it', async () => {
