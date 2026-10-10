@@ -45,18 +45,23 @@ CREATE TABLE IF NOT EXISTS side_questions (
     source TEXT,                       -- 'live' | 'fork' once answered
     error TEXT,                        -- message when failed
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    answered_at DATETIME
+    answered_at DATETIME,
+    FOREIGN KEY (session_id) REFERENCES sessions(session_id) ON DELETE CASCADE
 );
 CREATE INDEX IF NOT EXISTS idx_side_questions_session ON side_questions(session_id, id);
 ```
 
 Repository `server/modules/database/repositories/side-questions.db.ts`:
 `create`, `markAnswered`, `markFailed`, `listBySession`,
-`failPending(reason)`, `deleteBySession`.
+`failPending(reason)`.
 
-No foreign key to `sessions`: `/btw` also works on a provider-native id the
-indexer has not stored yet, and that insert must not fail. The session delete
-path calls `deleteBySession` instead.
+The foreign key cascades like `scheduled_messages` does: sessions are removed
+by several paths (forced delete, the synchronizer's prune, project delete,
+row merges), and the cascade covers all of them. Archiving keeps the entries.
+Because of the key, an entry needs a session row: `/btw` on a provider-native
+id the indexer has not stored yet is answered as today (the request waits and
+the answer comes back in the response) and shown in the panel without being
+saved.
 
 On server start, any row still `pending` is marked `failed` with
 "Interrupted by a server restart" — its answer can never arrive.
@@ -75,15 +80,18 @@ gains a repository dependency:
 3. Ask the provider in the background (live `askSideQuestion` on the running
    process, else the one-shot fork — unchanged), then `markAnswered` /
    `markFailed`.
-4. Broadcast `{ type: 'side-question-updated', sessionId, entry }` on the
-   websocket to the owning user for steps 2 and 3, so every open tab updates
-   without polling.
+4. Broadcast `{ kind: 'side_question_updated', sessionId, entry }` to every
+   connected client for steps 2 and 3, the way `session_upserted` is sent, so
+   every open tab updates without polling. The two client listeners that
+   treat any `kind` with a `sessionId` as transcript or attention events
+   (`useChatRealtimeHandlers.ts`, `useProjectsState.ts`) skip this kind.
 
 The `/btw` built-in handler returns `{ action: 'btw', data: { entry } }`
 right away instead of waiting for the answer.
 
-New route: `GET /api/sessions/:sessionId/side-questions` → entries, oldest
-first. Same auth as the other session routes.
+New route on the commands router: `GET /api/commands/side-questions?sessionId=…`
+→ `{ entries, transcriptPath }`, entries oldest first. Same auth as
+`/api/commands`.
 
 ### Client
 
@@ -97,23 +105,25 @@ New module `src/modules/side-questions/`:
   rendered as markdown, or the error; Copy and Start session buttons on
   answered entries; an input box at the bottom (Enter sends, Shift+Enter
   newline). Scrolls to the newest entry when one is added.
-- Open/closed state persisted per user in local storage (like the quick
-  settings pin).
+- Open/closed state and the entries live in a small store in that module,
+  so the chat composer and the workspace both use it without importing each
+  other; open/closed is persisted in local storage.
 
-Layout: the panel docks to the right of the main chat region inside
-`ProjectWorkspaceShell`, the same way the pinned Quick Settings panel does,
-with a fixed default width. On mobile it is a full-screen sheet with a close
-button.
+Layout: on the Chat tab the panel docks as a column to the right of the chat
+in `WorkspaceMain`'s content row (beside the editor column), styled like the
+pinned Quick Settings panel, fixed width. It is an `<aside>` (not a dialog),
+so Escape keeps stopping Claude's turn while it is open. On mobile it is a
+full-screen sheet with a close button.
 
-Toggle: a button in the chat header with the number of entries for the
-session; shown only for Claude sessions.
+Toggle: a button in the workspace header (`WorkspaceTitle`) with the number
+of entries for the session; shown only for Claude sessions.
 
 `/btw <question>` typed in the main composer:
 - still runs immediately, even mid-turn (unchanged);
 - opens the panel if it is closed, and the entry appears there as pending;
 - no longer opens `CommandResultModal`. The modal's `btw` branch and
-  `SideQuestionContent` are removed, along with the Escape-key exception in
-  `ChatInterface.tsx` that existed only for that modal.
+  `SideQuestionContent` are removed. The Escape check in `ChatInterface.tsx`
+  stays: it covers any dialog, menu or listbox, not only this modal.
 
 Switching sessions switches the panel's list to that session; a new chat with
 no session id shows an empty panel whose input explains that the first
@@ -123,12 +133,14 @@ message has to be sent before `/btw` works.
 
 Clicking Start session on an answered entry:
 
-1. Calls the existing new-session flow for the entry's project
-   (`handleNewSession` in `useProjectsState.ts`).
-2. Writes the seed into that project's new-chat draft (scope
-   `project:<projectId>`, via the existing drafts API). If that draft already
-   has text, the seed goes first and the existing text is kept below it.
-3. Focuses the composer with the caret at the end. Nothing is sent.
+1. Writes the seed into that project's new-chat draft (scope
+   `project:<projectId>`) through the client draft store (`writeDraftText`
+   in `src/shared/chatDrafts.ts`), which updates the composer and syncs to
+   the server. If that draft already has text, the seed goes first and the
+   existing text is kept below it.
+2. Calls the existing new-session flow for the project (`handleNewSession`),
+   passed down to the panel by the workspace.
+3. Nothing is sent.
 
 Seed text:
 
