@@ -63,6 +63,7 @@ scenarios use Haiku); time: about 6 minutes plus the build.
 | `30-auto-unavailable-allows-and-notes` | The same on Haiku, where the CLI refuses auto mode and the process stays in default: CloudCLI, in auto, allows the agent's Bash call itself (no prompt) and the chat shows a live-only "Auto-allowed Bash: … · sub-agent …" note. |
 | `31-terminal-wait-banner` | A `claude` started in a terminal (via `script`, `--permission-mode default` so the user's auto default can't approve it) stops on a Bash permission prompt; its page here shows the amber "Waiting in a terminal: permission prompt — Bash `touch …`" banner above the composer, and the banner goes once the terminal's claude is killed. Needs the installed plugin copy refreshed first (`make restart`). |
 | `32-chat-file-link-resolution` | A reply names a temp folder and links `report.html` by bare name: clicking it opens the report from that folder in the editor. A link to a file that exists nowhere shows the "File not found" notice instead of an editor. |
+| `33-claude-killed-mid-turn` | The session's Claude process SIGKILLed mid-turn (from outside, as the OOM killer does): the chat leaves the working state within 15 s, shows that the process stopped unexpectedly, and the next message starts a fresh process. |
 
 ### Bugs these scenarios found (all fixed)
 
