@@ -34,6 +34,8 @@ type ScriptedProcess = {
   released: () => boolean;
   prompts: Array<Record<string, unknown>>;
   interrupts: number;
+  /** Makes interrupt() throw, as the SDK does once its process is gone. */
+  failInterrupt: boolean;
   models: string[];
   permissionModes: string[];
   options: Record<string, unknown>;
@@ -57,6 +59,7 @@ function createProcessFactory(): {
       released: () => released,
       prompts: [],
       interrupts: 0,
+      failInterrupt: false,
       models: [],
       permissionModes: [],
       options,
@@ -86,7 +89,12 @@ function createProcessFactory(): {
     })();
 
     return Object.assign(iterator, {
-      interrupt: async () => { scripted.interrupts += 1; },
+      interrupt: async () => {
+        scripted.interrupts += 1;
+        if (scripted.failInterrupt) {
+          throw new Error('Operation aborted');
+        }
+      },
       stopTask: async () => {},
       setModel: async (model?: string) => { scripted.models.push(model ?? ''); },
       setPermissionMode: async (mode: string) => { scripted.permissionModes.push(mode); },
@@ -98,14 +106,64 @@ function createProcessFactory(): {
 
 type Harness = {
   processes: ScriptedProcess[];
+  /** Detached handles the runtime spawned, one per process, when the harness runs detached. */
+  handles: DetachedHandle[];
   context: ProviderRuntimeContext;
   cwd: string;
   writer: () => { send: (message: NormalizedMessage) => void; sent: NormalizedMessage[]; userId: null };
 };
 
-async function withHarness(runTest: (harness: Harness) => Promise<void>): Promise<void> {
+type DetachedHandle = {
+  pid: number;
+  alive: boolean;
+  kill: (signal: NodeJS.Signals) => boolean;
+};
+
+/** A stand-in CLI that never writes and only ends when its stdin does. */
+const SILENT_CLI = { command: 'sh', args: ['-c', 'while IFS= read -r line; do :; done'] };
+
+/**
+ * Runs the test with the runtime spawning its processes detached, the way it
+ * does in production: each "process" is a real `sh` with its own pipes, and
+ * the scripted stream stands in for the SDK's reading of it.
+ */
+async function withDetachedHarness(runTest: (harness: Harness) => Promise<void>): Promise<void> {
+  const processesDir = await mkdtemp(path.join(os.tmpdir(), 'claude-runtime-detached-'));
+  const previous = {
+    detached: process.env.CLOUDCLI_DETACHED_CLAUDE,
+    dir: process.env.CLOUDCLI_CLAUDE_PROCESSES_DIR,
+    scope: process.env.CLOUDCLI_DETACHED_CLAUDE_SCOPE,
+  };
+  process.env.CLOUDCLI_DETACHED_CLAUDE = '1';
+  process.env.CLOUDCLI_CLAUDE_PROCESSES_DIR = processesDir;
+  process.env.CLOUDCLI_DETACHED_CLAUDE_SCOPE = '0';
+  try {
+    await withHarness(runTest, { detached: true });
+  } finally {
+    process.env.CLOUDCLI_DETACHED_CLAUDE = previous.detached;
+    process.env.CLOUDCLI_CLAUDE_PROCESSES_DIR = previous.dir;
+    process.env.CLOUDCLI_DETACHED_CLAUDE_SCOPE = previous.scope;
+    await rm(processesDir, { recursive: true, force: true });
+  }
+}
+
+async function withHarness(
+  runTest: (harness: Harness) => Promise<void>,
+  { detached = false }: { detached?: boolean } = {},
+): Promise<void> {
   const cwd = await mkdtemp(path.join(os.tmpdir(), 'claude-runtime-live-'));
-  const { createQuery, processes } = createProcessFactory();
+  const { createQuery: createScriptedQuery, processes } = createProcessFactory();
+  const handles: DetachedHandle[] = [];
+  // The SDK spawns the process through the options; the detached case takes
+  // that spawn for real, so the process exists and can be killed from outside.
+  const createQuery: NonNullable<ProviderRuntimeContext['createQuery']> = (args) => {
+    const scripted = createScriptedQuery(args);
+    const spawn = args.options.spawnClaudeCodeProcess as ((request: Record<string, unknown>) => DetachedHandle) | undefined;
+    if (detached && spawn) {
+      handles.push(spawn({ ...SILENT_CLI, cwd, env: { ...process.env } }));
+    }
+    return scripted;
+  };
   const sessions = new ClaudeSessionsProvider({ getLiveRunStartTime: () => null });
   const context: ProviderRuntimeContext = {
     resolveProviderSessionId: () => null,
@@ -121,10 +179,13 @@ async function withHarness(runTest: (harness: Harness) => Promise<void>): Promis
   };
 
   try {
-    await runTest({ processes, context, cwd, writer });
+    await runTest({ processes, handles, context, cwd, writer });
   } finally {
     for (const process of processes) {
       process.end();
+    }
+    for (const handle of handles) {
+      handle.kill('SIGKILL');
     }
     await settle();
     await rm(cwd, { recursive: true, force: true });
@@ -222,6 +283,54 @@ test('a message sent mid-turn is pushed into the running turn', async () => {
     // `now` would abort the step in progress and redo it.
     assert.equal(pushed.priority, undefined);
 
+    processes[0].emit(result());
+    await turn;
+  });
+});
+
+/** Waits until the condition holds, polling fast: the exit poll that would clear the session runs every 500 ms. */
+async function waitUntil(condition: () => boolean, timeoutMs = 2000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (!condition()) {
+    if (Date.now() > deadline) {
+      throw new Error('condition not met in time');
+    }
+    await new Promise((resolve) => { setTimeout(resolve, 5); });
+  }
+}
+
+test('stopping a turn whose process already died clears the session as aborted', async () => {
+  await withDetachedHarness(async ({ processes, handles, context, cwd, writer }) => {
+    const sessionId = 'app-dead-abort';
+    const turn = queryClaudeSDK('work', { sessionId, cwd }, writer() as never, context);
+    await settle();
+    processes[0].emit(init());
+    await settle();
+
+    // The process dies on its own; the interrupt that follows cannot reach it.
+    process.kill(handles[0].pid, 'SIGKILL');
+    await waitUntil(() => !handles[0].alive);
+    processes[0].failInterrupt = true;
+
+    assert.equal(await abortClaudeSDKSession(sessionId), true, 'the stop counts as an abort, so the aborted complete goes out');
+    assert.equal(await sendClaudeSDKInput(sessionId, 'still there?', { cwd }), false, 'the session is gone');
+    processes[0].emit(result());
+    await turn;
+  });
+});
+
+test('stopping a turn whose live process refuses the interrupt keeps the session', async () => {
+  await withDetachedHarness(async ({ processes, handles, context, cwd, writer }) => {
+    const sessionId = 'app-live-refused';
+    const turn = queryClaudeSDK('work', { sessionId, cwd }, writer() as never, context);
+    await settle();
+    processes[0].emit(init());
+    processes[0].failInterrupt = true;
+
+    assert.equal(handles[0].alive, true);
+    assert.equal(await abortClaudeSDKSession(sessionId), false, 'a live process that cannot be interrupted is not cleared');
+    assert.equal(await sendClaudeSDKInput(sessionId, 'still there?', { cwd }), true, 'the session is still active');
+    processes[0].emit(text('Still here.'));
     processes[0].emit(result());
     await turn;
   });

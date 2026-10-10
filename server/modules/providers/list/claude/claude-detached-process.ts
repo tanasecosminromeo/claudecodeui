@@ -1,4 +1,4 @@
-import { execFileSync, spawn } from 'node:child_process';
+import { execFile, execFileSync, spawn } from 'node:child_process';
 import { EventEmitter } from 'node:events';
 import fs from 'node:fs';
 import net from 'node:net';
@@ -62,14 +62,24 @@ export type DetachedClaudeRecord = {
   released?: boolean;
   /** Launched with bypass: the only way the CLI itself can be switched into it later. */
   launchedInBypass?: boolean;
+  /** The systemd scope the process runs in, for asking systemd why it stopped. */
+  unit?: string;
 };
 
 /** The SDK's process contract (`SpawnedProcess`), plus the record the process belongs to. */
 type DetachedSpawnedProcess = {
   stdin: Writable;
   stdout: Readable;
+  readonly pid: number;
   readonly killed: boolean;
   readonly exitCode: number | null;
+  /** False once the process is gone, whether or not the exit poll has noticed yet. */
+  readonly alive: boolean;
+  /**
+   * Set when the process died without the runtime asking it to stop: resolves
+   * to why, as systemd recorded it (`oom-kill`, or `unknown`). Null otherwise.
+   */
+  readonly unexpectedExit: Promise<string> | null;
   kill(signal: NodeJS.Signals): boolean;
   on(event: string, listener: (...args: unknown[]) => void): void;
   once(event: string, listener: (...args: unknown[]) => void): void;
@@ -102,6 +112,10 @@ const EXIT_POLL_MS = 500;
 const EXIT_DRAIN_MS = 250;
 /** How much of a gone process's stderr is worth logging. */
 const STDERR_REPORT_BYTES = 4000;
+/** How long one look at the journal may take; journalctl reads it in well under this. */
+const JOURNAL_TIMEOUT_MS = 3000;
+/** journald can lag the scope's exit by a moment, so a first look that finds nothing is retried once. */
+const JOURNAL_RETRY_MS = 1000;
 
 function reportStderr(record: DetachedClaudeRecord): void {
   try {
@@ -183,17 +197,86 @@ function removeProcessDir(dir: string): void {
   fs.rmSync(dir, { recursive: true, force: true });
 }
 
-let systemdRunAvailable: boolean | null = null;
+/**
+ * Whether `systemd-run` is on the PATH, probed once per PATH value. The scope
+ * switch is read on every call, so it can change without a restart.
+ */
+const systemdRunProbe = new Map<string, boolean>();
 function canUseSystemdScope(): boolean {
-  if (systemdRunAvailable === null) {
+  if (process.platform !== 'linux' || process.env.CLOUDCLI_DETACHED_CLAUDE_SCOPE === '0') {
+    return false;
+  }
+  const pathKey = process.env.PATH ?? '';
+  let available = systemdRunProbe.get(pathKey);
+  if (available === undefined) {
     try {
       execFileSync('systemd-run', ['--version'], { stdio: 'ignore' });
-      systemdRunAvailable = process.platform === 'linux' && process.env.CLOUDCLI_DETACHED_CLAUDE_SCOPE !== '0';
+      available = true;
     } catch {
-      systemdRunAvailable = false;
+      available = false;
     }
+    systemdRunProbe.set(pathKey, available);
   }
-  return systemdRunAvailable;
+  return available;
+}
+
+/**
+ * Reads what a scope's journal says about its end: `oom-kill` when the OOM
+ * killer took it, otherwise the result systemd gave the failure, otherwise
+ * `unknown`. Pure, so the wording systemd uses is pinned by tests.
+ */
+export function parseScopeExitReason(journal: string): string {
+  if (/killed by the OOM killer/.test(journal) || /Failed with result 'oom-kill'/.test(journal)) {
+    return 'oom-kill';
+  }
+  const failed = /Failed with result '([^']+)'/.exec(journal);
+  return failed ? failed[1] : 'unknown';
+}
+
+function readJournal(unit: string): Promise<string> {
+  return new Promise((resolve) => {
+    execFile(
+      'journalctl',
+      ['--user', '-u', unit, '-n', '20', '-o', 'cat', '--no-pager'],
+      { timeout: JOURNAL_TIMEOUT_MS },
+      (error, stdout) => { resolve(error ? '' : String(stdout)); },
+    );
+  });
+}
+
+/**
+ * Why a detached process's scope ended, asked of the user's journal. Used
+ * when a process dies on its own. Never rejects: a missing scope, a failed
+ * lookup or no entry all come back as `unknown`.
+ */
+async function unexpectedExitReason(unit: string | undefined): Promise<string> {
+  if (!unit) {
+    return 'unknown';
+  }
+  try {
+    const first = parseScopeExitReason(await readJournal(unit));
+    if (first !== 'unknown') {
+      return first;
+    }
+    await new Promise((resolve) => { setTimeout(resolve, JOURNAL_RETRY_MS); });
+    return parseScopeExitReason(await readJournal(unit));
+  } catch {
+    return 'unknown';
+  }
+}
+
+/**
+ * What the user is told when a Claude process stopped on its own. Used by the
+ * Claude runtime as the error of a run whose process died, in place of the
+ * SDK's generic "terminated by signal" text.
+ *
+ * @param reason - From `unexpectedExit`: `oom-kill`, a systemd result, or `unknown`
+ */
+export function unexpectedExitMessage(reason: string): string {
+  if (reason === 'oom-kill') {
+    return 'The Claude process stopped unexpectedly: the system ran out of memory and killed a process in this session (oom-kill). Send a message to start it again.';
+  }
+  return 'The Claude process stopped unexpectedly. Send a message to start it again.';
 }
 
 /**
@@ -202,7 +285,12 @@ function canUseSystemdScope(): boolean {
  */
 function createProcessHandle(record: DetachedClaudeRecord): DetachedSpawnedProcess {
   const events = new EventEmitter();
-  let exitCode: number | null = null;
+  let exited = false;
+  // Whether this server asked the process to stop (a kill, or a release). A
+  // process that ends after such a request is a normal exit; any other end is
+  // a death the runtime must report.
+  let stopRequested = false;
+  let unexpectedExit: Promise<string> | null = null;
   let current = record;
 
   // Non-blocking and read-write, wrapped as sockets. fs streams would park a
@@ -216,11 +304,12 @@ function createProcessHandle(record: DetachedClaudeRecord): DetachedSpawnedProce
   const stdin = new net.Socket({ fd: openPipe('in'), readable: false, writable: true });
   const stdout = new net.Socket({ fd: openPipe('out'), readable: true, writable: false });
   const kill = (signal: NodeJS.Signals) => {
-    if (shuttingDown || exitCode !== null) {
+    if (shuttingDown || exited) {
       return false;
     }
     try {
       process.kill(record.pid, signal);
+      stopRequested = true;
       return true;
     } catch {
       return false;
@@ -236,6 +325,7 @@ function createProcessHandle(record: DetachedClaudeRecord): DetachedSpawnedProce
       return;
     }
     releaseScheduled = true;
+    stopRequested = true;
     setTimeout(() => { kill('SIGTERM'); }, RELEASE_GRACE_MS).unref();
   };
   stdin.once('finish', scheduleRelease);
@@ -253,30 +343,49 @@ function createProcessHandle(record: DetachedClaudeRecord): DetachedSpawnedProce
       return;
     }
     clearInterval(exitPoll);
+    exited = true;
     // Not this server's child: its exit status is unknowable. What it wrote
     // to stderr is the only clue to a crash, so it is kept in the log.
-    exitCode = 0;
     reportStderr(record);
     removeProcessDir(record.dir);
+    if (!stopRequested) {
+      unexpectedExit = unexpectedExitReason(record.unit).then((reason) => {
+        console.warn(`[Claude detached] process ${record.pid} for session ${record.appSessionId} exited unexpectedly: ${reason}`);
+        return reason;
+      });
+    }
     // Nothing else ends the pipes reliably once the process is gone. The read
-    // side first drains what the process wrote last.
+    // side first drains what the process wrote last, then ends: the SDK reads
+    // stdout to its end, so the run ends with the process rather than hanging.
     stdin.destroy();
-    setTimeout(() => stdout.destroy(), EXIT_DRAIN_MS).unref();
-    events.emit('exit', 0, null);
+    setTimeout(() => {
+      stdout.push(null);
+      setTimeout(() => stdout.destroy(), EXIT_DRAIN_MS).unref();
+    }, EXIT_DRAIN_MS).unref();
+    // Asked to stop: a clean exit. Otherwise the process died; the signal is
+    // not knowable from here, and the SDK turns a signal into an error.
+    if (stopRequested) {
+      events.emit('exit', 0, null);
+    } else {
+      events.emit('exit', null, 'SIGKILL');
+    }
   }, EXIT_POLL_MS);
   exitPoll.unref();
 
   return {
     stdin,
     stdout,
-    get killed() { return exitCode !== null; },
-    get exitCode() { return exitCode; },
+    get pid() { return record.pid; },
+    get alive() { return !exited && isRecordedProcessAlive(record); },
+    get unexpectedExit() { return unexpectedExit; },
+    get killed() { return exited; },
+    get exitCode() { return exited && stopRequested ? 0 : null; },
     kill,
     on: (event, listener) => { events.on(event, listener); },
     once: (event, listener) => { events.once(event, listener); },
     off: (event, listener) => { events.off(event, listener); },
     updateRecord(patch) {
-      if (exitCode !== null) {
+      if (exited) {
         return;
       }
       current = { ...current, ...patch };
@@ -315,10 +424,14 @@ export function spawnDetachedClaude(
   // reaches EOF and its stdout never breaks while no server is attached.
   const shellScript = 'exec 3<>"$CLOUDCLI_IN" 4<>"$CLOUDCLI_OUT"; exec "$@" <"$CLOUDCLI_IN" >"$CLOUDCLI_OUT"';
   const launch = ['sh', '-c', shellScript, 'sh', request.command, ...request.args];
-  const [command, ...args] = canUseSystemdScope()
+  const scopeUnit = canUseSystemdScope() ? `cloudcli-claude-${path.basename(dir)}` : null;
+  const [command, ...args] = scopeUnit
     ? [
       'systemd-run', '--user', '--scope', '--quiet', '--collect',
-      `--unit=cloudcli-claude-${path.basename(dir)}`,
+      `--unit=${scopeUnit}`,
+      // systemd's default (stop) ends the whole scope when the OOM killer takes
+      // any process in it, so a runaway test would take Claude down with it.
+      '--property=OOMPolicy=continue',
       // Without one, systemd describes the scope by its command line — which
       // carries the MCP config and its tokens straight into the journal.
       `--description=CloudCLI Claude session ${appSessionId}`,
@@ -355,6 +468,7 @@ export function spawnDetachedClaude(
     turnActive: true,
     awaitingPermission: false,
     tasks: [],
+    ...(scopeUnit ? { unit: scopeUnit } : {}),
   };
   writeRecord(record);
   return createProcessHandle(record);

@@ -43,6 +43,7 @@ import {
   listDetachedClaudeRecords,
   spawnDetachedClaude,
   stopDetachedClaude,
+  unexpectedExitMessage,
 } from '@/modules/providers/list/claude/claude-detached-process.js';
 import { findOtherLiveClaudeProcesses, stopClaudeProcesses } from '@/modules/providers/list/claude/claude-live-processes.js';
 import { createCompleteMessage, createNormalizedMessage } from '@/shared/utils.js';
@@ -1242,6 +1243,15 @@ async function startClaudeProcess(command, options = {}, ws, context, reattachRe
 
   const controls = {
     /**
+     * Whether the detached process behind this session died on its own. An
+     * interrupt cannot reach a process that is gone, so the abort clears the
+     * session instead of failing. Always false for a process not detached.
+     */
+    processGone() {
+      return detachedProcess !== null && !detachedProcess.alive;
+    },
+
+    /**
      * Starts a new turn in this process for a run that has its own writer.
      * Resolves to `{ done }`, settling when the turn ends, or to null when the
      * process no longer takes input. Wrapped because an async function would
@@ -1812,9 +1822,14 @@ async function startClaudeProcess(command, options = {}, ws, context, reattachRe
 
       // Check if Claude CLI is installed for a clearer error message
       const installed = await context.isProviderInstalled();
+      // A detached process that died on its own: the SDK's text ("terminated by
+      // signal") is replaced by what systemd recorded as the reason.
+      const unexpectedReason = detachedProcess?.unexpectedExit ? await detachedProcess.unexpectedExit : null;
       const errorContent = !installed
         ? 'Claude Code is not installed. Please install it first: https://docs.anthropic.com/en/docs/claude-code'
-        : error.message;
+        : unexpectedReason !== null
+          ? unexpectedExitMessage(unexpectedReason)
+          : error.message;
 
       // Send error to WebSocket, then the terminal complete. A run that already
       // reported completion and then failed during its post-turn hold still
@@ -1889,6 +1904,17 @@ async function abortClaudeSDKSession(sessionId) {
 
     return true;
   } catch (error) {
+    if (session.controls?.processGone?.()) {
+      // The process died on its own, so there is nothing left to interrupt and
+      // no turn left to stop. The stop still succeeds: the session is cleared,
+      // and the run's own end consumes the abort flag set above, so the user
+      // gets the aborted complete rather than a second, failed one.
+      console.warn(`Session ${sessionId} has no live process; clearing it as aborted (${error?.message || error})`);
+      session.releaseInput?.();
+      session.status = 'aborted';
+      removeSession(sessionId);
+      return true;
+    }
     console.error(`Error aborting session ${sessionId}:`, error);
     // The run keeps going; let it emit its own terminal complete.
     abortedSessionIds.delete(sessionId);
