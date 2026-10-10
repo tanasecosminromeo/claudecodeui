@@ -164,6 +164,7 @@ test('a process that dies on its own is logged with the reason and its scope uni
     fs.writeFileSync(path.join(bin, 'systemd-run'), [
       '#!/bin/sh',
       'if [ "$1" = "--version" ]; then exit 0; fi',
+      'printf "%s\\n" "$@" > "$(dirname "$0")/args"',
       'while [ $# -gt 0 ]; do case "$1" in --*) shift;; *) break;; esac; done',
       'exec "$@"',
       '',
@@ -182,6 +183,10 @@ test('a process that dies on its own is logged with the reason and its scope uni
       await nextLine(handle.stdout);
       const [record] = listDetachedClaudeRecords();
       assert.equal(record.unit, `cloudcli-claude-${path.basename(record.dir)}`);
+      // An OOM kill of one process (a runaway test) must not take Claude down
+      // with it: systemd's default OOMPolicy=stop ends the whole scope.
+      const scopeArgs = fs.readFileSync(path.join(bin, 'args'), 'utf8').split('\n');
+      assert.ok(scopeArgs.includes('--property=OOMPolicy=continue'), `scope flags: ${scopeArgs.join(' ')}`);
 
       handle.stdout.on('data', () => {});
       process.kill(record.pid, 'SIGKILL');

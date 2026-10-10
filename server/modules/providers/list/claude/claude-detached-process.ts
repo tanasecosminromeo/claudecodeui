@@ -429,6 +429,9 @@ export function spawnDetachedClaude(
     ? [
       'systemd-run', '--user', '--scope', '--quiet', '--collect',
       `--unit=${scopeUnit}`,
+      // systemd's default (stop) ends the whole scope when the OOM killer takes
+      // any process in it, so a runaway test would take Claude down with it.
+      '--property=OOMPolicy=continue',
       // Without one, systemd describes the scope by its command line — which
       // carries the MCP config and its tokens straight into the journal.
       `--description=CloudCLI Claude session ${appSessionId}`,
