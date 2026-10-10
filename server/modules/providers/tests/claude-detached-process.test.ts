@@ -9,7 +9,9 @@ import {
   attachDetachedClaude,
   listDetachedClaudeRecords,
   markDetachedClaudeShutdown,
+  parseScopeExitReason,
   spawnDetachedClaude,
+  unexpectedExitMessage,
 } from '@/modules/providers/list/claude/claude-detached-process.js';
 
 /**
@@ -116,14 +118,98 @@ test('ending stdin on purpose ends the process and cleans up after it', async ()
     await nextLine(handle.stdout);
     const [record] = listDetachedClaudeRecords();
 
-    let exited = false;
-    handle.once('exit', () => { exited = true; });
+    let exitArgs: unknown[] | null = null;
+    handle.once('exit', (...args: unknown[]) => { exitArgs = args; });
     handle.stdin.end();
 
-    await waitFor(() => exited);
+    await waitFor(() => exitArgs !== null);
+    assert.deepEqual(exitArgs, [0, null], 'a process let go on purpose exits cleanly');
     assert.equal(isAlive(record.pid), false);
     assert.deepEqual(fs.readdirSync(dir), [], 'pipes and record are removed');
   });
+});
+
+test('a process that dies on its own ends its stream and is reported as killed', async () => {
+  await withProcessesDir(async () => {
+    const handle = spawnDetachedClaude('app-5', { ...ECHO_CLI, env: { ...process.env } }, {}, null);
+    handle.stdin.write('x\n');
+    await nextLine(handle.stdout);
+    const [record] = listDetachedClaudeRecords();
+    // Something must consume the stream for 'end' to be emitted at all.
+    handle.stdout.on('data', () => {});
+
+    let exitArgs: unknown[] | null = null;
+    handle.once('exit', (...args: unknown[]) => { exitArgs = args; });
+    let ended = false;
+    handle.stdout.once('end', () => { ended = true; });
+
+    // The OOM killer or a crash: nobody asked the process to stop.
+    process.kill(record.pid, 'SIGKILL');
+    await waitFor(() => exitArgs !== null);
+    await waitFor(() => ended, 2000);
+
+    assert.deepEqual(exitArgs, [null, 'SIGKILL'], 'the exit says it was killed, so the SDK raises an error');
+    assert.equal(handle.killed, true);
+    assert.equal(handle.exitCode, null);
+    // Not this server's child and no scope here: the reason is not knowable.
+    assert.equal(await handle.unexpectedExit, 'unknown');
+  });
+});
+
+test('a process that dies on its own is logged with the reason and its scope unit', async () => {
+  await withProcessesDir(async (dir) => {
+    // A stand-in for `systemd-run --user --scope`: it drops the flags and runs the command.
+    const bin = path.join(dir, 'bin');
+    fs.mkdirSync(bin);
+    fs.writeFileSync(path.join(bin, 'systemd-run'), [
+      '#!/bin/sh',
+      'if [ "$1" = "--version" ]; then exit 0; fi',
+      'while [ $# -gt 0 ]; do case "$1" in --*) shift;; *) break;; esac; done',
+      'exec "$@"',
+      '',
+    ].join('\n'));
+    fs.chmodSync(path.join(bin, 'systemd-run'), 0o755);
+    const previousPath = process.env.PATH;
+    const previousScope = process.env.CLOUDCLI_DETACHED_CLAUDE_SCOPE;
+    process.env.PATH = `${bin}:${previousPath}`;
+    process.env.CLOUDCLI_DETACHED_CLAUDE_SCOPE = '1';
+    const warnings: string[] = [];
+    const warn = console.warn;
+    console.warn = (...args: unknown[]) => { warnings.push(args.map(String).join(' ')); };
+    try {
+      const handle = spawnDetachedClaude('app-6', { ...ECHO_CLI, env: { ...process.env } }, {}, null);
+      handle.stdin.write('x\n');
+      await nextLine(handle.stdout);
+      const [record] = listDetachedClaudeRecords();
+      assert.equal(record.unit, `cloudcli-claude-${path.basename(record.dir)}`);
+
+      handle.stdout.on('data', () => {});
+      process.kill(record.pid, 'SIGKILL');
+      await waitFor(() => handle.killed);
+      assert.equal(await handle.unexpectedExit, 'unknown', 'no journal entry for the unit');
+      const expected = `[Claude detached] process ${record.pid} for session app-6 exited unexpectedly: unknown`;
+      assert.ok(warnings.some((line) => line.includes(expected)), `logged: ${warnings.join(' | ')}`);
+    } finally {
+      console.warn = warn;
+      process.env.PATH = previousPath;
+      process.env.CLOUDCLI_DETACHED_CLAUDE_SCOPE = previousScope;
+    }
+  });
+});
+
+test('the journal lines of a scope are read for the reason it stopped', () => {
+  assert.equal(
+    parseScopeExitReason("A process of this unit has been killed by the OOM killer.\ncloudcli-claude-x.scope: Failed with result 'oom-kill'."),
+    'oom-kill',
+  );
+  assert.equal(parseScopeExitReason("cloudcli-claude-x.scope: Failed with result 'signal'."), 'signal');
+  assert.equal(parseScopeExitReason('Started cloudcli-claude-x.scope.'), 'unknown');
+  assert.equal(parseScopeExitReason(''), 'unknown');
+});
+
+test('the user sees a readable reason for an OOM kill, and a generic text otherwise', () => {
+  assert.match(unexpectedExitMessage('oom-kill'), /ran out of memory.*\(oom-kill\)\. Send a message to start it again\./);
+  assert.equal(unexpectedExitMessage('unknown'), 'The Claude process stopped unexpectedly. Send a message to start it again.');
 });
 
 // Last: the shutdown flag cannot be cleared again within this process.
