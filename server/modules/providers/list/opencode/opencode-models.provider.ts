@@ -303,12 +303,108 @@ const OPENCODE_ENV_PROVIDER_IDS: Record<string, string> = {
   OPENAI_API_KEY: 'openai',
 };
 
+/**
+ * Blanks out `//` and block comments, leaving string literals untouched.
+ *
+ * OpenCode reads `opencode.jsonc`, which allows comments, so a plain
+ * JSON.parse would drop the whole file. Strings are scanned as units so a
+ * `//` inside a value such as "http://127.0.0.1:8090/v1" survives.
+ */
+const stripJsonComments = (text: string): string => {
+  let output = '';
+  let inString = false;
+
+  for (let index = 0; index < text.length; index += 1) {
+    const char = text[index];
+
+    if (inString) {
+      output += char;
+      if (char === '\\') {
+        output += text[index + 1] ?? '';
+        index += 1;
+      } else if (char === '"') {
+        inString = false;
+      }
+      continue;
+    }
+
+    if (char === '"') {
+      inString = true;
+      output += char;
+    } else if (char === '/' && text[index + 1] === '/') {
+      // Stop before the newline so the line break itself is kept.
+      while (index + 1 < text.length && text[index + 1] !== '\n') {
+        index += 1;
+      }
+    } else if (char === '/' && text[index + 1] === '*') {
+      const end = text.indexOf('*/', index + 2);
+      index = end === -1 ? text.length : end + 1;
+    } else {
+      output += char;
+    }
+  }
+
+  return output;
+};
+
+/**
+ * Drops commas that directly precede `}` or `]`, which JSONC permits and
+ * JSON.parse rejects. Runs after {@link stripJsonComments}, so only whitespace
+ * needs skipping to reach the closing bracket.
+ */
+const stripTrailingCommas = (text: string): string => {
+  let output = '';
+  let inString = false;
+
+  for (let index = 0; index < text.length; index += 1) {
+    const char = text[index];
+
+    if (inString) {
+      output += char;
+      if (char === '\\') {
+        output += text[index + 1] ?? '';
+        index += 1;
+      } else if (char === '"') {
+        inString = false;
+      }
+      continue;
+    }
+
+    if (char === '"') {
+      inString = true;
+    } else if (char === ',') {
+      let next = index + 1;
+      while (next < text.length && /\s/.test(text[next])) {
+        next += 1;
+      }
+      if (text[next] === '}' || text[next] === ']') {
+        continue;
+      }
+    }
+    output += char;
+  }
+
+  return output;
+};
+
+/**
+ * Parses an OpenCode config document that may be strict JSON or JSONC.
+ * Returns null when the text is still not a JSON object after cleanup.
+ */
+export const parseOpenCodeConfigText = (text: string): Record<string, unknown> | null => {
+  try {
+    return readObjectRecord(JSON.parse(stripTrailingCommas(stripJsonComments(text))));
+  } catch {
+    return null;
+  }
+};
+
 const readOpenCodeJsonFile = async (filePath: string): Promise<Record<string, unknown> | null> => {
   try {
-    return readObjectRecord(JSON.parse(await readFile(filePath, 'utf8')));
+    return parseOpenCodeConfigText(await readFile(filePath, 'utf8'));
   } catch {
-    // Missing, unreadable, or comment-bearing (.jsonc) files simply contribute
-    // nothing; the auth store is the authoritative source below.
+    // A missing or unreadable file contributes nothing; the auth store is the
+    // authoritative source below.
     return null;
   }
 };

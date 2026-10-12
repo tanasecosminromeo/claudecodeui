@@ -10,9 +10,47 @@ import { closeConnection, initializeDatabase } from '@/modules/database/index.js
 import {
   OpenCodeProviderModels,
   OPENCODE_PREDEFINED_MODELS,
+  parseOpenCodeConfigText,
 } from '@/modules/providers/list/opencode/opencode-models.provider.js';
 
 const OPENCODE_ENV_KEYS = ['OPENCODE_API_KEY', 'ANTHROPIC_API_KEY', 'OPENAI_API_KEY'];
+
+test('OpenCode config parsing accepts JSONC comments and trailing commas', () => {
+  // A line comment must not swallow the next line.
+  assert.deepEqual(
+    parseOpenCodeConfigText('{\n  // pick a provider\n  "model": "local/x"\n}'),
+    { model: 'local/x' },
+  );
+  assert.deepEqual(
+    parseOpenCodeConfigText('{ /* inline */ "model": "local/x" }'),
+    { model: 'local/x' },
+  );
+  assert.deepEqual(
+    parseOpenCodeConfigText('{\n  /* multi\n     line */\n  "a": 1\n}'),
+    { a: 1 },
+  );
+  assert.deepEqual(
+    parseOpenCodeConfigText('{ "provider": { "local": { "name": "x", }, }, "list": [1, 2, ], }'),
+    { provider: { local: { name: 'x' } }, list: [1, 2] },
+  );
+  // A `//` inside a string value is part of the URL, not a comment.
+  assert.deepEqual(
+    parseOpenCodeConfigText(
+      '{\n  "baseURL": "http://127.0.0.1:8090/v1", // local server\n  "note": "a \\"//\\" b, ]"\n}',
+    ),
+    { baseURL: 'http://127.0.0.1:8090/v1', note: 'a "//" b, ]' },
+  );
+  // Strict JSON still parses unchanged.
+  assert.deepEqual(parseOpenCodeConfigText('{"a":[1,{"b":null}]}'), { a: [1, { b: null }] });
+});
+
+test('OpenCode config parsing returns null for invalid or non-object JSON', () => {
+  assert.equal(parseOpenCodeConfigText('{ "a": 1 '), null);
+  assert.equal(parseOpenCodeConfigText('{ "a": 1 // ok\n'), null);
+  assert.equal(parseOpenCodeConfigText('not json'), null);
+  assert.equal(parseOpenCodeConfigText('[1, 2,]'), null);
+  assert.equal(parseOpenCodeConfigText(''), null);
+});
 
 /**
  * Runs one case against a throwaway OpenCode home, so the catalog the adapter
@@ -197,6 +235,35 @@ test('OpenCode offers only models the install can route to', async () => {
       const providerIds = new Set(catalog.OPTIONS.map((option) => option.value.split('/')[0]));
 
       assert.deepEqual([...providerIds], ['openai']);
+    },
+  );
+});
+
+test('OpenCode reads providers from a commented opencode.jsonc', async () => {
+  await withOpenCodeHome(
+    async (homeDir) => {
+      const configDir = path.join(homeDir, '.config', 'opencode');
+      await mkdir(configDir, { recursive: true });
+      await writeFile(
+        path.join(configDir, 'opencode.jsonc'),
+        [
+          '{',
+          '  // local llama.cpp server',
+          '  "provider": {',
+          '    "anthropic": { "options": { "baseURL": "http://127.0.0.1:8090/v1" }, },',
+          '  },',
+          '}',
+        ].join('\n'),
+        'utf8',
+      );
+    },
+    async (adapter) => {
+      const catalog = await adapter.getSupportedModels();
+      const providerIds = new Set(catalog.OPTIONS.map((option) => option.value.split('/')[0]));
+
+      // Only the configured provider is connected, so the curated Zen list is
+      // narrowed away, which can only happen if the JSONC file was parsed.
+      assert.deepEqual([...providerIds], ['anthropic']);
     },
   );
 });
