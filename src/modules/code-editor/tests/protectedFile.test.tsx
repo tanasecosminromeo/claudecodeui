@@ -52,8 +52,8 @@ test('a protected file has no save or download, and no error styling', async () 
   render(<CodeEditor file={envFile} onClose={vi.fn()} />);
 
   await screen.findByTestId('protected-file-notice');
-  expect(screen.queryByTitle('Save')).toBeNull();
-  expect(screen.queryByTitle('Download file')).toBeNull();
+  expect(screen.queryByTitle('actions.save')).toBeNull();
+  expect(screen.queryByTitle('actions.download')).toBeNull();
   expect(screen.queryByText(/Error loading file/)).toBeNull();
   expect(document.querySelector('.text-red-700')).toBeNull();
 });
