@@ -87,6 +87,23 @@ div:has(> a[href*="discord.gg"]:only-child) ~ div:has(svg.lucide-settings) {
 }
 #uic-alert .uic-alert-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 #uic-alert .uic-alert-more { flex: 0 0 auto; opacity: .75; }
+/* In the workspace header row (cleanup.js placeAlert): a flex item that takes space from the title */
+#uic-alert.uic-alert-inline {
+  position: static;
+  /* Gives up its width before the tabs do: a squeezed tab strip hides tabs behind its scroll arrow */
+  flex: 0 1000 auto;
+  min-width: 0;
+  max-width: min(420px, 100%);
+  align-self: center; /* the header stacks on phones: keep the pill its own width */
+}
+/* The tab strip only gets the row's leftover width (flex-basis 0), so with the pill there it keeps
+   its full width and the title and pill shrink instead. Phones stack the row, so desktop only. */
+@media (min-width: 640px) {
+  header > div:has(> #uic-alert) > div:has([role="tablist"][aria-label="Workspace views"]) { min-width: max-content; }
+}
+#uic-alert.uic-alert-compact { gap: 4px; padding: 6px 8px; }
+#uic-alert.uic-alert-compact .uic-alert-text { display: none; }
+#uic-alert .uic-alert-more:empty { display: none; }
 @keyframes uic-alert-pulse {
   0%, 100% { box-shadow: 0 0 0 0 rgba(245, 158, 11, .55); }
   50% { box-shadow: 0 0 0 7px rgba(245, 158, 11, 0); }

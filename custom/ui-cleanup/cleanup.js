@@ -391,6 +391,39 @@
 
   function currentPath() { return location.pathname; }
 
+  // The workspace header row: the flex row holding the title block and the tab strip.
+  // Returns the row and the child of it that contains the tabs (the pill goes before that child).
+  function alertSlot() {
+    const tablist = document.querySelector('[role="tablist"][aria-label="Workspace views"]');
+    const header = tablist && tablist.closest('header');
+    const row = header && header.firstElementChild;
+    if (!row) return null;
+    let anchor = tablist;
+    while (anchor && anchor.parentElement !== row) anchor = anchor.parentElement;
+    return anchor ? { row, anchor } : null;
+  }
+
+  // Puts the pill in the header row before the tabs, so it takes space from the title instead of
+  // covering the tabs. No header (no project open, other layout): fixed top right, as before.
+  // Runs on every apply(), so React replacing the header just means one more move.
+  function placeAlert() {
+    if (!alertBadge) return;
+    const slot = alertSlot();
+    if (slot) {
+      if (alertBadge.parentElement !== slot.row || alertBadge.nextElementSibling !== slot.anchor) {
+        slot.row.insertBefore(alertBadge, slot.anchor);
+      }
+    } else if (alertBadge.parentElement !== document.body) {
+      document.body.appendChild(alertBadge);
+    }
+    alertBadge.classList.toggle('uic-alert-inline', !!slot);
+    // Compact (dot and +N only) on phones, or when the pill would get less than 120px with its text.
+    alertBadge.classList.remove('uic-alert-compact');
+    const narrow = innerWidth <= 640 || alertBadge.getBoundingClientRect().width < 120;
+    alertBadge.classList.toggle('uic-alert-compact', narrow);
+  }
+  addEventListener('resize', () => placeAlert());
+
   function renderBadge() {
     // targets = waiting sessions other than the one already open
     const targets = waitingNow.filter((s) => sessionPath(s) !== currentPath());
@@ -408,18 +441,19 @@
         if (next) goTo(next);
         renderBadge();
       });
-      document.body.appendChild(alertBadge);
     }
     const first = targets[0];
     const more = targets.length > 1 ? ` +${targets.length - 1}` : '';
     const label = `${first.title}${first.project ? ` · ${first.project}` : ''}`;
     alertBadge.title = `Needs your input: ${label}\nClick to open`;
+    alertBadge.setAttribute('aria-label', `Needs input: ${first.title}`);
     alertBadge.innerHTML = '';
     const dot = document.createElement('span'); dot.className = 'uic-alert-dot';
     const text = document.createElement('span'); text.className = 'uic-alert-text';
     text.textContent = `Needs input: ${first.title}`;
     const count = document.createElement('span'); count.className = 'uic-alert-more'; count.textContent = more;
     alertBadge.append(dot, text, count);
+    placeAlert();
   }
 
   function syncPulse() { if (shouldPulse()) startPulse(); else stopPulse(); }
@@ -594,6 +628,7 @@
     try { hideWorkspaceTabs(); } catch (err) { console.warn('[ui-cleanup] workspace tabs', err); }
     try { ensureComposerMeters(); } catch (err) { console.warn('[ui-cleanup] composer meter', err); }
     try { renderWaitBanner(); } catch (err) { console.warn('[ui-cleanup] wait banner', err); }
+    try { placeAlert(); } catch (err) { console.warn('[ui-cleanup] needs-input pill', err); }
     try {
       const footer = footerOf(document);
       const root = footer && footer.parentElement;
