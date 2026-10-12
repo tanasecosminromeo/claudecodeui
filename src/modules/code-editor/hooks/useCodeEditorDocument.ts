@@ -46,6 +46,9 @@ export const useCodeEditorDocument = ({ file, projectPath }: UseCodeEditorDocume
   const [isProtected, setIsProtected] = useState(false);
   // A normal file that held key-like values: its content is shown masked and cannot be saved.
   const [isMasked, setIsMasked] = useState(false);
+  // What the OS answers for writing the file, from the read. `null` when the text
+  // did not come from disk (a diff payload), so the editor keeps its usual behaviour.
+  const [writable, setWritable] = useState<boolean | null>(null);
   const { t } = useTranslation();
   // Some binaries (images, PDFs, audio, video) can be rendered natively, so the
   // editor shows an inline preview instead of the generic binary placeholder.
@@ -80,6 +83,7 @@ export const useCodeEditorDocument = ({ file, projectPath }: UseCodeEditorDocume
         setIsBinary(false);
         setIsProtected(false);
         setIsMasked(false);
+        setWritable(null);
         // Any save still in flight or failed belongs to the previous file.
         setSaving(false);
         setSaveError(null);
@@ -117,12 +121,13 @@ export const useCodeEditorDocument = ({ file, projectPath }: UseCodeEditorDocume
         // Read through readApiJson so the API's own explanation reaches the
         // pane — a directory, a path outside the project root, a missing file.
         // The bare status showed all of those as an opaque "403 Forbidden".
-        const data = await readApiJson<{ content: string; masked?: boolean }>(response);
+        const data = await readApiJson<{ content: string; masked?: boolean; writable?: boolean }>(response);
         if (isStaleLoad()) {
           return;
         }
         // Key-like values were replaced with •••• on the server: shown, but read-only.
         setIsMasked(data.masked === true);
+        setWritable(data.writable ?? null);
         applyLoadedContent(data.content);
       } catch (error) {
         if (isStaleLoad()) {
@@ -146,10 +151,15 @@ export const useCodeEditorDocument = ({ file, projectPath }: UseCodeEditorDocume
     loadFileContent();
   }, [file.diffInfo, file.name, fileDiffNewString, fileDiffOldString, fileName, filePath, fileProjectId]);
 
+  // Protected and masked files are never written; neither is a file the OS says
+  // the server cannot write. A diff payload (`writable` unknown) stays editable.
+  const isNotWritable = writable === false;
+  const isReadOnly = isProtected || isMasked || isNotWritable;
+
   const handleSave = useCallback(async () => {
     // Preview-only and binary files have no editable text buffer; never write
     // them back (e.g. via Cmd/Ctrl+S) or we'd corrupt the file on disk.
-    if (previewKind || isBinaryFile(fileName) || isProtected || isMasked) {
+    if (previewKind || isBinaryFile(fileName) || isReadOnly) {
       return;
     }
 
@@ -205,7 +215,7 @@ export const useCodeEditorDocument = ({ file, projectPath }: UseCodeEditorDocume
         setSaving(false);
       }
     }
-  }, [content, filePath, fileProjectId, previewKind, fileName, isProtected, isMasked, t]);
+  }, [content, filePath, fileProjectId, previewKind, fileName, isReadOnly, t]);
 
   const handleDownload = useCallback(() => {
     const blob = new Blob([content], { type: 'text/plain' });
@@ -250,6 +260,8 @@ export const useCodeEditorDocument = ({ file, projectPath }: UseCodeEditorDocume
     isBinary,
     isProtected,
     isMasked,
+    isNotWritable,
+    isReadOnly,
     previewKind,
     fileProjectId,
     hasUnsavedChanges,

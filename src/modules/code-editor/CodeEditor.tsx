@@ -72,6 +72,8 @@ export default function CodeEditor({
     isBinary,
     isProtected,
     isMasked,
+    isNotWritable,
+    isReadOnly,
     previewKind,
     fileProjectId,
     hasUnsavedChanges,
@@ -214,8 +216,9 @@ export default function CodeEditor({
       allExtensions.push(EditorView.lineWrapping);
     }
 
-    // The masked text is what is shown, so it must not be typed over and saved back.
-    if (isMasked) {
+    // The masked text is what is shown, and a file the OS will not let the server
+    // write must not be typed over either: neither can be saved back.
+    if (isReadOnly) {
       allExtensions.push(EditorState.readOnly.of(true));
     }
 
@@ -223,7 +226,7 @@ export default function CodeEditor({
   }, [
     file.diffInfo,
     file.name,
-    isMasked,
+    isReadOnly,
     minimapExtension,
     scrollToFirstChunkExtension,
     showDiff,
@@ -313,6 +316,7 @@ export default function CodeEditor({
             saveSuccess={saveSuccess}
             hasUnsavedChanges={hasUnsavedChanges}
             readOnly={isProtected || isMasked}
+            notWritable={isNotWritable}
             onToggleMarkdownPreview={() => setMarkdownPreview((previous) => !previous)}
             onOpenHtmlPreview={openHtmlPreview}
             onOpenSettings={() => paletteOps.openSettings('appearance')}
@@ -336,6 +340,8 @@ export default function CodeEditor({
               exitFullscreen: t('actions.exitFullscreen'),
               close: t('actions.close'),
               unsavedChanges: t('unsavedChanges.indicator', 'Unsaved changes'),
+              readOnly: t('readOnly.badge', 'Read-only'),
+              noPermission: t('readOnly.noPermission', 'No permission to write this file.'),
             }}
           />
 
@@ -378,7 +384,7 @@ export default function CodeEditor({
                 content={content}
                 linesLabel={t('footer.lines')}
                 charactersLabel={t('footer.characters')}
-                shortcutsLabel={isMasked ? t('footer.readOnlyShortcuts', 'Read-only • Esc to close') : t('footer.shortcuts')}
+                shortcutsLabel={isReadOnly ? t('footer.readOnlyShortcuts', 'Read-only • Esc to close') : t('footer.shortcuts')}
               />
             </>
           )}

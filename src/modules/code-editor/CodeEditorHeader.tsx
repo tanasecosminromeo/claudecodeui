@@ -16,6 +16,8 @@ type CodeEditorHeaderProps = {
   hasUnsavedChanges: boolean;
   // No save or download: the contents are hidden, or read-only here.
   readOnly: boolean;
+  // The OS will not let the server write the file: a badge, and no save (download stays).
+  notWritable: boolean;
   onToggleMarkdownPreview: () => void;
   onOpenHtmlPreview: () => void;
   onOpenSettings: () => void;
@@ -39,6 +41,8 @@ type CodeEditorHeaderProps = {
     exitFullscreen: string;
     close: string;
     unsavedChanges: string;
+    readOnly: string;
+    noPermission: string;
   };
 };
 
@@ -54,6 +58,7 @@ export default function CodeEditorHeader({
   saveSuccess,
   hasUnsavedChanges,
   readOnly,
+  notWritable,
   onToggleMarkdownPreview,
   onOpenHtmlPreview,
   onOpenSettings,
@@ -99,6 +104,14 @@ export default function CodeEditorHeader({
                 title={labels.unsavedChanges}
                 className="h-2 w-2 shrink-0 rounded-full bg-amber-500"
               />
+            )}
+            {notWritable && (
+              <span
+                title={labels.noPermission}
+                className="shrink-0 whitespace-nowrap rounded bg-amber-100 px-1.5 py-0.5 text-[10px] text-amber-800 dark:bg-amber-900/40 dark:text-amber-300"
+              >
+                {labels.readOnly}
+              </span>
             )}
             {file.diffInfo && (
               <span className="shrink-0 whitespace-nowrap rounded bg-blue-100 px-1.5 py-0.5 text-[10px] text-blue-600 dark:bg-blue-900 dark:text-blue-300">
@@ -173,7 +186,7 @@ export default function CodeEditorHeader({
           </button>
         )}
 
-        {!readOnly && (
+        {!readOnly && !notWritable && (
           <button
             type="button"
             onClick={onSave}
