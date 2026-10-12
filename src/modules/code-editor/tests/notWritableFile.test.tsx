@@ -48,7 +48,7 @@ test('a file the server cannot write shows a read-only badge and no Save', async
   await screen.findByTestId<HTMLTextAreaElement>('editor');
   const badge = screen.getByTitle('No permission to write this file.');
   expect(badge.textContent).toBe('Read-only');
-  expect(screen.queryByTitle('Save')).toBeNull();
+  expect(screen.queryByTitle('actions.save')).toBeNull();
   expect(screen.getByText('Read-only • Esc to close')).toBeTruthy();
 });
 

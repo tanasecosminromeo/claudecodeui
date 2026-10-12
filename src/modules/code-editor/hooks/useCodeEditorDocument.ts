@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 
 import { api, readApiJson } from '@/shared/api';
 import type { CodeEditorFile } from '@/shared/types';
+import { outsideProjectDirectory } from '@/modules/file-tree';
 import { isBinaryFile } from '@/modules/code-editor/utils/binaryFile';
 import { getPreviewKind } from '@/modules/code-editor/utils/previewableFile';
 
@@ -49,6 +50,10 @@ export const useCodeEditorDocument = ({ file, projectPath }: UseCodeEditorDocume
   // What the OS answers for writing the file, from the read. `null` when the text
   // did not come from disk (a diff payload), so the editor keeps its usual behaviour.
   const [writable, setWritable] = useState<boolean | null>(null);
+  // Saving a file outside the project changes something the project does not own,
+  // so the first save of this open file asks. Set once confirmed; reset on every load.
+  const [outsideSaveConfirmed, setOutsideSaveConfirmed] = useState(false);
+  const [outsideSavePending, setOutsideSavePending] = useState(false);
   const { t } = useTranslation();
   // Some binaries (images, PDFs, audio, video) can be rendered natively, so the
   // editor shows an inline preview instead of the generic binary placeholder.
@@ -84,6 +89,8 @@ export const useCodeEditorDocument = ({ file, projectPath }: UseCodeEditorDocume
         setIsProtected(false);
         setIsMasked(false);
         setWritable(null);
+        setOutsideSaveConfirmed(false);
+        setOutsideSavePending(false);
         // Any save still in flight or failed belongs to the previous file.
         setSaving(false);
         setSaveError(null);
@@ -217,6 +224,29 @@ export const useCodeEditorDocument = ({ file, projectPath }: UseCodeEditorDocume
     }
   }, [content, filePath, fileProjectId, previewKind, fileName, isReadOnly, t]);
 
+  // Only a file the OS says is writable can be saved, so only that one asks first.
+  const isOutsideProject = projectPath ? outsideProjectDirectory(projectPath, filePath) !== null : false;
+  const needsOutsideSaveConfirm = isOutsideProject && writable === true && !outsideSaveConfirmed;
+
+  // The save button and Ctrl/Cmd+S go through here; the confirm decides whether it runs now.
+  const requestSave = useCallback(() => {
+    if (needsOutsideSaveConfirm) {
+      setOutsideSavePending(true);
+      return;
+    }
+    void handleSave();
+  }, [handleSave, needsOutsideSaveConfirm]);
+
+  const confirmOutsideSave = useCallback(() => {
+    setOutsideSavePending(false);
+    setOutsideSaveConfirmed(true);
+    void handleSave();
+  }, [handleSave]);
+
+  const cancelOutsideSave = useCallback(() => {
+    setOutsideSavePending(false);
+  }, []);
+
   const handleDownload = useCallback(() => {
     const blob = new Blob([content], { type: 'text/plain' });
     const url = URL.createObjectURL(blob);
@@ -266,6 +296,10 @@ export const useCodeEditorDocument = ({ file, projectPath }: UseCodeEditorDocume
     fileProjectId,
     hasUnsavedChanges,
     handleSave,
+    requestSave,
+    outsideSavePending,
+    confirmOutsideSave,
+    cancelOutsideSave,
     handleDownload,
   };
 };

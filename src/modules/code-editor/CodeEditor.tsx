@@ -7,7 +7,7 @@ import { useTranslation } from 'react-i18next';
 
 import { usePaletteOps } from '@/modules/command-palette';
 import { useTheme } from '@/shared/context/ThemeContext';
-import { ProtectedFileNotice } from '@/shared/ui';
+import { Button, Dialog, DialogContent, ProtectedFileNotice } from '@/shared/ui';
 import { useCodeEditorDocument } from '@/modules/code-editor/hooks/useCodeEditorDocument';
 import { useCodeEditorSettings } from '@/modules/code-editor/hooks/useCodeEditorSettings';
 import { useEditorKeyboardShortcuts } from '@/modules/code-editor/hooks/useEditorKeyboardShortcuts';
@@ -77,7 +77,10 @@ export default function CodeEditor({
     previewKind,
     fileProjectId,
     hasUnsavedChanges,
-    handleSave,
+    requestSave,
+    outsideSavePending,
+    confirmOutsideSave,
+    cancelOutsideSave,
     handleDownload,
   } = useCodeEditorDocument({
     file,
@@ -235,7 +238,7 @@ export default function CodeEditor({
   ]);
 
   useEditorKeyboardShortcuts({
-    onSave: handleSave,
+    onSave: requestSave,
     onClose: requestClose,
     dependency: content,
   });
@@ -321,7 +324,7 @@ export default function CodeEditor({
             onOpenHtmlPreview={openHtmlPreview}
             onOpenSettings={() => paletteOps.openSettings('appearance')}
             onDownload={handleDownload}
-            onSave={handleSave}
+            onSave={requestSave}
             onToggleFullscreen={() => setIsFullscreen((previous) => !previous)}
             onClose={requestClose}
             labels={{
@@ -390,6 +393,28 @@ export default function CodeEditor({
           )}
         </div>
       </div>
+
+      <Dialog open={outsideSavePending} onOpenChange={(open) => { if (!open) cancelOutsideSave(); }}>
+        <DialogContent className="p-6" aria-labelledby="code-editor-outside-save-title">
+          <h2 id="code-editor-outside-save-title" className="text-base font-semibold text-foreground">
+            {t('outsideSave.title', 'Save outside the project?')}
+          </h2>
+          <p className="mt-2 text-sm text-muted-foreground">
+            {t('outsideSave.message', 'This file is not in the project. Saving changes it on disk.')}
+          </p>
+          <p className="mt-2 break-all font-mono text-xs text-muted-foreground" title={file.path}>
+            {file.path}
+          </p>
+          <div className="mt-6 flex justify-end gap-2">
+            <Button variant="outline" onClick={cancelOutsideSave}>
+              {t('outsideSave.cancel', 'Cancel')}
+            </Button>
+            <Button onClick={confirmOutsideSave}>
+              {t('actions.save', 'Save')}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </>
   );
 }
