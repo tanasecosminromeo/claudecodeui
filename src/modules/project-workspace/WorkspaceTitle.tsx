@@ -1,7 +1,8 @@
-import { Archive } from 'lucide-react';
+import { Archive, MessageCircleQuestion } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
 import { LLMProviderLogo } from '@/shared/ui';
+import { toggleSideQuestionsPanel, useSideQuestionEntries, useSideQuestionsPanelOpen } from '@/modules/side-questions';
 import type { AppTab, Project, ProjectSession } from '@/shared/types';
 import { useBackgroundSessionIdSet, useBusySessionIdSet } from '@/shared/context/SessionProtectionContext';
 import { usePaletteOps } from '@/modules/command-palette';
@@ -71,6 +72,10 @@ export default function WorkspaceTitle({
   const canArchiveSession = activeTab === 'chat' && Boolean(selectedSession)
     && !(busySessionIds.has(selectedSession?.id ?? '') && !backgroundSessionIds.has(selectedSession?.id ?? ''));
   const archiveLabel = t('sessions.archiveSession', { ns: 'sidebar', defaultValue: 'Archive session' });
+  // `/btw` side questions are answered by Claude only, so the toggle is too.
+  const showSideQuestionsToggle = activeTab === 'chat' && selectedSession?.__provider === 'claude';
+  const isSideQuestionsOpen = useSideQuestionsPanelOpen();
+  const sideQuestionCount = useSideQuestionEntries(selectedSession?.id ?? null).length;
 
   const sessionTitle = selectedSession ? getSessionTitle(selectedSession) : '';
 
@@ -141,6 +146,22 @@ export default function WorkspaceTitle({
           </div>
         )}
       </div>
+
+      {showSideQuestionsToggle && (
+        <button
+          type="button"
+          onClick={toggleSideQuestionsPanel}
+          aria-pressed={isSideQuestionsOpen}
+          title={t('misc.sideQuestion.toggle', { ns: 'chat' })}
+          aria-label={`${t('misc.sideQuestion.toggle', { ns: 'chat' })}${sideQuestionCount > 0 ? `: ${sideQuestionCount}` : ''}`}
+          className={`flex h-7 flex-shrink-0 items-center gap-1 rounded-md px-1.5 text-xs transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 ${
+            isSideQuestionsOpen ? 'bg-muted text-foreground' : 'text-muted-foreground'
+          }`}
+        >
+          <MessageCircleQuestion className="h-4 w-4" />
+          {sideQuestionCount > 0 && <span className="tabular-nums">{sideQuestionCount}</span>}
+        </button>
+      )}
 
       {canArchiveSession && selectedSession && (
         // Phones only (the sidebar row has its own icon on desktop): the sidebar is a

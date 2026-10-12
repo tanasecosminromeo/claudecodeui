@@ -28,6 +28,7 @@ import {
   writeQueuedMessage,
 } from '@/shared/chatDrafts';
 import { escapeRegExp } from '@/modules/chat/utils/chatFormatting';
+import { setSideQuestionsPanelOpen, upsertSideQuestionEntry } from '@/modules/side-questions';
 import { useFileMentions } from '@/modules/chat/hooks/useFileMentions';
 import { useInputHistory } from '@/modules/chat/hooks/useInputHistory';
 import { useSlashCommands } from '@/modules/chat/hooks/useSlashCommands';
@@ -356,12 +357,23 @@ export function useChatComposerState({
           break;
         }
 
-        case 'btw':
-          setCommandModalPayload({
-            kind: 'btw',
-            data: (data || { status: 'error' }) as SideQuestionCommandData,
-          });
+        case 'btw': {
+          // The answer arrives later over the websocket; the entry shows as pending meanwhile.
+          const sideQuestion = (data || {}) as SideQuestionCommandData;
+          if (sideQuestion.entry) {
+            upsertSideQuestionEntry(sideQuestion.entry);
+            setSideQuestionsPanelOpen(true);
+          } else {
+            addMessage({
+              type: 'assistant',
+              content: sideQuestion.status
+                ? t(`misc.sideQuestion.${sideQuestion.status}`)
+                : sideQuestion.message || 'The side question could not be asked.',
+              timestamp: Date.now(),
+            });
+          }
           break;
+        }
 
         case 'memory':
           if (data.error) {
@@ -390,7 +402,7 @@ export function useChatComposerState({
           console.warn('Unknown built-in command action:', action);
       }
     },
-    [onFileOpen, onShowSettings, addMessage],
+    [onFileOpen, onShowSettings, addMessage, t],
   );
 
   const closeCommandModal = useCallback(() => {
@@ -441,12 +453,6 @@ export function useChatComposerState({
         const args =
           commandMatch && commandMatch[1] ? commandMatch[1].trim().split(/\s+/) : [];
 
-        // A side question can take a while to answer; open its modal now so
-        // the wait is visible.
-        if (isSideQuestion) {
-          setCommandModalPayload({ kind: 'btw', data: { question: args.join(' '), status: 'pending' } });
-        }
-
         // The `/api/commands/execute` context sends `projectId` now instead of
         // a folder-derived project name; the path is still included verbatim.
         const context = {
@@ -489,18 +495,6 @@ export function useChatComposerState({
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Unknown error';
         console.error('Error executing command:', error);
-        // The side question's failure belongs in its own modal, not the chat.
-        if (isSideQuestion) {
-          setCommandModalPayload((current) => ({
-            kind: 'btw',
-            data: {
-              question: (current?.kind === 'btw' ? (current.data as SideQuestionCommandData).question : undefined),
-              status: 'error',
-              message,
-            },
-          }));
-          return;
-        }
         addMessage({
           type: 'assistant',
           content: `Error executing command: ${message}`,

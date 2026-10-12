@@ -369,8 +369,8 @@ function ChatInterface({
       }
       // Escape closes an open popup, menu or list first. This listener runs
       // in the capture phase, ahead of theirs, so without this check closing
-      // the /btw answer — asked precisely while Claude works — also stopped
-      // Claude's turn.
+      // one of them also stopped Claude's turn. The side-questions panel is an
+      // aside, not a dialog, so Escape still stops the turn while it is open.
       if (document.querySelector('[role="dialog"], [role="menu"], [role="listbox"]')) {
         return;
       }

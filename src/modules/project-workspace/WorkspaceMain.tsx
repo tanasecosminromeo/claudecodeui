@@ -7,6 +7,7 @@ import { GitPanel } from '@/modules/git-panel';
 import { PluginTabContent } from '@/modules/plugins';
 import { BrowserUsePanel, useBrowserUseEnabled } from '@/modules/browser-use';
 import { usePaletteOpsRegister } from '@/modules/command-palette';
+import { SideQuestionsPanel } from '@/modules/side-questions';
 import { TaskMasterPanel, useTaskMasterProjectSync, useTasksSettings } from '@/modules/task-master';
 import type { AppTab, DirectoryRevealRequest, Project, ProjectSession, SessionEstablishedContext, SessionNavigationOptions, SettingsMainTab } from '@/shared/types';
 import { useUiPreferences } from '@/shared/context/UiPreferencesContext';
@@ -39,6 +40,8 @@ type WorkspaceMainProps = {
   onProjectsRefresh: () => void;
   /** Persists a new title for a session; resolves false when the backend refuses it. Used by the header's inline rename. */
   onRenameSession: (sessionId: string, summary: string) => Promise<boolean>;
+  /** Starts a new chat in the project; the side-questions panel uses it for Start session. */
+  onStartNewChat: (project: Project) => void;
 };
 
 /** Rendered by ProjectMainRegion to show the selected project's active tab: chat, files, shell, git, tasks, browser or a plugin. */
@@ -60,6 +63,7 @@ function WorkspaceMain({
   onProjectSelect,
   onProjectsRefresh,
   onRenameSession,
+  onStartNewChat,
 }: WorkspaceMainProps) {
   const preferences = useUiPreferences();
   const { showRawParameters, showThinking, sendByCtrlEnter } = preferences;
@@ -253,6 +257,15 @@ function WorkspaceMain({
           onUnsavedChangesChange={handleUnsavedChangesChange}
           projectPath={selectedProject.path}
           fillSpace={activeTab === 'files'}
+        />
+
+        {/* Docked to the right of the editor column on the Chat tab; a full-screen sheet on phones. */}
+        <SideQuestionsPanel
+          selectedProject={selectedProject}
+          selectedSession={selectedSession}
+          activeTab={activeTab}
+          isMobile={isMobile}
+          onStartNewChat={onStartNewChat}
         />
 
         <FileLinkNotice notice={fileLinkNotice} onDismiss={dismissFileLinkNotice} />

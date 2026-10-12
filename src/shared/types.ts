@@ -783,19 +783,32 @@ export type HelpCommandData = {
   }>;
 };
 
-/** State of the chat `/btw` side question shown in the command modal: `pending` while the request is in flight, `answered` with the model's markdown `answer` (and whether the live process or a throwaway fork gave it), `error` when the request failed, or one of the server's non-answer statuses, each carrying an English fallback `message`. */
+/** One `/btw` side question as the server stores and broadcasts it. `pending` until the provider answers; `saved` is false when the session is not indexed yet, so the entry is gone after a reload. */
+export type SideQuestionEntry = {
+  id: number;
+  sessionId: string;
+  question: string;
+  answer: string | null;
+  status: 'pending' | 'answered' | 'failed';
+  source: 'live' | 'fork' | null;
+  error: string | null;
+  createdAt: string;
+  answeredAt: string | null;
+  saved: boolean;
+};
+
+/** Result data of the `/btw` command: the `entry` it created (usually pending), or, when the question was not asked, a `status` with the server's English `message`. */
 export type SideQuestionCommandData = {
   question?: string;
-  status: 'pending' | 'answered' | 'error' | 'empty_question' | 'no_context' | 'unsupported';
-  answer?: string;
-  source?: 'live' | 'fork';
+  entry?: SideQuestionEntry;
+  status?: 'empty_question' | 'no_context' | 'unsupported';
   message?: string;
 };
 
 /** Wrapper pairing a CommandModalKind with its matching command result data; pass it as the single payload prop that tells the chat command modal which slash-command result to render, or null to close it. */
 export type CommandModalPayload = {
   kind: CommandModalKind;
-  data: HelpCommandData | ModelCommandData | CostCommandData | StatusCommandData | SideQuestionCommandData;
+  data: HelpCommandData | ModelCommandData | CostCommandData | StatusCommandData;
 };
 
 /** A composer message queued while its session is still busy, holding the text, the in-memory and already-uploaded attachments and the send options snapshotted at queue time so it can be auto-sent unchanged once the session goes idle. */
@@ -832,8 +845,8 @@ export type SlashCommand = {
   [key: string]: unknown;
 };
 
-/** Discriminator naming which slash-command result the chat command modal is showing: 'help', 'models', 'cost', 'status' or 'btw' (a side question). */
-type CommandModalKind = 'help' | 'models' | 'cost' | 'status' | 'btw';
+/** Discriminator naming which slash-command result the chat command modal is showing: 'help', 'models', 'cost' or 'status'. */
+type CommandModalKind = 'help' | 'models' | 'cost' | 'status';
 
 // ---------------------------
 
