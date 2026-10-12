@@ -100,8 +100,10 @@ function isMaskableBare(value: string): boolean {
  * `==`, `=>` and `===` are not assignments.
  */
 // A bare value never contains `=` (except trailing base64 padding), so
-// `note: API_KEY=abc` leaves the inner `API_KEY=` for its own match.
-const ASSIGNMENT = /(?<![A-Za-z0-9_.-])([A-Za-z0-9_.-]+)(["']?[ \t]*[=:](?![=>])[ \t]*)(?:(["'`])([^"'`\r\n]*)\3|([^\s"'`;,()[\]{}<>=]+=*)(?![\w(.<=]))/g;
+// `note: API_KEY=abc` leaves the inner `API_KEY=` for its own match. A `<`
+// after the value means a generic (`token: Promise<string>`), except `</`,
+// which closes an HTML element around the value (`<td>API_KEY=abc</td>`).
+const ASSIGNMENT = /(?<![A-Za-z0-9_.-])([A-Za-z0-9_.-]+)(["']?[ \t]*[=:](?![=>])[ \t]*)(?:(["'`])([^"'`\r\n]*)\3|([^\s"'`;,()[\]{}<>=]+=*)(?![\w(.=]|<(?!\/)))/g;
 
 function maskAssignment(
   match: string,

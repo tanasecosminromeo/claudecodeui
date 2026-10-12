@@ -1,5 +1,6 @@
 import { constants as fileSystemConstants } from 'node:fs';
 import path from 'node:path';
+import { Readable } from 'node:stream';
 
 import ignore from 'ignore';
 
@@ -533,8 +534,15 @@ export function createFileTreeService(dependencies: FileTreeServiceDependencies)
         mapFileSystemError(error, READ_ERRORS);
       }
 
+      const contentType = dependencies.resolveMimeType(resolvedPath);
+      // Text opened raw (an HTML preview, a JSON or YAML file in a new tab) gets
+      // the same masking as the editor; images, PDFs and media stream as they are.
+      if (/^text\/|json|xml|javascript|yaml|toml/.test(contentType)) {
+        const content = await fileSystem.readTextFile(resolvedPath);
+        return { contentType, stream: Readable.from([maskSecrets(content)]) };
+      }
       return {
-        contentType: dependencies.resolveMimeType(resolvedPath),
+        contentType,
         stream: fileSystem.createReadStream(resolvedPath),
       };
     },

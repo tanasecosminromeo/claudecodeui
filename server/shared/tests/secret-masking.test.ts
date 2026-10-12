@@ -151,3 +151,8 @@ test('env files, compose and MCP env maps mask any real value', () => {
   assert.equal(maskSecrets('  GITHUB_TOKEN: FAKEvalue'), `  GITHUB_TOKEN: ${MASK}`);
   assert.equal(maskSecrets('"BRAVE_API_KEY": "FAKEvalue"'), `"BRAVE_API_KEY": "${MASK}"`);
 });
+
+test('a value inside an HTML element is masked; a generic type is not', () => {
+  assert.equal(maskSecrets('<td>API_KEY=FAKE_TEST_VALUE_123</td>'), `<td>API_KEY=${MASK}</td>`);
+  assert.equal(maskSecrets('let token: Promise<string>;'), 'let token: Promise<string>;');
+});

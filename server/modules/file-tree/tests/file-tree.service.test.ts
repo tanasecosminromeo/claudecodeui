@@ -723,3 +723,25 @@ test('a readable file with a key-like value is shown masked and cannot be saved 
     await fsPromises.rm(projectRoot, { recursive: true, force: true });
   }
 });
+
+test('a text file opened raw is masked like the editor', async () => {
+  const projectRoot = await fsPromises.mkdtemp(path.join(os.tmpdir(), 'file-tree-project-'));
+  const FAKE = ['FAKE', 'rawvalue', '9911'].join('');
+  try {
+    await fsPromises.writeFile(path.join(projectRoot, 'report.html'), `<p>DB_PASSWORD=${FAKE}</p>\n`, 'utf8');
+    await fsPromises.writeFile(path.join(projectRoot, 'plain.html'), '<p>hello</p>\n', 'utf8');
+    const service = createRealFileSystemService(projectRoot);
+    const read = async (name: string) => {
+      const opened = await service.openFile('project-1', name);
+      let text = '';
+      for await (const chunk of opened.stream) text += chunk.toString();
+      return text;
+    };
+    const report = await read('report.html');
+    assert.equal(report.includes(FAKE), false);
+    assert.equal(report.includes('DB_PASSWORD=••••'), true);
+    assert.equal(await read('plain.html'), '<p>hello</p>\n');
+  } finally {
+    await fsPromises.rm(projectRoot, { recursive: true, force: true });
+  }
+});
