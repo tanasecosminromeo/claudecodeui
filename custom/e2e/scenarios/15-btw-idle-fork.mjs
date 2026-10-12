@@ -35,10 +35,9 @@ export async function run({ chat, page, paths, expect, sleep, processes }) {
   const before = transcripts(paths);
 
   await chat.send('/btw Which single word did I ask you to reply with? Answer with just that word.');
-  const popup = page.locator('[role=dialog]').filter({ hasText: /PINEAPPLE/ });
-  await popup.waitFor({ state: 'visible', timeout: 60000 });
-  expect(true, 'the fork answered from the conversation');
-  await page.keyboard.press('Escape');
+  const panel = page.getByRole('complementary', { name: 'Side questions' });
+  await panel.getByText(/PINEAPPLE/).last().waitFor({ state: 'visible', timeout: 60000 });
+  expect(true, 'the fork answered from the conversation, in the side panel');
   await sleep(2000);
   expect(transcripts(paths).length === before.length, 'the fork wrote no transcript of its own');
   expect(processes(sessionId).length === 0, 'and left no process behind');

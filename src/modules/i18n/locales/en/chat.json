@@ -396,6 +396,7 @@
       "notSaved": "Not saved. This session is not indexed yet, so this answer is gone after a reload.",
       "empty": "No side questions yet. Ask one below. The session keeps working and nothing is added to it.",
       "placeholder": "Ask a side question",
+      "send": "Send side question",
       "noSessionHint": "Send the first message in this chat before /btw works here.",
       "empty_question": "Type a question after the command, for example: /btw what are you working on?",
       "no_context": "This session has no conversation yet. Send a message first, then ask /btw.",
