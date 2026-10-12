@@ -303,12 +303,108 @@ const OPENCODE_ENV_PROVIDER_IDS: Record<string, string> = {
   OPENAI_API_KEY: 'openai',
 };
 
+/**
+ * Blanks out `//` and block comments, leaving string literals untouched.
+ *
+ * OpenCode reads `opencode.jsonc`, which allows comments, so a plain
+ * JSON.parse would drop the whole file. Strings are scanned as units so a
+ * `//` inside a value such as "http://127.0.0.1:8090/v1" survives.
+ */
+const stripJsonComments = (text: string): string => {
+  let output = '';
+  let inString = false;
+
+  for (let index = 0; index < text.length; index += 1) {
+    const char = text[index];
+
+    if (inString) {
+      output += char;
+      if (char === '\\') {
+        output += text[index + 1] ?? '';
+        index += 1;
+      } else if (char === '"') {
+        inString = false;
+      }
+      continue;
+    }
+
+    if (char === '"') {
+      inString = true;
+      output += char;
+    } else if (char === '/' && text[index + 1] === '/') {
+      // Stop before the newline so the line break itself is kept.
+      while (index + 1 < text.length && text[index + 1] !== '\n') {
+        index += 1;
+      }
+    } else if (char === '/' && text[index + 1] === '*') {
+      const end = text.indexOf('*/', index + 2);
+      index = end === -1 ? text.length : end + 1;
+    } else {
+      output += char;
+    }
+  }
+
+  return output;
+};
+
+/**
+ * Drops commas that directly precede `}` or `]`, which JSONC permits and
+ * JSON.parse rejects. Runs after {@link stripJsonComments}, so only whitespace
+ * needs skipping to reach the closing bracket.
+ */
+const stripTrailingCommas = (text: string): string => {
+  let output = '';
+  let inString = false;
+
+  for (let index = 0; index < text.length; index += 1) {
+    const char = text[index];
+
+    if (inString) {
+      output += char;
+      if (char === '\\') {
+        output += text[index + 1] ?? '';
+        index += 1;
+      } else if (char === '"') {
+        inString = false;
+      }
+      continue;
+    }
+
+    if (char === '"') {
+      inString = true;
+    } else if (char === ',') {
+      let next = index + 1;
+      while (next < text.length && /\s/.test(text[next])) {
+        next += 1;
+      }
+      if (text[next] === '}' || text[next] === ']') {
+        continue;
+      }
+    }
+    output += char;
+  }
+
+  return output;
+};
+
+/**
+ * Parses an OpenCode config document that may be strict JSON or JSONC.
+ * Returns null when the text is still not a JSON object after cleanup.
+ */
+export const parseOpenCodeConfigText = (text: string): Record<string, unknown> | null => {
+  try {
+    return readObjectRecord(JSON.parse(stripTrailingCommas(stripJsonComments(text))));
+  } catch {
+    return null;
+  }
+};
+
 const readOpenCodeJsonFile = async (filePath: string): Promise<Record<string, unknown> | null> => {
   try {
-    return readObjectRecord(JSON.parse(await readFile(filePath, 'utf8')));
+    return parseOpenCodeConfigText(await readFile(filePath, 'utf8'));
   } catch {
-    // Missing, unreadable, or comment-bearing (.jsonc) files simply contribute
-    // nothing; the auth store is the authoritative source below.
+    // A missing or unreadable file contributes nothing; the auth store is the
+    // authoritative source below.
     return null;
   }
 };
@@ -328,12 +424,14 @@ const readOpenCodeJsonFile = async (filePath: string): Promise<Record<string, un
  * project-level `opencode.json` are not visible here; the null fallback and the
  * env-key sweep keep those installs on the full list.
  */
-const readConnectedOpenCodeProviderIds = async (): Promise<Set<string> | null> => {
+const readConnectedOpenCodeProviderIds = async (
+  homeDir: string,
+  configs: Record<string, unknown>[],
+): Promise<Set<string> | null> => {
   const providerIds = new Set<string>();
-  const configDir = path.join(os.homedir(), '.config', 'opencode');
 
   const auth = await readOpenCodeJsonFile(
-    path.join(os.homedir(), '.local', 'share', 'opencode', 'auth.json'),
+    path.join(homeDir, '.local', 'share', 'opencode', 'auth.json'),
   );
   for (const [providerId, credential] of Object.entries(auth ?? {})) {
     if (readObjectRecord(credential)) {
@@ -341,9 +439,8 @@ const readConnectedOpenCodeProviderIds = async (): Promise<Set<string> | null> =
     }
   }
 
-  for (const configFile of OPENCODE_CONFIG_FILES) {
-    const config = await readOpenCodeJsonFile(path.join(configDir, configFile));
-    for (const providerId of Object.keys(readObjectRecord(config?.provider) ?? {})) {
+  for (const config of configs) {
+    for (const providerId of Object.keys(readObjectRecord(config.provider) ?? {})) {
       providerIds.add(providerId);
     }
   }
@@ -385,6 +482,307 @@ const filterOpenCodeModelsByProvider = (
       ? definition.DEFAULT
       : options[0].value,
   };
+};
+
+/** Reads every global config file that exists, in the order the CLI loads them. */
+const readOpenCodeConfigs = async (homeDir: string): Promise<Record<string, unknown>[]> => {
+  const configDir = path.join(homeDir, '.config', 'opencode');
+  const configs: Record<string, unknown>[] = [];
+
+  for (const configFile of OPENCODE_CONFIG_FILES) {
+    const config = await readOpenCodeJsonFile(path.join(configDir, configFile));
+    if (config) {
+      configs.push(config);
+    }
+  }
+
+  return configs;
+};
+
+/**
+ * Builds picker options for models a user declared under `provider.<id>.models`,
+ * such as a local llama.cpp or LM Studio server.
+ *
+ * OpenCode addresses these as `<providerId>/<modelId>`, the same form the
+ * curated catalog uses, so the value is exactly what the CLI expects. The
+ * provider's display name becomes the description, matching how the curated
+ * options name their gateway.
+ */
+const buildCustomProviderModelOptions = (
+  configs: Record<string, unknown>[],
+): ProviderModelsDefinition['OPTIONS'] => {
+  const options: ProviderModelsDefinition['OPTIONS'] = [];
+
+  for (const config of configs) {
+    for (const [providerId, rawProvider] of Object.entries(readObjectRecord(config.provider) ?? {})) {
+      const provider = readObjectRecord(rawProvider);
+      const providerName = readOptionalString(provider?.name) ?? providerId;
+
+      for (const [modelId, rawModel] of Object.entries(readObjectRecord(provider?.models) ?? {})) {
+        const model = readObjectRecord(rawModel);
+        options.push({
+          value: `${providerId}/${modelId}`,
+          label: readOptionalString(model?.name) ?? modelId,
+          description: providerName,
+        });
+      }
+    }
+  }
+
+  return options;
+};
+
+/**
+ * Appends custom-provider models after the curated options.
+ *
+ * Curated entries win on a repeated `value`, so a user who declares a model
+ * that already exists in the catalog does not see it twice.
+ */
+const appendCustomProviderModels = (
+  definition: ProviderModelsDefinition,
+  configs: Record<string, unknown>[],
+): ProviderModelsDefinition => {
+  const customOptions = buildCustomProviderModelOptions(configs);
+  if (customOptions.length === 0) {
+    return definition;
+  }
+
+  const seenValues = new Set(definition.OPTIONS.map((option) => option.value));
+  const options = [...definition.OPTIONS];
+  for (const option of customOptions) {
+    if (!seenValues.has(option.value)) {
+      seenValues.add(option.value);
+      options.push(option);
+    }
+  }
+
+  return { ...definition, OPTIONS: options };
+};
+
+const readStringList = (value: unknown): string[] | null => {
+  if (!Array.isArray(value)) {
+    return null;
+  }
+  return value.filter((item): item is string => typeof item === 'string');
+};
+
+/** `<providerId>/<modelId>` split at the first slash; provider ids never contain one. */
+const providerIdOf = (value: string): string => value.split('/')[0];
+
+/** Model id after the provider prefix. Model ids may contain slashes, e.g. OpenRouter ids. */
+const modelIdOf = (value: string): string => value.slice(providerIdOf(value).length + 1);
+
+/** Whitelist and blacklist for one provider id, merged across config files. */
+type ProviderModelListRule = {
+  name: string | null;
+  whitelist: Set<string> | null;
+  blacklist: Set<string>;
+};
+
+/**
+ * Reads `provider.<id>.whitelist` and `provider.<id>.blacklist` from every
+ * config. A later file wins for each key it sets, as it does when OpenCode
+ * merges its config layers.
+ */
+const readProviderModelListRules = (
+  configs: Record<string, unknown>[],
+): Map<string, ProviderModelListRule> => {
+  const rules = new Map<string, ProviderModelListRule>();
+
+  for (const config of configs) {
+    for (const [providerId, rawProvider] of Object.entries(readObjectRecord(config.provider) ?? {})) {
+      const provider = readObjectRecord(rawProvider);
+      const whitelist = readStringList(provider?.whitelist);
+      const blacklist = readStringList(provider?.blacklist);
+      const name = readOptionalString(provider?.name);
+      if (!whitelist && !blacklist && !name) {
+        continue;
+      }
+
+      const rule = rules.get(providerId) ?? { name: null, whitelist: null, blacklist: new Set<string>() };
+      if (name) {
+        rule.name = name;
+      }
+      if (whitelist) {
+        rule.whitelist = new Set(whitelist);
+      }
+      if (blacklist) {
+        rule.blacklist = new Set(blacklist);
+      }
+      rules.set(providerId, rule);
+    }
+  }
+
+  return rules;
+};
+
+/**
+ * Applies per-provider `whitelist` and `blacklist` to curated and custom options.
+ *
+ * A whitelist keeps only the listed model ids of that provider. It also adds
+ * listed ids the catalog does not know yet (for example a newly released free
+ * model), labelled with the id itself, so the picker offers what the config
+ * allows rather than only what this CloudCLI release ships. A blacklist removes
+ * model ids of that provider, and also stops a whitelisted id from being added.
+ *
+ * Without these lists the picker would show every model of a provider the user
+ * has connected, including paid ones they have excluded in their config.
+ *
+ * When the rules would leave nothing, the input list is returned unchanged so
+ * the picker is never empty.
+ */
+const applyProviderModelListRules = (
+  definition: ProviderModelsDefinition,
+  configs: Record<string, unknown>[],
+): ProviderModelsDefinition => {
+  const rules = readProviderModelListRules(configs);
+  if (rules.size === 0) {
+    return definition;
+  }
+
+  // Added options borrow the curated description of their provider when the
+  // config gives no provider name, e.g. "OpenCode Zen" for `opencode/*`.
+  const descriptionByProvider = new Map<string, string>();
+  for (const option of definition.OPTIONS) {
+    const providerId = providerIdOf(option.value);
+    if (option.description && !descriptionByProvider.has(providerId)) {
+      descriptionByProvider.set(providerId, option.description);
+    }
+  }
+
+  const options = definition.OPTIONS.filter((option) => {
+    const rule = rules.get(providerIdOf(option.value));
+    if (!rule) {
+      return true;
+    }
+    const modelId = modelIdOf(option.value);
+    return !rule.blacklist.has(modelId) && (!rule.whitelist || rule.whitelist.has(modelId));
+  });
+
+  const presentValues = new Set(options.map((option) => option.value));
+  for (const [providerId, rule] of rules) {
+    if (!rule.whitelist) {
+      continue;
+    }
+    for (const modelId of rule.whitelist) {
+      const value = `${providerId}/${modelId}`;
+      if (rule.blacklist.has(modelId) || presentValues.has(value)) {
+        continue;
+      }
+      presentValues.add(value);
+      options.push({
+        value,
+        label: modelId,
+        description: rule.name ?? descriptionByProvider.get(providerId) ?? providerId,
+      });
+    }
+  }
+
+  if (options.length === 0) {
+    return definition;
+  }
+
+  return {
+    ...definition,
+    OPTIONS: options,
+    DEFAULT: options.some((option) => option.value === definition.DEFAULT)
+      ? definition.DEFAULT
+      : options[0].value,
+  };
+};
+
+/**
+ * Keeps only the options OpenCode would actually route to under the config's
+ * `enabled_providers` and `disabled_providers` lists.
+ *
+ * OpenCode routes only to providers in `enabled_providers` when that key is
+ * present, and never to one in `disabled_providers`, so a model the picker
+ * offers from an excluded provider would fail the run with "not valid". Later
+ * config files win for a key they set, as they do when OpenCode merges its
+ * config layers.
+ *
+ * When the rules would leave nothing, the input list is returned unchanged. An
+ * empty picker is worse than a longer one: the frontend keeps `DEFAULT: ''` as
+ * the selected model, sends it with the next run, and hides the model menu
+ * entirely because there is nothing to choose from.
+ */
+const applyProviderAccessRules = (
+  definition: ProviderModelsDefinition,
+  configs: Record<string, unknown>[],
+): ProviderModelsDefinition => {
+  let enabledProviderIds: Set<string> | null = null;
+  let disabledProviderIds = new Set<string>();
+  for (const config of configs) {
+    const enabledList = readStringList(config.enabled_providers);
+    if (enabledList) {
+      enabledProviderIds = new Set(enabledList);
+    }
+    const disabledList = readStringList(config.disabled_providers);
+    if (disabledList) {
+      disabledProviderIds = new Set(disabledList);
+    }
+  }
+
+  if (!enabledProviderIds && disabledProviderIds.size === 0) {
+    return definition;
+  }
+
+  const options = definition.OPTIONS.filter((option) => {
+    const providerId = providerIdOf(option.value);
+    return (!enabledProviderIds || enabledProviderIds.has(providerId))
+      && !disabledProviderIds.has(providerId);
+  });
+  if (options.length === 0) {
+    return definition;
+  }
+
+  return {
+    ...definition,
+    OPTIONS: options,
+    DEFAULT: options.some((option) => option.value === definition.DEFAULT)
+      ? definition.DEFAULT
+      : options[0].value,
+  };
+};
+
+/**
+ * Makes the config's top-level `model` the picker default when it is one of the
+ * final options, since that is the model OpenCode itself starts with. A later
+ * config file wins. When the configured model is absent from the list, the
+ * default chosen by the earlier steps (curated default if it survives, else the
+ * first option) stays in place.
+ */
+const applyConfiguredModelDefault = (
+  definition: ProviderModelsDefinition,
+  configs: Record<string, unknown>[],
+): ProviderModelsDefinition => {
+  let configuredModel: string | null = null;
+  for (const config of configs) {
+    configuredModel = readOptionalString(config.model) ?? configuredModel;
+  }
+
+  if (configuredModel && definition.OPTIONS.some((option) => option.value === configuredModel)) {
+    return { ...definition, DEFAULT: configuredModel };
+  }
+  return definition;
+};
+
+/**
+ * Builds the model picker catalog for the OpenCode config under `homeDir`.
+ *
+ * Takes the home directory as a parameter so tests can point it at a fixture
+ * instead of replacing `os.homedir` for the whole process.
+ */
+export const loadOpenCodeModelCatalog = async (
+  homeDir: string = os.homedir(),
+): Promise<ProviderModelsDefinition> => {
+  const configs = await readOpenCodeConfigs(homeDir);
+  const connectedProviderIds = await readConnectedOpenCodeProviderIds(homeDir, configs);
+  const curated = filterOpenCodeModelsByProvider(OPENCODE_PREDEFINED_MODELS, connectedProviderIds);
+  const withCustomModels = appendCustomProviderModels(curated, configs);
+  const withListRules = applyProviderModelListRules(withCustomModels, configs);
+  const withAccessRules = applyProviderAccessRules(withListRules, configs);
+  return applyConfiguredModelDefault(withAccessRules, configs);
 };
 
 const parseOpenCodeSessionModelValue = (rawModel: unknown): string | null => {
@@ -431,10 +829,7 @@ const parseOpenCodeSessionModelValue = (rawModel: unknown): string | null => {
 /** Provider registry model adapter for OpenCode predefined models and session metadata. */
 export class OpenCodeProviderModels implements IProviderModels {
   async getSupportedModels(): Promise<ProviderModelsDefinition> {
-    return filterOpenCodeModelsByProvider(
-      OPENCODE_PREDEFINED_MODELS,
-      await readConnectedOpenCodeProviderIds(),
-    );
+    return loadOpenCodeModelCatalog();
   }
 
   async getCurrentActiveModel(sessionId?: string): Promise<ProviderCurrentActiveModel> {
