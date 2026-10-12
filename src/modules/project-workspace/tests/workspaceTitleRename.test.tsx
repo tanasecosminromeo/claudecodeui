@@ -13,6 +13,8 @@ import type { Project, ProjectSession } from '@/shared/types';
  */
 
 vi.mock('react-i18next', () => ({
+  // initReactI18next: the title's imports reach the i18n config through the side-questions module.
+  initReactI18next: { type: '3rdParty', init: () => undefined },
   useTranslation: () => ({
     t: (key: string, options?: { title?: string }) => (
       key === 'mainContent.renameSessionHint' && options?.title

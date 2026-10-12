@@ -489,6 +489,8 @@ export const api = {
     // the field entirely, which is what the server expects.
     list: (projectPath: string | undefined) => post('/api/commands/list', { projectPath }),
     execute: (payload: unknown) => post('/api/commands/execute', payload),
+    // Side questions asked in one session, oldest first, with its transcript path.
+    sideQuestions: (sessionId: string) => get(`/api/commands/side-questions?sessionId=${encodeURIComponent(sessionId)}`),
   },
 
   // Chat attachments, stored globally under ~/.cloudcli/assets

@@ -135,6 +135,10 @@ export function useChatRealtimeHandlers({
           onWebSocketReconnect?.();
           return;
 
+        case 'side_question_updated':
+          // A `/btw` entry belongs to the side-questions panel, not the transcript.
+          return;
+
         case 'history_truncated': {
           // An already-sent message was replaced. Every client watching this
           // session drops the superseded turns before the replacement streams

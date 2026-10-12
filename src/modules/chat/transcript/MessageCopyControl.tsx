@@ -41,8 +41,7 @@ const convertMarkdownToPlainText = (markdown: string): string => {
 
 /**
  * Rendered by chat's MessageComponent to copy a turn to the clipboard, with a
- * markdown/plain-text format picker on assistant turns, and by chat's
- * CommandResultModal to copy a /btw answer the same way.
+ * markdown/plain-text format picker on assistant turns.
  */
 const MessageCopyControl = ({
   content,

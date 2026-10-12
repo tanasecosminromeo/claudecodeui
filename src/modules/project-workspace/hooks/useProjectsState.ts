@@ -739,6 +739,11 @@ export function useProjectsState({
         return;
       }
 
+      // A `/btw` entry carries a sessionId but is not session activity.
+      if (event.kind === 'side_question_updated') {
+        return;
+      }
+
       if (event.kind === 'loading_progress') {
         if (loadingProgressTimeoutRef.current) {
           clearTimeout(loadingProgressTimeoutRef.current);
