@@ -1496,8 +1496,11 @@ export type FileTreeServices = {
     suggestions: Array<{ path: string; name: string; type: 'directory' }>;
   }>;
   createWorkspaceFolder(folderPath: string): Promise<{ success: true; path: string }>;
-  /** `masked` is set when key-like values were replaced in `content`; such a file is read-only. */
-  readTextFile(projectId: string, filePath: string): Promise<{ content: string; path: string; masked?: boolean }>;
+  /**
+   * `writable` is what the OS answers for writing the file. `masked` is set when
+   * key-like values were replaced in `content`; such a file is read-only.
+   */
+  readTextFile(projectId: string, filePath: string): Promise<{ content: string; path: string; writable: boolean; masked?: boolean }>;
   openFile(projectId: string, filePath: string): Promise<{ contentType: string; stream: Readable }>;
   /**
    * The first of `candidates` that is a file the viewer may read, as an

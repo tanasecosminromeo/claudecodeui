@@ -47,8 +47,8 @@ test('a masked file is shown under the banner, with no save or download', async 
   const editor = await screen.findByTestId<HTMLTextAreaElement>('editor');
   expect(editor.value).toBe('API_KEY=••••');
   expect(screen.getByRole('status').textContent).toContain('Contains key-like values: shown masked (••••), read-only here.');
-  expect(screen.queryByTitle('Save')).toBeNull();
-  expect(screen.queryByTitle('Download file')).toBeNull();
+  expect(screen.queryByTitle('actions.save')).toBeNull();
+  expect(screen.queryByTitle('actions.download')).toBeNull();
 });
 
 test('Ctrl+S does not write a masked file', async () => {

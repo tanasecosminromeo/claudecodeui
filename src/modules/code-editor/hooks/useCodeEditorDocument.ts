@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 
 import { api, readApiJson } from '@/shared/api';
 import type { CodeEditorFile } from '@/shared/types';
+import { outsideProjectDirectory } from '@/modules/file-tree';
 import { isBinaryFile } from '@/modules/code-editor/utils/binaryFile';
 import { getPreviewKind } from '@/modules/code-editor/utils/previewableFile';
 
@@ -46,6 +47,13 @@ export const useCodeEditorDocument = ({ file, projectPath }: UseCodeEditorDocume
   const [isProtected, setIsProtected] = useState(false);
   // A normal file that held key-like values: its content is shown masked and cannot be saved.
   const [isMasked, setIsMasked] = useState(false);
+  // What the OS answers for writing the file, from the read. `null` when the text
+  // did not come from disk (a diff payload), so the editor keeps its usual behaviour.
+  const [writable, setWritable] = useState<boolean | null>(null);
+  // Saving a file outside the project changes something the project does not own,
+  // so the first save of this open file asks. Set once confirmed; reset on every load.
+  const [outsideSaveConfirmed, setOutsideSaveConfirmed] = useState(false);
+  const [outsideSavePending, setOutsideSavePending] = useState(false);
   const { t } = useTranslation();
   // Some binaries (images, PDFs, audio, video) can be rendered natively, so the
   // editor shows an inline preview instead of the generic binary placeholder.
@@ -80,6 +88,9 @@ export const useCodeEditorDocument = ({ file, projectPath }: UseCodeEditorDocume
         setIsBinary(false);
         setIsProtected(false);
         setIsMasked(false);
+        setWritable(null);
+        setOutsideSaveConfirmed(false);
+        setOutsideSavePending(false);
         // Any save still in flight or failed belongs to the previous file.
         setSaving(false);
         setSaveError(null);
@@ -117,12 +128,13 @@ export const useCodeEditorDocument = ({ file, projectPath }: UseCodeEditorDocume
         // Read through readApiJson so the API's own explanation reaches the
         // pane — a directory, a path outside the project root, a missing file.
         // The bare status showed all of those as an opaque "403 Forbidden".
-        const data = await readApiJson<{ content: string; masked?: boolean }>(response);
+        const data = await readApiJson<{ content: string; masked?: boolean; writable?: boolean }>(response);
         if (isStaleLoad()) {
           return;
         }
         // Key-like values were replaced with •••• on the server: shown, but read-only.
         setIsMasked(data.masked === true);
+        setWritable(data.writable ?? null);
         applyLoadedContent(data.content);
       } catch (error) {
         if (isStaleLoad()) {
@@ -146,10 +158,15 @@ export const useCodeEditorDocument = ({ file, projectPath }: UseCodeEditorDocume
     loadFileContent();
   }, [file.diffInfo, file.name, fileDiffNewString, fileDiffOldString, fileName, filePath, fileProjectId]);
 
+  // Protected and masked files are never written; neither is a file the OS says
+  // the server cannot write. A diff payload (`writable` unknown) stays editable.
+  const isNotWritable = writable === false;
+  const isReadOnly = isProtected || isMasked || isNotWritable;
+
   const handleSave = useCallback(async () => {
     // Preview-only and binary files have no editable text buffer; never write
     // them back (e.g. via Cmd/Ctrl+S) or we'd corrupt the file on disk.
-    if (previewKind || isBinaryFile(fileName) || isProtected || isMasked) {
+    if (previewKind || isBinaryFile(fileName) || isReadOnly) {
       return;
     }
 
@@ -192,12 +209,20 @@ export const useCodeEditorDocument = ({ file, projectPath }: UseCodeEditorDocume
       setSaveSuccess(true);
       setTimeout(() => setSaveSuccess(false), 2000);
     } catch (error) {
-      // A masked file can turn read-only after it was opened: say why, not a generic failure.
-      const message = getErrorCode(error) === 'MASKED_FILE'
+      // A masked file can turn read-only after it was opened, and a file can lose
+      // its write permission after it was opened: say why, not a generic failure.
+      const code = getErrorCode(error);
+      const message = code === 'MASKED_FILE'
         ? t('protectedFile.maskedSave', 'Contains key-like values: read-only here.')
-        : getErrorMessage(error);
+        : code === 'PERMISSION_DENIED'
+          ? t('codeEditor:readOnly.noPermission', 'No permission to write this file.')
+          : getErrorMessage(error);
       console.error('Error saving file:', error);
       if (!isStaleSave()) {
+        // The OS has refused the write, so the editor turns read-only (badge, no Save).
+        if (code === 'PERMISSION_DENIED') {
+          setWritable(false);
+        }
         setSaveError(message);
       }
     } finally {
@@ -205,7 +230,30 @@ export const useCodeEditorDocument = ({ file, projectPath }: UseCodeEditorDocume
         setSaving(false);
       }
     }
-  }, [content, filePath, fileProjectId, previewKind, fileName, isProtected, isMasked, t]);
+  }, [content, filePath, fileProjectId, previewKind, fileName, isReadOnly, t]);
+
+  // Only a file the OS says is writable can be saved, so only that one asks first.
+  const isOutsideProject = projectPath ? outsideProjectDirectory(projectPath, filePath) !== null : false;
+  const needsOutsideSaveConfirm = isOutsideProject && writable === true && !outsideSaveConfirmed;
+
+  // The save button and Ctrl/Cmd+S go through here; the confirm decides whether it runs now.
+  const requestSave = useCallback(() => {
+    if (needsOutsideSaveConfirm) {
+      setOutsideSavePending(true);
+      return;
+    }
+    void handleSave();
+  }, [handleSave, needsOutsideSaveConfirm]);
+
+  const confirmOutsideSave = useCallback(() => {
+    setOutsideSavePending(false);
+    setOutsideSaveConfirmed(true);
+    void handleSave();
+  }, [handleSave]);
+
+  const cancelOutsideSave = useCallback(() => {
+    setOutsideSavePending(false);
+  }, []);
 
   const handleDownload = useCallback(() => {
     const blob = new Blob([content], { type: 'text/plain' });
@@ -250,10 +298,16 @@ export const useCodeEditorDocument = ({ file, projectPath }: UseCodeEditorDocume
     isBinary,
     isProtected,
     isMasked,
+    isNotWritable,
+    isReadOnly,
     previewKind,
     fileProjectId,
     hasUnsavedChanges,
     handleSave,
+    requestSave,
+    outsideSavePending,
+    confirmOutsideSave,
+    cancelOutsideSave,
     handleDownload,
   };
 };

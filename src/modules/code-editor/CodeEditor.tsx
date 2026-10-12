@@ -7,7 +7,7 @@ import { useTranslation } from 'react-i18next';
 
 import { usePaletteOps } from '@/modules/command-palette';
 import { useTheme } from '@/shared/context/ThemeContext';
-import { ProtectedFileNotice } from '@/shared/ui';
+import { Button, Dialog, DialogContent, ProtectedFileNotice } from '@/shared/ui';
 import { useCodeEditorDocument } from '@/modules/code-editor/hooks/useCodeEditorDocument';
 import { useCodeEditorSettings } from '@/modules/code-editor/hooks/useCodeEditorSettings';
 import { useEditorKeyboardShortcuts } from '@/modules/code-editor/hooks/useEditorKeyboardShortcuts';
@@ -72,10 +72,15 @@ export default function CodeEditor({
     isBinary,
     isProtected,
     isMasked,
+    isNotWritable,
+    isReadOnly,
     previewKind,
     fileProjectId,
     hasUnsavedChanges,
-    handleSave,
+    requestSave,
+    outsideSavePending,
+    confirmOutsideSave,
+    cancelOutsideSave,
     handleDownload,
   } = useCodeEditorDocument({
     file,
@@ -214,8 +219,9 @@ export default function CodeEditor({
       allExtensions.push(EditorView.lineWrapping);
     }
 
-    // The masked text is what is shown, so it must not be typed over and saved back.
-    if (isMasked) {
+    // The masked text is what is shown, and a file the OS will not let the server
+    // write must not be typed over either: neither can be saved back.
+    if (isReadOnly) {
       allExtensions.push(EditorState.readOnly.of(true));
     }
 
@@ -223,7 +229,7 @@ export default function CodeEditor({
   }, [
     file.diffInfo,
     file.name,
-    isMasked,
+    isReadOnly,
     minimapExtension,
     scrollToFirstChunkExtension,
     showDiff,
@@ -232,7 +238,7 @@ export default function CodeEditor({
   ]);
 
   useEditorKeyboardShortcuts({
-    onSave: handleSave,
+    onSave: requestSave,
     onClose: requestClose,
     dependency: content,
   });
@@ -313,11 +319,12 @@ export default function CodeEditor({
             saveSuccess={saveSuccess}
             hasUnsavedChanges={hasUnsavedChanges}
             readOnly={isProtected || isMasked}
+            notWritable={isNotWritable}
             onToggleMarkdownPreview={() => setMarkdownPreview((previous) => !previous)}
             onOpenHtmlPreview={openHtmlPreview}
             onOpenSettings={() => paletteOps.openSettings('appearance')}
             onDownload={handleDownload}
-            onSave={handleSave}
+            onSave={requestSave}
             onToggleFullscreen={() => setIsFullscreen((previous) => !previous)}
             onClose={requestClose}
             labels={{
@@ -336,6 +343,8 @@ export default function CodeEditor({
               exitFullscreen: t('actions.exitFullscreen'),
               close: t('actions.close'),
               unsavedChanges: t('unsavedChanges.indicator', 'Unsaved changes'),
+              readOnly: t('readOnly.badge', 'Read-only'),
+              noPermission: t('readOnly.noPermission', 'No permission to write this file.'),
             }}
           />
 
@@ -378,12 +387,34 @@ export default function CodeEditor({
                 content={content}
                 linesLabel={t('footer.lines')}
                 charactersLabel={t('footer.characters')}
-                shortcutsLabel={isMasked ? t('footer.readOnlyShortcuts', 'Read-only • Esc to close') : t('footer.shortcuts')}
+                shortcutsLabel={isReadOnly ? t('footer.readOnlyShortcuts', 'Read-only • Esc to close') : t('footer.shortcuts')}
               />
             </>
           )}
         </div>
       </div>
+
+      <Dialog open={outsideSavePending} onOpenChange={(open) => { if (!open) cancelOutsideSave(); }}>
+        <DialogContent className="p-6" aria-labelledby="code-editor-outside-save-title">
+          <h2 id="code-editor-outside-save-title" className="text-base font-semibold text-foreground">
+            {t('outsideSave.title', 'Save outside the project?')}
+          </h2>
+          <p className="mt-2 text-sm text-muted-foreground">
+            {t('outsideSave.message', 'This file is not in the project. Saving changes it on disk.')}
+          </p>
+          <p className="mt-2 break-all font-mono text-xs text-muted-foreground" title={file.path}>
+            {file.path}
+          </p>
+          <div className="mt-6 flex justify-end gap-2">
+            <Button variant="outline" onClick={cancelOutsideSave}>
+              {t('outsideSave.cancel', 'Cancel')}
+            </Button>
+            <Button onClick={confirmOutsideSave}>
+              {t('actions.save', 'Save')}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </>
   );
 }

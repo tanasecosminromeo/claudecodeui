@@ -41,6 +41,15 @@
     "error": "Unable to display this file.",
     "openInNewTab": "Open in new tab"
   },
+  "readOnly": {
+    "badge": "Read-only",
+    "noPermission": "No permission to write this file."
+  },
+  "outsideSave": {
+    "title": "Save outside the project?",
+    "message": "This file is not in the project. Saving changes it on disk.",
+    "cancel": "Cancel"
+  },
   "unsavedChanges": {
     "confirmClose": "You have unsaved changes. Close this file and discard them?",
     "indicator": "Unsaved changes"

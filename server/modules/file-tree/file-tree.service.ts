@@ -92,13 +92,16 @@ function validateFilename(name: string): void {
   }
 }
 
+function isInsideProject(projectRoot: string, resolvedPath: string): boolean {
+  return resolvedPath.startsWith(path.resolve(projectRoot) + path.sep);
+}
+
 function resolvePathInsideProject(projectRoot: string, targetPath: string): string {
   const resolvedPath = path.isAbsolute(targetPath)
     ? path.resolve(targetPath)
     : path.resolve(projectRoot, targetPath);
-  const normalizedProjectRoot = path.resolve(projectRoot) + path.sep;
 
-  if (!resolvedPath.startsWith(normalizedProjectRoot)) {
+  if (!isInsideProject(projectRoot, resolvedPath)) {
     throw createFileTreeError('Path must be under project root', 403, 'PATH_OUTSIDE_PROJECT');
   }
 
@@ -184,6 +187,14 @@ const READ_ERRORS: Partial<Record<string, MappedFileSystemError>> = {
   ENOTDIR: FILE_NOT_FOUND,
   EACCES: PERMISSION_DENIED,
   EPERM: PERMISSION_DENIED,
+};
+
+// A save outside the project overwrites an existing file the OS lets this
+// process write. Anything else is refused the same way a read is, and a
+// read-only mount reports EROFS rather than EACCES.
+const SAVE_OUTSIDE_ERRORS: Partial<Record<string, MappedFileSystemError>> = {
+  ...READ_ERRORS,
+  EROFS: PERMISSION_DENIED,
 };
 
 function isPermissionError(error: unknown): boolean {
@@ -420,6 +431,33 @@ export function createFileTreeService(dependencies: FileTreeServiceDependencies)
     }
   }
 
+  /**
+   * Checks that a save outside the project has a file to overwrite that the
+   * server process may write. It never creates one: a missing file is not found.
+   */
+  async function assertOverwritableOutsideProject(filePath: string): Promise<void> {
+    try {
+      const stats = await fileSystem.stat(filePath);
+      if (stats.isDirectory()) {
+        throw createFileTreeError('Path is a directory, not a file', 400, 'EISDIR');
+      }
+      await fileSystem.access(filePath, fileSystemConstants.W_OK);
+    } catch (error) {
+      if (error instanceof AppError) throw error;
+      mapFileSystemError(error, SAVE_OUTSIDE_ERRORS);
+    }
+  }
+
+  /** Whether the server process may write the file, as the OS answers it. */
+  async function isWritable(filePath: string): Promise<boolean> {
+    try {
+      await fileSystem.access(filePath, fileSystemConstants.W_OK);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   async function cleanupTemporaryFiles(files: FileTreeUploadedFile[]): Promise<void> {
     await Promise.all(files.map(async (file) => {
       try {
@@ -507,19 +545,22 @@ export function createFileTreeService(dependencies: FileTreeServiceDependencies)
       const projectRoot = await resolveProjectRoot(projectId);
       const resolvedPath = resolveReadablePath(projectRoot, filePath);
       await assertNotProtected(resolvedPath);
+      let content: string;
       try {
-        const content = await fileSystem.readTextFile(resolvedPath);
-        // A key-like value in a file that is not protected by name is shown masked.
-        const masked = maskSecrets(content);
-        return masked === content
-          ? { content, path: resolvedPath }
-          : { content: masked, path: resolvedPath, masked: true };
+        content = await fileSystem.readTextFile(resolvedPath);
       } catch (error) {
         mapFileSystemError(error, {
           ...READ_ERRORS,
           EISDIR: { message: 'Path is a directory, not a file', statusCode: 400 },
         });
       }
+      // The editor offers Save only when the OS would let it write the file.
+      const writable = await isWritable(resolvedPath);
+      // A key-like value in a file that is not protected by name is shown masked.
+      const masked = maskSecrets(content);
+      return masked === content
+        ? { content, path: resolvedPath, writable }
+        : { content: masked, path: resolvedPath, writable, masked: true };
     },
 
     async openFile(projectId, filePath) {
@@ -580,17 +621,24 @@ export function createFileTreeService(dependencies: FileTreeServiceDependencies)
 
     async saveTextFile(projectId, filePath, content) {
       const projectRoot = await resolveProjectRoot(projectId);
-      const resolvedPath = resolvePathInsideProject(projectRoot, filePath);
-      // Never shown, so never edited through the UI either.
+      // Resolved as a read is, so a save names the same file the editor opened.
+      const resolvedPath = resolveReadablePath(projectRoot, filePath);
+      // Never shown, so never edited through the UI either, wherever it is.
       await assertNotProtected(resolvedPath);
       await assertNoKeyLikeValues(resolvedPath);
+      const insideProject = isInsideProject(projectRoot, resolvedPath);
+      if (!insideProject) {
+        await assertOverwritableOutsideProject(resolvedPath);
+      }
       try {
         await fileSystem.writeTextFile(resolvedPath, content);
       } catch (error) {
-        mapFileSystemError(error, {
-          ENOENT: { message: 'File or directory not found', statusCode: 404 },
-          EACCES: { message: 'Permission denied', statusCode: 403 },
-        });
+        mapFileSystemError(error, insideProject
+          ? {
+              ENOENT: { message: 'File or directory not found', statusCode: 404 },
+              EACCES: { message: 'Permission denied', statusCode: 403 },
+            }
+          : SAVE_OUTSIDE_ERRORS);
       }
 
       return { success: true, path: resolvedPath, message: 'File saved successfully' };
