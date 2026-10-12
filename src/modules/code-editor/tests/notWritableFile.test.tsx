@@ -61,3 +61,21 @@ test('Ctrl+S does not save a file the server cannot write', async () => {
 
   await waitFor(() => expect(saveFile).not.toHaveBeenCalled());
 });
+
+test('a save the OS refuses says no permission and turns the editor read-only', async () => {
+  readFile.mockResolvedValueOnce(jsonResponse(200, { content: 'hello', writable: true }));
+  saveFile.mockResolvedValueOnce(jsonResponse(403, {
+    error: 'Permission denied',
+    code: 'PERMISSION_DENIED',
+  }));
+  render(<CodeEditor file={{ name: 'notes.txt', path: '/work/app/notes.txt', projectId: 'p1' }} onClose={vi.fn()} />);
+
+  const editor = await screen.findByTestId<HTMLTextAreaElement>('editor');
+  fireEvent.change(editor, { target: { value: 'hello world' } });
+  fireEvent.keyDown(document, { key: 's', ctrlKey: true });
+
+  expect(await screen.findByText('No permission to write this file.')).toBeTruthy();
+  expect(screen.queryByText(/Permission denied/)).toBeNull();
+  expect(screen.getByTitle('No permission to write this file.').textContent).toBe('Read-only');
+  expect(screen.queryByTitle('actions.save')).toBeNull();
+});

@@ -209,12 +209,20 @@ export const useCodeEditorDocument = ({ file, projectPath }: UseCodeEditorDocume
       setSaveSuccess(true);
       setTimeout(() => setSaveSuccess(false), 2000);
     } catch (error) {
-      // A masked file can turn read-only after it was opened: say why, not a generic failure.
-      const message = getErrorCode(error) === 'MASKED_FILE'
+      // A masked file can turn read-only after it was opened, and a file can lose
+      // its write permission after it was opened: say why, not a generic failure.
+      const code = getErrorCode(error);
+      const message = code === 'MASKED_FILE'
         ? t('protectedFile.maskedSave', 'Contains key-like values: read-only here.')
-        : getErrorMessage(error);
+        : code === 'PERMISSION_DENIED'
+          ? t('codeEditor:readOnly.noPermission', 'No permission to write this file.')
+          : getErrorMessage(error);
       console.error('Error saving file:', error);
       if (!isStaleSave()) {
+        // The OS has refused the write, so the editor turns read-only (badge, no Save).
+        if (code === 'PERMISSION_DENIED') {
+          setWritable(false);
+        }
         setSaveError(message);
       }
     } finally {
