@@ -378,7 +378,7 @@ export default function CodeEditor({
                 content={content}
                 linesLabel={t('footer.lines')}
                 charactersLabel={t('footer.characters')}
-                shortcutsLabel={t('footer.shortcuts')}
+                shortcutsLabel={isMasked ? t('footer.readOnlyShortcuts', 'Read-only • Esc to close') : t('footer.shortcuts')}
               />
             </>
           )}
