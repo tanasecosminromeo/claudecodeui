@@ -282,10 +282,13 @@ export default function CodeEditor({
     return (
       <CodeEditorBinaryFile
         file={file}
+        projectId={fileProjectId}
         isSidebar={isSidebar}
         isFullscreen={isFullscreen}
         onClose={requestClose}
         onToggleFullscreen={() => setIsFullscreen((previous) => !previous)}
+        downloadLabel={t('binaryFile.download', 'Download')}
+        downloadErrorLabel={t('binaryFile.downloadError', 'Could not download this file.')}
         title={t('binaryFile.title', 'Binary File')}
         message={t('binaryFile.message', 'The file "{{fileName}}" cannot be displayed in the text editor because it is a binary file.', { fileName: file.name })}
       />

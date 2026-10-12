@@ -1,25 +1,77 @@
+import { Download } from 'lucide-react';
+import { useState } from 'react';
+
+import { api } from '@/shared/api';
 import type { CodeEditorFile } from '@/shared/types';
 
 type CodeEditorBinaryFileProps = {
   file: CodeEditorFile;
+  // DB projectId for the raw-content endpoint; without it there is nothing to download.
+  projectId?: string;
   isSidebar: boolean;
   isFullscreen: boolean;
   onClose: () => void;
   onToggleFullscreen: () => void;
   title: string;
   message: string;
+  downloadLabel: string;
+  downloadErrorLabel: string;
 };
 
 /** Rendered by CodeEditor inside the code-editor module when the opened file is binary and cannot be edited as text. */
 export default function CodeEditorBinaryFile({
   file,
+  projectId,
   isSidebar,
   isFullscreen,
   onClose,
   onToggleFullscreen,
   title,
   message,
+  downloadLabel,
+  downloadErrorLabel,
 }: CodeEditorBinaryFileProps) {
+  const [downloading, setDownloading] = useState(false);
+  const [downloadError, setDownloadError] = useState(false);
+
+  // The editor's own download writes the text buffer, which is empty here, so
+  // the raw bytes come from the streaming endpoint instead.
+  const download = async () => {
+    if (!projectId || downloading) return;
+    setDownloading(true);
+    setDownloadError(false);
+    try {
+      const response = await api.readFileBlob(projectId, file.path);
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const blobUrl = URL.createObjectURL(await response.blob());
+      const anchor = document.createElement('a');
+      anchor.href = blobUrl;
+      anchor.download = file.name;
+      document.body.appendChild(anchor);
+      anchor.click();
+      document.body.removeChild(anchor);
+      window.setTimeout(() => URL.revokeObjectURL(blobUrl), 0);
+    } catch (error) {
+      console.error(`Failed to download "${file.name}":`, error);
+      setDownloadError(true);
+    } finally {
+      setDownloading(false);
+    }
+  };
+
+  const headerDownloadButton = projectId ? (
+    <button
+      type="button"
+      onClick={() => void download()}
+      disabled={downloading}
+      className="flex items-center justify-center rounded-md p-1.5 text-gray-600 hover:bg-gray-100 hover:text-gray-900 disabled:opacity-50 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-white"
+      title={downloadLabel}
+      aria-label={downloadLabel}
+    >
+      <Download className="h-4 w-4" />
+    </button>
+  ) : null;
+
   const binaryContent = (
     <div className="flex h-full w-full flex-col items-center justify-center bg-background p-8 text-muted-foreground">
       <div className="flex max-w-md flex-col items-center gap-4 text-center">
@@ -32,12 +84,29 @@ export default function CodeEditorBinaryFile({
           <h3 className="mb-2 text-lg font-medium text-foreground">{title}</h3>
           <p className="text-sm text-muted-foreground">{message}</p>
         </div>
-        <button
-          onClick={onClose}
-          className="mt-4 rounded-md bg-primary px-4 py-2 text-sm text-primary-foreground transition-colors hover:bg-primary/90"
-        >
-          Close
-        </button>
+        <div className="mt-4 flex items-center gap-2">
+          {projectId && (
+            <button
+              type="button"
+              onClick={() => void download()}
+              disabled={downloading}
+              className="flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-60"
+            >
+              <Download className="h-4 w-4" />
+              {downloadLabel}
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={onClose}
+            className={projectId
+              ? 'rounded-md border border-border px-4 py-2 text-sm text-foreground transition-colors hover:bg-muted'
+              : 'rounded-md bg-primary px-4 py-2 text-sm text-primary-foreground transition-colors hover:bg-primary/90'}
+          >
+            Close
+          </button>
+        </div>
+        {downloadError && <p className="text-sm text-destructive">{downloadErrorLabel}</p>}
       </div>
     </div>
   );
@@ -49,16 +118,19 @@ export default function CodeEditorBinaryFile({
           <div className="flex min-w-0 flex-1 items-center gap-2">
             <h3 className="truncate text-sm font-medium text-gray-900 dark:text-white">{file.name}</h3>
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="flex items-center justify-center rounded-md p-1.5 text-gray-600 hover:bg-gray-100 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-white"
-            title="Close"
-          >
-            <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          </button>
+          <div className="flex shrink-0 items-center gap-0.5">
+            {headerDownloadButton}
+            <button
+              type="button"
+              onClick={onClose}
+              className="flex items-center justify-center rounded-md p-1.5 text-gray-600 hover:bg-gray-100 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-white"
+              title="Close"
+            >
+              <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
         </div>
         {binaryContent}
       </div>
@@ -81,6 +153,7 @@ export default function CodeEditorBinaryFile({
             <h3 className="truncate text-sm font-medium text-gray-900 dark:text-white">{file.name}</h3>
           </div>
           <div className="flex shrink-0 items-center gap-0.5">
+            {headerDownloadButton}
             <button
               type="button"
               onClick={onToggleFullscreen}
