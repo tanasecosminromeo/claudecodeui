@@ -58,6 +58,12 @@ test('assignments keep the name and separator and mask the value', () => {
   assert.equal(maskSecrets('AUTH_HEADER_SECRET = xyz789'), `AUTH_HEADER_SECRET = ${MASK}`);
   assert.equal(maskSecrets('private_key: FAKE_TEST_VALUE'), `private_key: ${MASK}`);
   assert.equal(maskSecrets('NPM_PWD=FAKE_TEST_VALUE'), `NPM_PWD=${MASK}`);
+  assert.equal(maskSecrets('BASE64_KEY=abc123=='), `BASE64_KEY=${MASK}`);
+});
+
+test('an assignment inside another line or a quoted value is still masked', () => {
+  assert.equal(maskSecrets('Set the variable: API_KEY=FAKE_TEST_VALUE in the file.'), `Set the variable: API_KEY=${MASK} in the file.`);
+  assert.equal(maskSecrets('note: "API_KEY=FAKE_TEST_VALUE"'), `note: "API_KEY=${MASK}"`);
 });
 
 test('empty, placeholder and already-masked values are left alone', () => {

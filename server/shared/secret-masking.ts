@@ -97,7 +97,9 @@ function isMaskableBare(value: string): boolean {
  * 3 the quote around a quoted value, 4 the quoted content, 5 a bare value.
  * `==`, `=>` and `===` are not assignments.
  */
-const ASSIGNMENT = /(?<![A-Za-z0-9_.-])([A-Za-z0-9_.-]+)(["']?[ \t]*[=:](?![=>])[ \t]*)(?:(["'`])([^"'`\r\n]*)\3|([^\s"'`;,()[\]{}<>]+)(?![\w(.<]))/g;
+// A bare value never contains `=` (except trailing base64 padding), so
+// `note: API_KEY=abc` leaves the inner `API_KEY=` for its own match.
+const ASSIGNMENT = /(?<![A-Za-z0-9_.-])([A-Za-z0-9_.-]+)(["']?[ \t]*[=:](?![=>])[ \t]*)(?:(["'`])([^"'`\r\n]*)\3|([^\s"'`;,()[\]{}<>=]+=*)(?![\w(.<=]))/g;
 
 function maskAssignment(
   match: string,
@@ -108,7 +110,10 @@ function maskAssignment(
   bare: string | undefined,
 ): string {
   if (!isSecretName(name)) {
-    return match;
+    // Not a secret name, but a quoted value may hold one: `note: "API_KEY=abc"`.
+    return quote !== undefined && quoted !== undefined
+      ? `${name}${separator}${quote}${maskSecrets(quoted)}${quote}`
+      : match;
   }
   if (quote !== undefined) {
     return isMaskableQuoted(quoted ?? '') ? `${name}${separator}${quote}${MASK}${quote}` : match;
