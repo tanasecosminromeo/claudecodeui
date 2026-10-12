@@ -11,6 +11,7 @@ import type {
   FileTreeUploadedFile,
 } from '@/shared/types.js';
 import { isProtectedOrLinksToProtected, isProtectedPath } from '@/shared/protected-paths.js';
+import { maskSecrets } from '@/shared/secret-masking.js';
 import { AppError, FORBIDDEN_WORKSPACE_PATHS, normalizeProjectPath } from '@/shared/utils.js';
 
 const HARD_EXCLUDED_DIRECTORY_NAMES = new Set([
@@ -379,6 +380,26 @@ export function createFileTreeService(dependencies: FileTreeServiceDependencies)
   }
 
   /**
+   * Refuses to save over a file that holds key-like values. The editor only
+   * sees the masked copy, and writing it back would destroy the real values.
+   * A file that does not exist yet has none to lose.
+   */
+  async function assertNoKeyLikeValues(resolvedPath: string): Promise<void> {
+    let current: string;
+    try {
+      current = await fileSystem.readTextFile(resolvedPath);
+    } catch (error) {
+      if (readErrorCode(error) === 'ENOENT') {
+        return;
+      }
+      mapFileSystemError(error, READ_ERRORS);
+    }
+    if (maskSecrets(current) !== current) {
+      throw createFileTreeError('Contains key-like values: read-only here.', 403, 'MASKED_FILE');
+    }
+  }
+
+  /**
    * Checks that `directoryPath` is a folder the server process may list, with
    * the same not-found / permission split as a file read.
    */
@@ -487,7 +508,11 @@ export function createFileTreeService(dependencies: FileTreeServiceDependencies)
       await assertNotProtected(resolvedPath);
       try {
         const content = await fileSystem.readTextFile(resolvedPath);
-        return { content, path: resolvedPath };
+        // A key-like value in a file that is not protected by name is shown masked.
+        const masked = maskSecrets(content);
+        return masked === content
+          ? { content, path: resolvedPath }
+          : { content: masked, path: resolvedPath, masked: true };
       } catch (error) {
         mapFileSystemError(error, {
           ...READ_ERRORS,
@@ -550,6 +575,7 @@ export function createFileTreeService(dependencies: FileTreeServiceDependencies)
       const resolvedPath = resolvePathInsideProject(projectRoot, filePath);
       // Never shown, so never edited through the UI either.
       await assertNotProtected(resolvedPath);
+      await assertNoKeyLikeValues(resolvedPath);
       try {
         await fileSystem.writeTextFile(resolvedPath, content);
       } catch (error) {

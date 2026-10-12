@@ -687,3 +687,39 @@ test('env, key and credential files are listed as protected and their contents n
     await fsPromises.rm(projectRoot, { recursive: true, force: true });
   }
 });
+
+test('a readable file with a key-like value is shown masked and cannot be saved over', async () => {
+  const projectRoot = await fsPromises.mkdtemp(path.join(os.tmpdir(), 'file-tree-masked-'));
+  const FAKE = 'FAKE_TEST_VALUE_not_a_real_key';
+  const original = `const port = 3001;\nAPI_KEY=${FAKE}\n`;
+  const masked = (error: unknown) => (error as AppError).statusCode === 403
+    && (error as AppError & { code?: string }).code === 'MASKED_FILE'
+    && (error as Error).message === 'Contains key-like values: read-only here.';
+
+  try {
+    await fsPromises.writeFile(path.join(projectRoot, 'app.ts'), original, 'utf8');
+    await fsPromises.writeFile(path.join(projectRoot, 'plain.ts'), 'export const port = 3001;\n', 'utf8');
+
+    const service = createRealFileSystemService(projectRoot);
+
+    const shown = await service.readTextFile('project-1', 'app.ts');
+    assert.equal(shown.content, 'const port = 3001;\nAPI_KEY=••••\n');
+    assert.equal(shown.masked, true);
+    assert.equal(shown.content.includes(FAKE), false);
+    assert.equal(await fsPromises.readFile(path.join(projectRoot, 'app.ts'), 'utf8'), original, 'reading changes nothing');
+
+    await assert.rejects(service.saveTextFile('project-1', 'app.ts', shown.content), masked);
+    assert.equal(await fsPromises.readFile(path.join(projectRoot, 'app.ts'), 'utf8'), original, 'the real value is kept');
+
+    const plain = await service.readTextFile('project-1', 'plain.ts');
+    assert.equal(plain.masked, undefined);
+    await service.saveTextFile('project-1', 'plain.ts', 'export const port = 3002;\n');
+    assert.equal(await fsPromises.readFile(path.join(projectRoot, 'plain.ts'), 'utf8'), 'export const port = 3002;\n');
+
+    // A new file has no value to lose, so it can be created.
+    await service.saveTextFile('project-1', 'new.ts', 'export const x = 1;\n');
+    assert.equal(await fsPromises.readFile(path.join(projectRoot, 'new.ts'), 'utf8'), 'export const x = 1;\n');
+  } finally {
+    await fsPromises.rm(projectRoot, { recursive: true, force: true });
+  }
+});
