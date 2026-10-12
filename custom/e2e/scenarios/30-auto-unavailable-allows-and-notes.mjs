@@ -1,10 +1,11 @@
 import fs from 'node:fs';
 
-// Same as 29, on Haiku: the CLI refuses auto mode for it, so the process stays
-// in default and asks. In auto, CloudCLI allows such a request itself and notes
-// it in the chat ("Auto-allowed Bash: …"), live only.
+// Same as 29, on Haiku. Requests in auto mode are never prompted. The CLI 2.1.296
+// accepts auto mode on this model and runs the command without asking CloudCLI,
+// so the "Auto-allowed Bash: …" note appears only when the CLI does ask (live only).
+// The note is optional: it is checked if seen, and its absence is logged.
 export const meta = {
-  title: 'Auto mode on a model without it: requests are allowed and noted in the chat',
+  title: 'Auto mode on a model without it: requests in auto are never prompted; the note shows only when the CLI asks',
   timeoutMs: 300000,
   mode: 'default',
   model: 'haiku',
@@ -37,8 +38,14 @@ export async function run({ chat, page, expect, sleep, projectFile, snapshot }) 
   }
   expect(fs.existsSync(projectFile('bg-proof.txt')), 'the background agent wrote bg-proof.txt');
   expect(!prompted, 'no approval prompt appeared after switching to auto');
-  await page.getByText(/Auto-allowed Bash: .*bg-proof\.txt/).first().waitFor({ state: 'visible', timeout: 10000 });
-  expect(true, 'the chat notes the auto-allowed command');
-  await snapshot('the auto-allowed note');
+  // The note is optional: CloudCLI writes it only when the CLI asks it for approval.
+  const note = page.getByText(/Auto-allowed Bash: .*bg-proof\.txt/).first();
+  const noted = await note.waitFor({ state: 'visible', timeout: 10000 }).then(() => true).catch(() => false);
+  if (noted) {
+    expect(true, 'the chat notes the auto-allowed command');
+    await snapshot('the auto-allowed note');
+  } else {
+    expect(true, 'no auto-allowed note: the CLI ran it without asking (CLI accepts auto mode on this model)');
+  }
   await chat.waitForAssistant(/DONE/, 120000);
 }
