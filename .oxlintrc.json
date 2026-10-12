@@ -72,6 +72,7 @@
           "server/shared/claude-cli-path.ts",
           "server/shared/image-attachments.ts",
           "server/shared/protected-paths.ts",
+          "server/shared/secret-masking.ts",
           "server/shared/message-unification.ts"
         ],
         "mode": "file"
