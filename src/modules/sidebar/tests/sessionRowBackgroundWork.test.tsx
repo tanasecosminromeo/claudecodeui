@@ -81,7 +81,7 @@ test('background work shows as the purple dot in place of the green one, with no
 test('a response in flight still spins and shows no dot', () => {
   const { container } = renderRow({ isProcessing: true, hasBackgroundWork: false });
 
-  assert.equal(container.querySelector('[role="status"]'), null);
+  assert.equal(container.querySelector('[role="status"]') === null, true);
   assert.equal(container.querySelectorAll('.animate-spin').length, 1);
   assert.equal(recordedOptionsProps[0].isProcessing, true);
 });

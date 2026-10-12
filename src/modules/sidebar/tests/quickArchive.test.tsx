@@ -276,8 +276,8 @@ test('the row offers a one-click archive named after the session', () => {
 
 test('the archive control is withheld while the session is processing, and when the row has nowhere to send it', () => {
   renderOptions({ onArchive: noop, isProcessing: true });
-  assert.equal(screen.queryByRole('button', { name: /^Archive session/ }), null);
+  assert.equal(screen.queryByRole('button', { name: /^Archive session/ }) === null, true);
 
   renderOptions({});
-  assert.equal(screen.queryByRole('button', { name: /^Archive session/ }), null);
+  assert.equal(screen.queryByRole('button', { name: /^Archive session/ }) === null, true);
 });

@@ -167,10 +167,13 @@ test('the idle list offers Select and opens an empty selection with it', () => {
   assert.deepEqual([...selection.sessionIds], [], 'selection mode opens with nothing ticked');
 });
 
-test('a list whose every session is running has nothing to offer Select for', () => {
+test('a list whose every session is running keeps Select in place, disabled', () => {
   const { container } = renderSessions({ activeSessions: new Set(['s1', 's2', 's3']) });
 
-  assert.equal(buttonWithText(container, 'sessions.select'), null);
+  // Booleans only: node:assert formatting a DOM element on failure grew vitest to 18 GB.
+  const selectButton = buttonWithText(container, 'sessions.select') as HTMLButtonElement | null;
+  assert.equal(selectButton !== null, true, 'Select stays in its fixed place');
+  assert.equal(selectButton?.disabled === true, true, 'but there is nothing to select');
 });
 
 test('selection mode replaces the row options with a checkbox on every row', () => {
@@ -182,7 +185,8 @@ test('selection mode replaces the row options with a checkbox on every row', () 
     ['false', 'false', 'false'],
   );
   assert.equal(recordedOptionsProps.length, 0, 'the per-row options menu is hidden while selecting');
-  assert.equal(buttonWithText(container, 'sessions.select'), null);
+  // Select stays in its place as a pressed toggle that ends the selection.
+  assert.equal(buttonWithText(container, 'sessions.select')?.getAttribute('aria-pressed'), 'true');
   assert.ok(buttonWithText(container, 'sessions.selectAll'));
   assert.ok(buttonWithText(container, 'actions.cancel'));
 
