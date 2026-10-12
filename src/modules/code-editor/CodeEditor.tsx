@@ -1,6 +1,7 @@
 import { EditorView } from '@codemirror/view';
 import { unifiedMergeView } from '@codemirror/merge';
-import type { Extension } from '@codemirror/state';
+import { EditorState, type Extension } from '@codemirror/state';
+import { Lock } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
@@ -70,6 +71,7 @@ export default function CodeEditor({
     saveError,
     isBinary,
     isProtected,
+    isMasked,
     previewKind,
     fileProjectId,
     hasUnsavedChanges,
@@ -212,10 +214,16 @@ export default function CodeEditor({
       allExtensions.push(EditorView.lineWrapping);
     }
 
+    // The masked text is what is shown, so it must not be typed over and saved back.
+    if (isMasked) {
+      allExtensions.push(EditorState.readOnly.of(true));
+    }
+
     return allExtensions;
   }, [
     file.diffInfo,
     file.name,
+    isMasked,
     minimapExtension,
     scrollToFirstChunkExtension,
     showDiff,
@@ -304,7 +312,7 @@ export default function CodeEditor({
             saving={saving}
             saveSuccess={saveSuccess}
             hasUnsavedChanges={hasUnsavedChanges}
-            readOnly={isProtected}
+            readOnly={isProtected || isMasked}
             onToggleMarkdownPreview={() => setMarkdownPreview((previous) => !previous)}
             onOpenHtmlPreview={openHtmlPreview}
             onOpenSettings={() => paletteOps.openSettings('appearance')}
@@ -343,6 +351,15 @@ export default function CodeEditor({
             </div>
           ) : (
             <>
+              {isMasked && (
+                <div
+                  role="status"
+                  className="flex flex-shrink-0 items-center gap-1.5 border-b border-border bg-muted/60 px-3 py-1 text-xs text-muted-foreground"
+                >
+                  <Lock className="h-3 w-3 flex-shrink-0" aria-hidden="true" />
+                  <span>{t('common:protectedFile.maskedBanner', 'Contains key-like values: shown masked (••••), read-only here.')}</span>
+                </div>
+              )}
               <div className="flex-1 overflow-hidden">
                 <CodeEditorSurface
                   content={content}

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { api, readApiJson } from '@/shared/api';
 import type { CodeEditorFile } from '@/shared/types';
@@ -43,6 +44,9 @@ export const useCodeEditorDocument = ({ file, projectPath }: UseCodeEditorDocume
   // Env, key and credential files: the server refuses their contents, so there is
   // nothing to show or save and the editor says so instead of reporting an error.
   const [isProtected, setIsProtected] = useState(false);
+  // A normal file that held key-like values: its content is shown masked and cannot be saved.
+  const [isMasked, setIsMasked] = useState(false);
+  const { t } = useTranslation();
   // Some binaries (images, PDFs, audio, video) can be rendered natively, so the
   // editor shows an inline preview instead of the generic binary placeholder.
   const previewKind = getPreviewKind(file.name);
@@ -75,6 +79,7 @@ export const useCodeEditorDocument = ({ file, projectPath }: UseCodeEditorDocume
         setLoading(true);
         setIsBinary(false);
         setIsProtected(false);
+        setIsMasked(false);
         // Any save still in flight or failed belongs to the previous file.
         setSaving(false);
         setSaveError(null);
@@ -112,10 +117,12 @@ export const useCodeEditorDocument = ({ file, projectPath }: UseCodeEditorDocume
         // Read through readApiJson so the API's own explanation reaches the
         // pane — a directory, a path outside the project root, a missing file.
         // The bare status showed all of those as an opaque "403 Forbidden".
-        const data = await readApiJson<{ content: string }>(response);
+        const data = await readApiJson<{ content: string; masked?: boolean }>(response);
         if (isStaleLoad()) {
           return;
         }
+        // Key-like values were replaced with •••• on the server: shown, but read-only.
+        setIsMasked(data.masked === true);
         applyLoadedContent(data.content);
       } catch (error) {
         if (isStaleLoad()) {
@@ -142,7 +149,7 @@ export const useCodeEditorDocument = ({ file, projectPath }: UseCodeEditorDocume
   const handleSave = useCallback(async () => {
     // Preview-only and binary files have no editable text buffer; never write
     // them back (e.g. via Cmd/Ctrl+S) or we'd corrupt the file on disk.
-    if (previewKind || isBinaryFile(fileName) || isProtected) {
+    if (previewKind || isBinaryFile(fileName) || isProtected || isMasked) {
       return;
     }
 
@@ -163,7 +170,7 @@ export const useCodeEditorDocument = ({ file, projectPath }: UseCodeEditorDocume
         const contentType = response.headers.get('content-type');
         if (contentType?.includes('application/json')) {
           const errorData = await response.json();
-          throw new Error(errorData.error || `Save failed: ${response.status}`);
+          throw Object.assign(new Error(errorData.error || `Save failed: ${response.status}`), { code: errorData.code });
         }
 
         const textError = await response.text();
@@ -185,7 +192,10 @@ export const useCodeEditorDocument = ({ file, projectPath }: UseCodeEditorDocume
       setSaveSuccess(true);
       setTimeout(() => setSaveSuccess(false), 2000);
     } catch (error) {
-      const message = getErrorMessage(error);
+      // A masked file can turn read-only after it was opened: say why, not a generic failure.
+      const message = getErrorCode(error) === 'MASKED_FILE'
+        ? t('protectedFile.maskedSave', 'Contains key-like values: read-only here.')
+        : getErrorMessage(error);
       console.error('Error saving file:', error);
       if (!isStaleSave()) {
         setSaveError(message);
@@ -195,7 +205,7 @@ export const useCodeEditorDocument = ({ file, projectPath }: UseCodeEditorDocume
         setSaving(false);
       }
     }
-  }, [content, filePath, fileProjectId, previewKind, fileName, isProtected]);
+  }, [content, filePath, fileProjectId, previewKind, fileName, isProtected, isMasked, t]);
 
   const handleDownload = useCallback(() => {
     const blob = new Blob([content], { type: 'text/plain' });
@@ -239,6 +249,7 @@ export const useCodeEditorDocument = ({ file, projectPath }: UseCodeEditorDocume
     saveError,
     isBinary,
     isProtected,
+    isMasked,
     previewKind,
     fileProjectId,
     hasUnsavedChanges,
