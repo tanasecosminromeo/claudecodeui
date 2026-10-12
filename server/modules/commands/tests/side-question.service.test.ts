@@ -184,3 +184,31 @@ test('list returns the stored entries oldest first with the transcript path', as
   assert.ok(listed.entries.every((entry) => entry.saved));
   assert.equal(listed.transcriptPath, '/transcripts/s1.jsonl');
 });
+
+test('a key in a question or answer is masked in what is sent, and kept in the store', async () => {
+  const fakeToken = ['gh', 'p_', 'A'.repeat(36)].join('');
+  const answer = deferred<SideQuestionOutcome>();
+  const { service, store, broadcasts } = createHarness(CLAUDE_SESSION, () => answer.promise);
+
+  const result = await service.ask(request(`is ${fakeToken} still valid?`));
+  assert.ok('entry' in result);
+  assert.equal(result.entry.question.includes(fakeToken), false);
+
+  answer.resolve({ status: 'answered', answer: `DB_PASSWORD=FAKEpass1234 and ${fakeToken}`, source: 'fork' });
+  await flushBackground();
+
+  const sent = JSON.stringify(broadcasts) + JSON.stringify(service.list('session-1'));
+  assert.equal(sent.includes(fakeToken), false);
+  assert.equal(sent.includes('FAKEpass1234'), false);
+  assert.equal(sent.includes('DB_PASSWORD=••••'), true);
+  assert.equal(store.rows[0]?.answer?.includes('FAKEpass1234'), true, 'the stored row keeps the real answer');
+});
+
+test('an unsaved answer is masked too', async () => {
+  const fakeToken = ['gh', 'p_', 'B'.repeat(36)].join('');
+  const { service } = createHarness(null, async () => ({ status: 'answered', answer: `token ${fakeToken}`, source: 'fork' }));
+  const result = await service.ask(request('which token?'));
+  assert.ok('entry' in result);
+  assert.equal(result.entry.saved, false);
+  assert.equal(result.entry.answer?.includes(fakeToken), false);
+});

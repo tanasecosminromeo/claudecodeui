@@ -1,3 +1,4 @@
+import { maskSecrets } from '@/shared/secret-masking.js';
 import type { sideQuestionsDb, SideQuestionRow } from '@/modules/database/index.js';
 import type {
   LLMProvider,
@@ -64,14 +65,19 @@ const DEFAULT_FAILURE_MESSAGE = 'The side question failed.';
 const errorMessage = (error: unknown): string =>
   error instanceof Error && error.message ? error.message : DEFAULT_FAILURE_MESSAGE;
 
+// Entries reach the browser outside the chat stream (the panel list and its
+// broadcasts), so they get the same key masking as chat messages. The stored
+// row keeps the real text; only what is sent is masked.
+const masked = (text: string | null): string | null => (text === null ? null : maskSecrets(text));
+
 const toEntry = (row: SideQuestionRow): SideQuestionEntry => ({
   id: row.id,
   sessionId: row.session_id,
-  question: row.question,
-  answer: row.answer,
+  question: maskSecrets(row.question),
+  answer: masked(row.answer),
   status: row.status,
   source: row.source,
-  error: row.error,
+  error: masked(row.error),
   createdAt: row.created_at,
   answeredAt: row.answered_at,
   saved: true,
@@ -175,11 +181,11 @@ export function createSideQuestionService(dependencies: SideQuestionServiceDepen
       entry: {
         id: -Date.now(),
         sessionId,
-        question,
-        answer,
+        question: maskSecrets(question),
+        answer: masked(answer),
         status,
         source,
-        error,
+        error: masked(error),
         createdAt,
         answeredAt: status === 'answered' ? new Date().toISOString() : null,
         saved: false,
