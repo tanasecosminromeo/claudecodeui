@@ -1595,6 +1595,8 @@ export type SidebarProjectListProps = SessionRowActions & {
   onCancelSessionSelection: () => void;
   /** Opens the bulk delete confirmation for the ids the list resolved as still deletable. */
   onDeleteSelectedSessions: (sessionIds: string[]) => void;
+  /** Archives the ids the list resolved as still archivable, without a dialog. */
+  onArchiveSelectedSessions: (sessionIds: string[]) => void;
   t: TFunction;
 };
 

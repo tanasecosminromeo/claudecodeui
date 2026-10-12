@@ -1111,11 +1111,10 @@ export function useSidebarController({
     setPendingDeletion({ kind: 'sessions', sessionIds });
   }, []);
 
-  const confirmDeleteSessions = useCallback(async (hardDelete = false) => {
-    if (pendingDeletion?.kind !== 'sessions') {
-      return;
-    }
-
+  // Archives or deletes the given sessions; shared by the confirmation dialog and
+  // the bulk "Archive" button, which needs no dialog since archiving is undone
+  // from the archived list.
+  const removeSessions = useCallback(async (requestedIds: string[], hardDelete: boolean) => {
     const selectionProjectId = sessionSelection?.projectId ?? null;
     setPendingDeletion(null);
     // Leaving selection mode as soon as the dialog is accepted takes the
@@ -1128,7 +1127,7 @@ export function useSidebarController({
     // the rows apply), and one an earlier confirmation is still deleting is not
     // sent twice. Neither is a failure — nothing was attempted for them.
     const deletingIds = sessionIdsBeingDeletedRef.current;
-    const sessionIds = pendingDeletion.sessionIds.filter(
+    const sessionIds = requestedIds.filter(
       (sessionId) =>
         !deletingIds.has(sessionId) &&
         !(activeSessions.has(sessionId) && !backgroundSessionIds.has(sessionId)),
@@ -1198,7 +1197,25 @@ export function useSidebarController({
         }),
       );
     }
-  }, [activeSessions, backgroundSessionIds, fetchArchivedSessions, onSessionDelete, pendingDeletion, recentConversations, sessionSelection, t]);
+  }, [activeSessions, backgroundSessionIds, fetchArchivedSessions, onSessionDelete, recentConversations, sessionSelection, t]);
+
+  const confirmDeleteSessions = useCallback(async (hardDelete = false) => {
+    if (pendingDeletion?.kind !== 'sessions') {
+      return;
+    }
+    await removeSessions(pendingDeletion.sessionIds, hardDelete);
+  }, [pendingDeletion, removeSessions]);
+
+  // Read through a ref so the callback handed to every memoized project row
+  // stays stable while the selection ticks.
+  const removeSessionsRef = useRef(removeSessions);
+  removeSessionsRef.current = removeSessions;
+  const archiveSelectedSessions = useCallback((sessionIds: string[]) => {
+    if (sessionIds.length === 0) {
+      return;
+    }
+    void removeSessionsRef.current(sessionIds, false);
+  }, []);
 
   const requestProjectDelete = useCallback(
     (project: Project) => {
@@ -1535,6 +1552,7 @@ export function useSidebarController({
     cancelSessionSelection,
     showDeleteSelectedSessionsConfirmation,
     confirmDeleteSessions,
+    archiveSelectedSessions,
     requestProjectDelete,
     confirmDeleteProject,
     handleProjectSelect,

@@ -75,6 +75,7 @@ type SidebarProjectItemProps = {
   onToggleSessionSelected: (projectId: string, sessionId: string) => void;
   onCancelSessionSelection: () => void;
   onDeleteSelectedSessions: (sessionIds: string[]) => void;
+  onArchiveSelectedSessions: (sessionIds: string[]) => void;
   t: TFunction;
 };
 
@@ -130,6 +131,7 @@ function SidebarProjectItem({
   onToggleSessionSelected,
   onCancelSessionSelection,
   onDeleteSelectedSessions,
+  onArchiveSelectedSessions,
   t,
 }: SidebarProjectItemProps) {
   // Project identity is tracked by the DB-assigned `projectId` everywhere
@@ -585,6 +587,7 @@ function SidebarProjectItem({
         onToggleSessionSelected={onToggleSessionSelected}
         onCancelSessionSelection={onCancelSessionSelection}
         onDeleteSelectedSessions={onDeleteSelectedSessions}
+        onArchiveSelectedSessions={onArchiveSelectedSessions}
         t={t}
       />
     </div>

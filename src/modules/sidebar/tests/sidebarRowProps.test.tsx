@@ -114,6 +114,7 @@ const listProps = (
   onToggleSessionSelected: noop,
   onCancelSessionSelection: noop,
   onDeleteSelectedSessions: noop,
+  onArchiveSelectedSessions: noop,
   t,
 });
 
@@ -266,6 +267,7 @@ const sessionsProps = (
   onToggleSessionSelected: noop,
   onCancelSessionSelection: noop,
   onDeleteSelectedSessions: noop,
+  onArchiveSelectedSessions: noop,
   t,
 });
 

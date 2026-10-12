@@ -1,4 +1,4 @@
-import { CheckSquare, Plus, Trash2 } from 'lucide-react';
+import { Archive, CheckSquare, Plus, Trash2 } from 'lucide-react';
 import type { TFunction } from 'i18next';
 
 import { Button } from '@/shared/ui';
@@ -39,6 +39,7 @@ type SidebarProjectSessionsProps = {
   onToggleSessionSelected: (projectId: string, sessionId: string) => void;
   onCancelSessionSelection: () => void;
   onDeleteSelectedSessions: (sessionIds: string[]) => void;
+  onArchiveSelectedSessions: (sessionIds: string[]) => void;
   t: TFunction;
 };
 
@@ -91,6 +92,7 @@ export default function SidebarProjectSessions({
   onToggleSessionSelected,
   onCancelSessionSelection,
   onDeleteSelectedSessions,
+  onArchiveSelectedSessions,
   t,
 }: SidebarProjectSessionsProps) {
   const isCompact = useCompactSidebar();
@@ -199,16 +201,30 @@ export default function SidebarProjectSessions({
               {t('actions.cancel')}
             </Button>
           </div>
-          <Button
-            variant="destructive"
-            size="sm"
-            className="h-8 w-full justify-center gap-2 bg-red-600 text-xs font-medium text-white hover:bg-red-700"
-            onClick={() => onDeleteSelectedSessions(effectiveSelectedIds)}
-            disabled={effectiveSelectedIds.length === 0}
-          >
-            <Trash2 className="h-3 w-3" />
-            {t('sessions.deleteSelected', { count: effectiveSelectedIds.length })}
-          </Button>
+          <div className="flex gap-1.5">
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8 min-w-0 flex-1 justify-center gap-2 text-xs font-medium"
+              onClick={() => onArchiveSelectedSessions(effectiveSelectedIds)}
+              disabled={effectiveSelectedIds.length === 0}
+            >
+              <Archive className="h-3 w-3 shrink-0" />
+              <span className="truncate">
+                {t('deleteConfirmation.archiveSessions', { count: effectiveSelectedIds.length })}
+              </span>
+            </Button>
+            <Button
+              variant="destructive"
+              size="sm"
+              className="h-8 min-w-0 flex-1 justify-center gap-2 bg-red-600 text-xs font-medium text-white hover:bg-red-700"
+              onClick={() => onDeleteSelectedSessions(effectiveSelectedIds)}
+              disabled={effectiveSelectedIds.length === 0}
+            >
+              <Trash2 className="h-3 w-3 shrink-0" />
+              <span className="truncate">{t('sessions.deleteSelected', { count: effectiveSelectedIds.length })}</span>
+            </Button>
+          </div>
         </div>
       )}
 

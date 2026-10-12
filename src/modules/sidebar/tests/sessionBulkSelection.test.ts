@@ -120,6 +120,7 @@ const renderSessions = (overrides: ListOverrides = {}) =>
       onToggleSessionSelected: noop,
       onCancelSessionSelection: noop,
       onDeleteSelectedSessions: noop,
+      onArchiveSelectedSessions: noop,
       t,
       ...overrides,
     }),

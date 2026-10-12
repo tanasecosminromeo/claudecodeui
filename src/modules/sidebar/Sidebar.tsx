@@ -141,6 +141,7 @@ function Sidebar({
     toggleSessionSelected,
     cancelSessionSelection,
     showDeleteSelectedSessionsConfirmation,
+    archiveSelectedSessions,
     confirmDeleteSessions,
     requestProjectDelete,
     confirmDeleteProject,
@@ -263,6 +264,7 @@ function Sidebar({
     onToggleSessionSelected: toggleSessionSelected,
     onCancelSessionSelection: cancelSessionSelection,
     onDeleteSelectedSessions: showDeleteSelectedSessionsConfirmation,
+    onArchiveSelectedSessions: archiveSelectedSessions,
     t,
   };
 
