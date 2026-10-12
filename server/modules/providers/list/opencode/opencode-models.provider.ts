@@ -559,6 +559,62 @@ const appendCustomProviderModels = (
   return { ...definition, OPTIONS: options };
 };
 
+const readProviderIdList = (value: unknown): string[] | null => {
+  if (!Array.isArray(value)) {
+    return null;
+  }
+  return value.filter((item): item is string => typeof item === 'string');
+};
+
+/**
+ * Keeps only the options OpenCode would actually route to under the config's
+ * `enabled_providers` and `disabled_providers` lists.
+ *
+ * OpenCode routes only to providers in `enabled_providers` when that key is
+ * present, and never to one in `disabled_providers`, so a model the picker
+ * offers from an excluded provider would fail the run with "not valid". Later
+ * config files win for a key they set, as they do when OpenCode merges its
+ * config layers.
+ *
+ * When the rules leave nothing, the list is empty and DEFAULT is cleared rather
+ * than pointing at a model OpenCode would refuse.
+ */
+const applyProviderAccessRules = (
+  definition: ProviderModelsDefinition,
+  configs: Record<string, unknown>[],
+): ProviderModelsDefinition => {
+  let enabledProviderIds: Set<string> | null = null;
+  let disabledProviderIds = new Set<string>();
+  for (const config of configs) {
+    const enabledList = readProviderIdList(config.enabled_providers);
+    if (enabledList) {
+      enabledProviderIds = new Set(enabledList);
+    }
+    const disabledList = readProviderIdList(config.disabled_providers);
+    if (disabledList) {
+      disabledProviderIds = new Set(disabledList);
+    }
+  }
+
+  if (!enabledProviderIds && disabledProviderIds.size === 0) {
+    return definition;
+  }
+
+  const options = definition.OPTIONS.filter((option) => {
+    const providerId = option.value.split('/')[0];
+    return (!enabledProviderIds || enabledProviderIds.has(providerId))
+      && !disabledProviderIds.has(providerId);
+  });
+
+  return {
+    ...definition,
+    OPTIONS: options,
+    DEFAULT: options.some((option) => option.value === definition.DEFAULT)
+      ? definition.DEFAULT
+      : (options[0]?.value ?? ''),
+  };
+};
+
 /**
  * Builds the model picker catalog for the OpenCode config under `homeDir`.
  *
@@ -571,7 +627,7 @@ export const loadOpenCodeModelCatalog = async (
   const configs = await readOpenCodeConfigs(homeDir);
   const connectedProviderIds = await readConnectedOpenCodeProviderIds(homeDir, configs);
   const curated = filterOpenCodeModelsByProvider(OPENCODE_PREDEFINED_MODELS, connectedProviderIds);
-  return appendCustomProviderModels(curated, configs);
+  return applyProviderAccessRules(appendCustomProviderModels(curated, configs), configs);
 };
 
 const parseOpenCodeSessionModelValue = (rawModel: unknown): string | null => {

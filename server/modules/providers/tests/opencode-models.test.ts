@@ -360,6 +360,80 @@ test('OpenCode leaves the catalog unchanged when no custom models are declared',
   });
 });
 
+/** The same providers as CUSTOM_PROVIDER_CONFIG, as a plain object for tests that edit the keys. */
+const CUSTOM_PROVIDERS = {
+  provider: {
+    local: {
+      name: 'Local (llama.cpp)',
+      npm: '@ai-sdk/openai-compatible',
+      options: { baseURL: 'http://127.0.0.1:8090/v1', apiKey: 'none' },
+      models: { 'gemma-4-E2B-it-Q4_0.gguf': { name: 'Gemma 4 E2B (local)' } },
+    },
+    'mac-lmstudio': {
+      name: 'LM Studio (Mac M4, tailnet)',
+      npm: '@ai-sdk/openai-compatible',
+      options: { baseURL: 'http://host:11435/v1', apiKey: 'none' },
+      models: {
+        'qwen3.8-27b-mlx': {
+          name: 'Qwen3.8 27B (MLX 4-bit, thinking)',
+          limit: { context: 65536, output: 32000 },
+        },
+      },
+    },
+    opencode: { whitelist: ['nemotron-3-ultra-free'] },
+  },
+};
+
+test('OpenCode drops providers missing from enabled_providers', async () => {
+  // Only `local` is enabled, so `mac-lmstudio` and the curated `opencode`
+  // entries must not be offered.
+  const config = { ...CUSTOM_PROVIDERS, enabled_providers: ['local'] };
+  await withConfigHome(JSON.stringify(config), async (homeDir) => {
+    const catalog = await loadOpenCodeModelCatalog(homeDir);
+
+    assert.deepEqual(
+      catalog.OPTIONS.map((option) => option.value),
+      ['local/gemma-4-E2B-it-Q4_0.gguf'],
+    );
+    assert.equal(catalog.DEFAULT, 'local/gemma-4-E2B-it-Q4_0.gguf');
+  });
+});
+
+test('OpenCode drops providers listed in disabled_providers', async () => {
+  const config = {
+    provider: {
+      'mac-lmstudio': {
+        models: { 'qwen3.8-27b-mlx': { name: 'Qwen3.8 27B' } },
+      },
+      local: {
+        models: { 'gemma-4-E2B-it-Q4_0.gguf': { name: 'Gemma 4 E2B (local)' } },
+      },
+      opencode: { whitelist: [] },
+    },
+    disabled_providers: ['mac-lmstudio', 'opencode'],
+  };
+  await withConfigHome(JSON.stringify(config), async (homeDir) => {
+    const catalog = await loadOpenCodeModelCatalog(homeDir);
+    const providerIds = new Set(catalog.OPTIONS.map((option) => option.value.split('/')[0]));
+
+    assert.equal(providerIds.has('mac-lmstudio'), false);
+    assert.equal(providerIds.has('opencode'), false);
+    assert.equal(providerIds.has('local'), true);
+    assert.equal(catalog.OPTIONS.some((option) => option.value === catalog.DEFAULT), true);
+  });
+});
+
+test('OpenCode keeps the full list when neither provider key is set', async () => {
+  await withConfigHome(JSON.stringify(CUSTOM_PROVIDERS), async (homeDir) => {
+    const catalog = await loadOpenCodeModelCatalog(homeDir);
+    const values = new Set(catalog.OPTIONS.map((option) => option.value));
+
+    assert.equal(values.has('local/gemma-4-E2B-it-Q4_0.gguf'), true);
+    assert.equal(values.has('mac-lmstudio/qwen3.8-27b-mlx'), true);
+    assert.equal(values.has('opencode/gpt-5.6-terra'), true);
+  });
+});
+
 const writeOpenCodeSessionDatabase = async (homeDir: string, rows: Array<Record<string, unknown>>) => {
   const dbPath = path.join(homeDir, '.local', 'share', 'opencode', 'opencode.db');
   await mkdir(path.dirname(dbPath), { recursive: true });
