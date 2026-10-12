@@ -984,6 +984,8 @@ export type FileTreeNode = {
   modified?: string;
   permissionsRwx?: string;
   children?: FileTreeNode[];
+  // Env, key and credential files: listed, but their contents are never sent.
+  protected?: boolean;
   [key: string]: unknown;
 };
 

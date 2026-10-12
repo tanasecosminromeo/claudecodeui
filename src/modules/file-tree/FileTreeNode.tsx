@@ -1,6 +1,6 @@
 import type { DragEvent, ReactNode, RefObject } from 'react';
 import { useTranslation } from 'react-i18next';
-import { ChevronRight, Folder, FolderOpen, Upload } from 'lucide-react';
+import { ChevronRight, Folder, FolderOpen, Lock, Upload } from 'lucide-react';
 
 import { cn } from '@/shared/utils';
 import type { FileTreeNode as FileTreeNodeType, FileTreeViewMode } from '@/shared/types';
@@ -176,6 +176,18 @@ export default function FileTreeNode({
     </button>
   );
 
+  // Shown after the name of a protected file: it is listed, but its contents stay hidden.
+  const protectedLock = item.protected ? (
+    <span
+      role="img"
+      aria-label={t('protectedFile.treeTitle', 'Protected: contents hidden')}
+      title={t('protectedFile.treeTitle', 'Protected: contents hidden')}
+      className="flex flex-shrink-0 items-center"
+    >
+      <Lock className="h-3 w-3 text-muted-foreground/70" aria-hidden="true" />
+    </span>
+  ) : null;
+
   const rowContent = (
     <div
       className={rowClassName}
@@ -187,7 +199,7 @@ export default function FileTreeNode({
         <>
           <div className="col-span-5 flex min-w-0 items-center gap-1.5">
             <TreeItemIcon item={item} isOpen={isOpen} renderFileIcon={renderFileIcon} />
-            <span className={nameClassName}>{item.name}</span>
+            <span className={nameClassName}>{item.name}</span>{protectedLock}
           </div>
           <div className="col-span-2 text-sm tabular-nums text-muted-foreground">
             {item.type === 'file' ? formatFileSize(item.size) : ''}
@@ -199,7 +211,7 @@ export default function FileTreeNode({
         <>
           <div className="flex min-w-0 items-center gap-1.5">
             <TreeItemIcon item={item} isOpen={isOpen} renderFileIcon={renderFileIcon} />
-            <span className={nameClassName}>{item.name}</span>
+            <span className={nameClassName}>{item.name}</span>{protectedLock}
           </div>
           <div className="ml-2 flex flex-shrink-0 items-center gap-3 text-sm text-muted-foreground">
             {item.type === 'file' && (
@@ -213,7 +225,7 @@ export default function FileTreeNode({
       ) : (
         <>
           <TreeItemIcon item={item} isOpen={isOpen} renderFileIcon={renderFileIcon} />
-          <span className={nameClassName}>{item.name}</span>
+          <span className={nameClassName}>{item.name}</span>{protectedLock}
         </>
       )}
       {uploadHoverButton}

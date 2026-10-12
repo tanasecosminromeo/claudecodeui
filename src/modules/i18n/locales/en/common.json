@@ -395,5 +395,12 @@
     "taskRowNotLoaded": "Launched earlier in this conversation; click to load it",
     "taskOfAgent": "Launched by one of this session's agents"
   },
+  "protectedFile": {
+    "title": "Protected file",
+    "message": "Protected: may contain keys. Contents hidden.",
+    "treeTitle": "Protected: contents hidden",
+    "maskedBanner": "Contains key-like values: shown masked (••••), read-only here.",
+    "maskedSave": "Contains key-like values: read-only here."
+  },
   "cancel": "Cancel"
 }
