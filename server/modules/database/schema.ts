@@ -130,6 +130,26 @@ CREATE TABLE IF NOT EXISTS scheduled_messages (
 );
 `;
 
+export const SIDE_QUESTIONS_TABLE_SCHEMA_SQL = `
+CREATE TABLE IF NOT EXISTS side_questions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    -- App-facing session id. Entries go with their session (see the cascade).
+    session_id TEXT NOT NULL,
+    question TEXT NOT NULL,
+    -- NULL until answered.
+    answer TEXT,
+    -- pending | answered | failed
+    status TEXT NOT NULL,
+    -- live | fork, once answered: which process produced the answer.
+    source TEXT,
+    -- Why it failed, shown in the panel with a retry.
+    error TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    answered_at DATETIME,
+    FOREIGN KEY (session_id) REFERENCES sessions(session_id) ON DELETE CASCADE
+);
+`;
+
 export const SESSIONS_TABLE_SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS sessions (
     session_id TEXT NOT NULL,
