@@ -1,10 +1,12 @@
 import assert from 'node:assert/strict';
+import { homedir } from 'node:os';
+import path from 'node:path';
 import test from 'node:test';
 
 import { providerRegistry } from '@/modules/providers/provider.registry.js';
 import { createProviderRuntimeService } from '@/modules/providers/services/provider-runtime.service.js';
 import type { IProvider, IProviderRuntime } from '@/shared/interfaces.js';
-import type { LLMProvider } from '@/shared/types.js';
+import type { LLMProvider, ProviderRuntimeContext } from '@/shared/types.js';
 
 function createRuntime(overrides: Partial<IProviderRuntime> = {}): IProviderRuntime {
   return {
@@ -200,4 +202,35 @@ test('only the Claude runtime answers side questions', () => {
     .map((provider) => provider.id);
 
   assert.deepEqual(answering, ['claude']);
+});
+
+test('live messages reach the runtime with secrets masked, including a result sent in a later batch', async () => {
+  const fakeSecret = 'FAKE_TEST_VALUE_not_a_real_key';
+  const protectedFile = path.join(homedir(), '.ssh', 'id_ed25519');
+  let context = null as ProviderRuntimeContext | null;
+  const provider = createProvider('claude', createRuntime({
+    async run(_command, _options, _writer, runtimeContext) {
+      context = runtimeContext;
+    },
+  }));
+  provider.sessions.normalizeMessage = (raw: unknown) => {
+    if (raw === 'call') {
+      return [
+        { kind: 'text', content: `Set API_KEY=${fakeSecret} first.` },
+        { kind: 'tool_use', toolName: 'Bash', toolId: 't1', toolInput: { command: `cat ${protectedFile}` } },
+      ] as never;
+    }
+    return [{ kind: 'tool_result', toolId: 't1', content: `FAKE KEY BODY ${fakeSecret}` }] as never;
+  };
+
+  const service = createService([provider]);
+  await service.run('claude', 'hi', {}, { send() {} } as never);
+  assert.ok(context);
+
+  const first = context.normalizeMessage('call', 'session-1');
+  const second = context.normalizeMessage('result', 'session-1');
+  const shown = JSON.stringify([...first, ...second]);
+  assert.equal(shown.includes(fakeSecret), false);
+  assert.equal(second[0]?.content, '(Protected: may contain keys. Contents hidden.)');
+  assert.equal((first[1]?.toolInput as { command: string }).command, `cat ${protectedFile}`);
 });

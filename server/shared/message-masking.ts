@@ -134,12 +134,18 @@ export function maskNormalizedMessage(message: NormalizedMessage, home: string):
 }
 
 /**
- * Masks a whole conversation. A `tool_result` row carries no tool name or path,
+ * Masks a list of messages. A `tool_result` row carries no tool name or path,
  * only its `toolId`, so the protected calls are found first and their result
  * rows are hidden with them. Message count and order are unchanged.
+ *
+ * `protectedToolIds` remembers protected calls across calls: a live stream
+ * delivers the call and its result in separate batches.
  */
-export function maskNormalizedMessages(messages: NormalizedMessage[], home: string): NormalizedMessage[] {
-  const protectedToolIds = new Set<string>();
+export function maskNormalizedMessages(
+  messages: NormalizedMessage[],
+  home: string,
+  protectedToolIds: Set<string> = new Set<string>(),
+): NormalizedMessage[] {
   for (const message of messages) {
     if (message.toolId && targetsProtectedPath(message.toolInput, home)) {
       protectedToolIds.add(message.toolId);

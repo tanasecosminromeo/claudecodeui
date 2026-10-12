@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import fsp from 'node:fs/promises';
+import { homedir } from 'node:os';
 import path from 'node:path';
 
 import { projectsDb, sessionsDb } from '@/modules/database/index.js';
@@ -7,6 +8,7 @@ import { broadcastSessionUpserted, chatRunRegistry } from '@/modules/websocket/i
 import { providerRegistry } from '@/modules/providers/provider.registry.js';
 import { listBusyClaudeCliSessions } from '@/modules/providers/services/claude-cli-liveness.service.js';
 import { sessionHistoryCache } from '@/modules/providers/services/session-history-cache.service.js';
+import { maskNormalizedMessages } from '@/shared/message-masking.js';
 import type {
   BackgroundTaskSummary,
   FetchHistoryOptions,
@@ -136,6 +138,11 @@ function resolveProjectDisplayName(
   }
 
   return path.basename(projectPath) || projectPath;
+}
+
+/** Masks the messages of a history result. Counts and paging fields are left as the provider set them. */
+function maskHistoryResult(result: FetchHistoryResult): FetchHistoryResult {
+  return { ...result, messages: maskNormalizedMessages(result.messages, homedir()) };
 }
 
 /**
@@ -523,12 +530,14 @@ export const sessionsService = {
     const fullHistory = await sessionHistoryCache.getFullHistory({
       sessionId,
       transcriptPath,
-      loadFull: () => providerSessions.fetchHistory(sessionId, {
+      // Masked before caching, so every page sliced from it is masked, and a
+      // tool result is hidden with its call even when the two sit on different pages.
+      loadFull: async () => maskHistoryResult(await providerSessions.fetchHistory(sessionId, {
         limit: null,
         offset: 0,
         projectPath,
         providerSessionId,
-      }),
+      })),
     });
 
     let result: FetchHistoryResult;
@@ -544,12 +553,12 @@ export const sessionsService = {
         limit: requestedLimit,
       };
     } else {
-      result = await providerSessions.fetchHistory(sessionId, {
+      result = maskHistoryResult(await providerSessions.fetchHistory(sessionId, {
         limit: requestedLimit,
         offset: requestedOffset,
         projectPath,
         providerSessionId,
-      });
+      }));
     }
 
     return {

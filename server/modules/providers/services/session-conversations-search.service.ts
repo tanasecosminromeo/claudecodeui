@@ -5,6 +5,7 @@ import readline from 'node:readline';
 import { spawn } from 'cross-spawn';
 import { rgPath } from '@vscode/ripgrep';
 
+import { maskSecrets } from '@/shared/secret-masking.js';
 import { stripAnsiSequences } from '@/shared/utils.js';
 import { projectsDb, sessionsDb } from '@/modules/database/index.js';
 
@@ -275,9 +276,12 @@ function createWordMatcher(
   };
 
   const buildSnippet = (
-    text: string,
+    rawText: string,
     snippetLen = 150,
   ): { snippet: string; highlights: SearchSnippetHighlight[] } => {
+    // Masked before the snippet is cut, so a secret never reaches the result;
+    // the highlights are offsets into this masked text.
+    const text = maskSecrets(rawText);
     const textLower = text.toLowerCase();
     let firstIndex = -1;
     let firstWordLen = 0;

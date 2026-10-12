@@ -1,7 +1,10 @@
+import { homedir } from 'node:os';
+
 import { providerRegistry } from '@/modules/providers/provider.registry.js';
 import { providerModelsService } from '@/modules/providers/services/provider-models.service.js';
 import { sessionsService } from '@/modules/providers/services/sessions.service.js';
 import type { IProvider } from '@/shared/interfaces.js';
+import { maskNormalizedMessages } from '@/shared/message-masking.js';
 import type {
   AnyRecord,
   LLMProvider,
@@ -50,21 +53,29 @@ export function createProviderRuntimeService(
 
   const createRuntimeContext = (
     provider: IProvider,
-  ): ProviderRuntimeContext => ({
-    resolveProviderSessionId: dependencies.resolveProviderSessionId,
-    resolveResumeModel: (sessionId, requestedModel) =>
-      dependencies.resolveResumeModel(provider.id, sessionId, requestedModel),
-    getProviderModels: async () => dependencies.getProviderModels(provider.id),
-    normalizeMessage: (raw, sessionId) => provider.sessions.normalizeMessage(raw, sessionId),
-    async isProviderInstalled() {
-      try {
-        return (await provider.auth.getStatus()).installed;
-      } catch {
-        // Preserve the runtime's original error when installation probing fails.
-        return true;
-      }
-    },
-  });
+  ): ProviderRuntimeContext => {
+    // One set per run: a live tool result arrives in a later batch than its call.
+    const protectedToolIds = new Set<string>();
+    return {
+      resolveProviderSessionId: dependencies.resolveProviderSessionId,
+      resolveResumeModel: (sessionId, requestedModel) =>
+        dependencies.resolveResumeModel(provider.id, sessionId, requestedModel),
+      getProviderModels: async () => dependencies.getProviderModels(provider.id),
+      normalizeMessage: (raw, sessionId) => maskNormalizedMessages(
+        provider.sessions.normalizeMessage(raw, sessionId),
+        homedir(),
+        protectedToolIds,
+      ),
+      async isProviderInstalled() {
+        try {
+          return (await provider.auth.getStatus()).installed;
+        } catch {
+          // Preserve the runtime's original error when installation probing fails.
+          return true;
+        }
+      },
+    };
+  };
 
   const run = (
     providerName: LLMProvider,
