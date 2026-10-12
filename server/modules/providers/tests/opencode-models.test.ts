@@ -384,6 +384,15 @@ const CUSTOM_PROVIDERS = {
   },
 };
 
+/**
+ * CUSTOM_PROVIDERS with the opencode whitelist removed, for tests that need the
+ * full curated Zen list to stay visible.
+ */
+const CUSTOM_PROVIDERS_WITHOUT_OPENCODE_LIST = {
+  ...CUSTOM_PROVIDERS,
+  provider: { ...CUSTOM_PROVIDERS.provider, opencode: {} },
+};
+
 test('OpenCode drops providers missing from enabled_providers', async () => {
   // Only `local` is enabled, so `mac-lmstudio` and the curated `opencode`
   // entries must not be offered.
@@ -424,7 +433,7 @@ test('OpenCode drops providers listed in disabled_providers', async () => {
 });
 
 test('OpenCode keeps the full list when neither provider key is set', async () => {
-  await withConfigHome(JSON.stringify(CUSTOM_PROVIDERS), async (homeDir) => {
+  await withConfigHome(JSON.stringify(CUSTOM_PROVIDERS_WITHOUT_OPENCODE_LIST), async (homeDir) => {
     const catalog = await loadOpenCodeModelCatalog(homeDir);
     const values = new Set(catalog.OPTIONS.map((option) => option.value));
 
@@ -432,6 +441,175 @@ test('OpenCode keeps the full list when neither provider key is set', async () =
     assert.equal(values.has('mac-lmstudio/qwen3.8-27b-mlx'), true);
     assert.equal(values.has('opencode/gpt-5.6-terra'), true);
   });
+});
+
+/** Writes several global config files at once, for tests about which file wins. */
+const withConfigFiles = async (
+  files: Record<string, unknown>,
+  runTest: (homeDir: string) => Promise<void>,
+): Promise<void> => {
+  const homeDir = await mkdtemp(path.join(os.tmpdir(), 'opencode-config-files-'));
+  try {
+    const configDir = path.join(homeDir, '.config', 'opencode');
+    await mkdir(configDir, { recursive: true });
+    for (const [fileName, content] of Object.entries(files)) {
+      await writeFile(path.join(configDir, fileName), JSON.stringify(content), 'utf8');
+    }
+    await runTest(homeDir);
+  } finally {
+    await rm(homeDir, { recursive: true, force: true });
+  }
+};
+
+/** The whitelist from the user's real opencode.jsonc, which previously offered ~50 paid models. */
+const OPENCODE_WHITELIST = [
+  'nemotron-3-ultra-free',
+  'nemotron-3.5-lightning-free',
+  'ling-3.0-flash-fin-free',
+  'muse-spark-1.3-contributor-free',
+];
+
+test('OpenCode whitelist keeps only listed ids and adds the ones the catalog lacks', async () => {
+  await withConfigHome(
+    JSON.stringify({ provider: { opencode: { whitelist: OPENCODE_WHITELIST } } }),
+    async (homeDir) => {
+      const catalog = await loadOpenCodeModelCatalog(homeDir);
+
+      // Curated order first (nemotron is in the catalog), then the missing ids
+      // in whitelist order.
+      assert.deepEqual(
+        catalog.OPTIONS.map((option) => option.value),
+        OPENCODE_WHITELIST.map((modelId) => `opencode/${modelId}`),
+      );
+      const added = catalog.OPTIONS.find((option) => option.value === 'opencode/muse-spark-1.3-contributor-free');
+      assert.deepEqual(added, {
+        value: 'opencode/muse-spark-1.3-contributor-free',
+        label: 'muse-spark-1.3-contributor-free',
+        description: 'OpenCode Zen',
+      });
+      assert.equal(catalog.DEFAULT, 'opencode/nemotron-3-ultra-free');
+    },
+  );
+});
+
+test('OpenCode blacklist removes listed ids of that provider only', async () => {
+  // A custom provider declaring the same model id as a blacklisted Zen model
+  // shows that the blacklist is scoped to its own provider id.
+  const config = {
+    provider: {
+      opencode: { blacklist: ['gpt-5.6-sol', 'claude-opus-5'] },
+      local: { models: { 'claude-opus-5': { name: 'Local Opus-like' } } },
+    },
+  };
+  await withConfigHome(JSON.stringify(config), async (homeDir) => {
+    const values = (await loadOpenCodeModelCatalog(homeDir)).OPTIONS.map((option) => option.value);
+
+    assert.equal(values.includes('opencode/gpt-5.6-sol'), false);
+    assert.equal(values.includes('opencode/claude-opus-5'), false);
+    assert.equal(values.includes('opencode/gpt-5.6-terra'), true);
+    assert.equal(values.includes('local/claude-opus-5'), true);
+  });
+});
+
+test('OpenCode whitelist and blacklist apply to custom provider models too', async () => {
+  const config = {
+    provider: {
+      local: {
+        models: {
+          'gemma-4-E2B-it-Q4_0.gguf': { name: 'Gemma 4 E2B (local)' },
+          'other.gguf': { name: 'Other' },
+        },
+        whitelist: ['gemma-4-E2B-it-Q4_0.gguf', 'not-yet-downloaded.gguf'],
+      },
+      'mac-lmstudio': {
+        name: 'LM Studio (Mac M4, tailnet)',
+        models: { 'qwen3.8-27b-mlx': { name: 'Qwen3.8 27B' } },
+        blacklist: ['qwen3.8-27b-mlx'],
+      },
+    },
+    enabled_providers: ['local', 'mac-lmstudio'],
+  };
+  await withConfigHome(JSON.stringify(config), async (homeDir) => {
+    const catalog = await loadOpenCodeModelCatalog(homeDir);
+    const byValue = new Map(catalog.OPTIONS.map((option) => [option.value, option]));
+
+    assert.equal(byValue.has('local/gemma-4-E2B-it-Q4_0.gguf'), true);
+    assert.equal(byValue.has('local/other.gguf'), false);
+    assert.deepEqual(byValue.get('local/not-yet-downloaded.gguf'), {
+      value: 'local/not-yet-downloaded.gguf',
+      label: 'not-yet-downloaded.gguf',
+      description: 'local',
+    });
+    assert.equal(byValue.has('mac-lmstudio/qwen3.8-27b-mlx'), false);
+  });
+});
+
+test('OpenCode leaves the list unchanged without whitelist or blacklist', async () => {
+  // A provider entry with no list keys must not hide any curated model.
+  await withConfigHome(JSON.stringify(CUSTOM_PROVIDERS_WITHOUT_OPENCODE_LIST), async (homeDir) => {
+    const values = (await loadOpenCodeModelCatalog(homeDir)).OPTIONS.map((option) => option.value);
+
+    assert.equal(values.includes('opencode/gpt-5.6-sol'), true);
+    assert.equal(values.includes('opencode/nemotron-3-ultra-free'), true);
+    assert.equal(values.length, OPENCODE_PREDEFINED_MODELS.OPTIONS.filter(
+      (option) => option.value.startsWith('opencode/'),
+    ).length + 2);
+  });
+});
+
+test('OpenCode default follows the config model when it is offered', async () => {
+  // The configured model is not the first option, so this proves the config
+  // value wins over the position-based default.
+  await withConfigFiles(
+    {
+      'opencode.json': {
+        provider: { opencode: { whitelist: OPENCODE_WHITELIST } },
+        model: 'opencode/muse-spark-1.3-contributor-free',
+      },
+    },
+    async (homeDir) => {
+      const catalog = await loadOpenCodeModelCatalog(homeDir);
+      assert.equal(catalog.DEFAULT, 'opencode/muse-spark-1.3-contributor-free');
+      assert.equal(catalog.OPTIONS.some((option) => option.value === catalog.DEFAULT), true);
+    },
+  );
+});
+
+test('OpenCode default keeps the earlier choice when the config model is not offered', async () => {
+  await withConfigHome(
+    JSON.stringify({ ...CUSTOM_PROVIDERS_WITHOUT_OPENCODE_LIST, model: 'opencode/not-a-real-model' }),
+    async (homeDir) => {
+      const catalog = await loadOpenCodeModelCatalog(homeDir);
+      assert.equal(catalog.DEFAULT, OPENCODE_PREDEFINED_MODELS.DEFAULT);
+    },
+  );
+});
+
+test('OpenCode takes the config model from the later config file', async () => {
+  await withConfigFiles(
+    {
+      'config.json': { ...CUSTOM_PROVIDERS, model: 'local/gemma-4-E2B-it-Q4_0.gguf' },
+      'opencode.jsonc': { model: 'mac-lmstudio/qwen3.8-27b-mlx' },
+    },
+    async (homeDir) => {
+      const catalog = await loadOpenCodeModelCatalog(homeDir);
+      assert.equal(catalog.DEFAULT, 'mac-lmstudio/qwen3.8-27b-mlx');
+    },
+  );
+});
+
+test('OpenCode keeps a non-empty picker when enabled_providers matches nothing', async () => {
+  // Routing would fail for every model, but an empty picker leaves the composer
+  // with DEFAULT '' and no model menu, so the list is kept as it was.
+  await withConfigHome(
+    JSON.stringify({ ...CUSTOM_PROVIDERS, enabled_providers: ['no-such-provider'] }),
+    async (homeDir) => {
+      const catalog = await loadOpenCodeModelCatalog(homeDir);
+      assert.ok(catalog.OPTIONS.length > 0);
+      assert.ok(catalog.DEFAULT.length > 0);
+      assert.equal(catalog.OPTIONS.some((option) => option.value === catalog.DEFAULT), true);
+    },
+  );
 });
 
 const writeOpenCodeSessionDatabase = async (homeDir: string, rows: Array<Record<string, unknown>>) => {

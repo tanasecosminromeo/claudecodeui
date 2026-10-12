@@ -559,11 +559,136 @@ const appendCustomProviderModels = (
   return { ...definition, OPTIONS: options };
 };
 
-const readProviderIdList = (value: unknown): string[] | null => {
+const readStringList = (value: unknown): string[] | null => {
   if (!Array.isArray(value)) {
     return null;
   }
   return value.filter((item): item is string => typeof item === 'string');
+};
+
+/** `<providerId>/<modelId>` split at the first slash; provider ids never contain one. */
+const providerIdOf = (value: string): string => value.split('/')[0];
+
+/** Model id after the provider prefix. Model ids may contain slashes, e.g. OpenRouter ids. */
+const modelIdOf = (value: string): string => value.slice(providerIdOf(value).length + 1);
+
+/** Whitelist and blacklist for one provider id, merged across config files. */
+type ProviderModelListRule = {
+  name: string | null;
+  whitelist: Set<string> | null;
+  blacklist: Set<string>;
+};
+
+/**
+ * Reads `provider.<id>.whitelist` and `provider.<id>.blacklist` from every
+ * config. A later file wins for each key it sets, as it does when OpenCode
+ * merges its config layers.
+ */
+const readProviderModelListRules = (
+  configs: Record<string, unknown>[],
+): Map<string, ProviderModelListRule> => {
+  const rules = new Map<string, ProviderModelListRule>();
+
+  for (const config of configs) {
+    for (const [providerId, rawProvider] of Object.entries(readObjectRecord(config.provider) ?? {})) {
+      const provider = readObjectRecord(rawProvider);
+      const whitelist = readStringList(provider?.whitelist);
+      const blacklist = readStringList(provider?.blacklist);
+      const name = readOptionalString(provider?.name);
+      if (!whitelist && !blacklist && !name) {
+        continue;
+      }
+
+      const rule = rules.get(providerId) ?? { name: null, whitelist: null, blacklist: new Set<string>() };
+      if (name) {
+        rule.name = name;
+      }
+      if (whitelist) {
+        rule.whitelist = new Set(whitelist);
+      }
+      if (blacklist) {
+        rule.blacklist = new Set(blacklist);
+      }
+      rules.set(providerId, rule);
+    }
+  }
+
+  return rules;
+};
+
+/**
+ * Applies per-provider `whitelist` and `blacklist` to curated and custom options.
+ *
+ * A whitelist keeps only the listed model ids of that provider. It also adds
+ * listed ids the catalog does not know yet (for example a newly released free
+ * model), labelled with the id itself, so the picker offers what the config
+ * allows rather than only what this CloudCLI release ships. A blacklist removes
+ * model ids of that provider, and also stops a whitelisted id from being added.
+ *
+ * Without these lists the picker would show every model of a provider the user
+ * has connected, including paid ones they have excluded in their config.
+ *
+ * When the rules would leave nothing, the input list is returned unchanged so
+ * the picker is never empty.
+ */
+const applyProviderModelListRules = (
+  definition: ProviderModelsDefinition,
+  configs: Record<string, unknown>[],
+): ProviderModelsDefinition => {
+  const rules = readProviderModelListRules(configs);
+  if (rules.size === 0) {
+    return definition;
+  }
+
+  // Added options borrow the curated description of their provider when the
+  // config gives no provider name, e.g. "OpenCode Zen" for `opencode/*`.
+  const descriptionByProvider = new Map<string, string>();
+  for (const option of definition.OPTIONS) {
+    const providerId = providerIdOf(option.value);
+    if (option.description && !descriptionByProvider.has(providerId)) {
+      descriptionByProvider.set(providerId, option.description);
+    }
+  }
+
+  const options = definition.OPTIONS.filter((option) => {
+    const rule = rules.get(providerIdOf(option.value));
+    if (!rule) {
+      return true;
+    }
+    const modelId = modelIdOf(option.value);
+    return !rule.blacklist.has(modelId) && (!rule.whitelist || rule.whitelist.has(modelId));
+  });
+
+  const presentValues = new Set(options.map((option) => option.value));
+  for (const [providerId, rule] of rules) {
+    if (!rule.whitelist) {
+      continue;
+    }
+    for (const modelId of rule.whitelist) {
+      const value = `${providerId}/${modelId}`;
+      if (rule.blacklist.has(modelId) || presentValues.has(value)) {
+        continue;
+      }
+      presentValues.add(value);
+      options.push({
+        value,
+        label: modelId,
+        description: rule.name ?? descriptionByProvider.get(providerId) ?? providerId,
+      });
+    }
+  }
+
+  if (options.length === 0) {
+    return definition;
+  }
+
+  return {
+    ...definition,
+    OPTIONS: options,
+    DEFAULT: options.some((option) => option.value === definition.DEFAULT)
+      ? definition.DEFAULT
+      : options[0].value,
+  };
 };
 
 /**
@@ -576,8 +701,10 @@ const readProviderIdList = (value: unknown): string[] | null => {
  * config files win for a key they set, as they do when OpenCode merges its
  * config layers.
  *
- * When the rules leave nothing, the list is empty and DEFAULT is cleared rather
- * than pointing at a model OpenCode would refuse.
+ * When the rules would leave nothing, the input list is returned unchanged. An
+ * empty picker is worse than a longer one: the frontend keeps `DEFAULT: ''` as
+ * the selected model, sends it with the next run, and hides the model menu
+ * entirely because there is nothing to choose from.
  */
 const applyProviderAccessRules = (
   definition: ProviderModelsDefinition,
@@ -586,11 +713,11 @@ const applyProviderAccessRules = (
   let enabledProviderIds: Set<string> | null = null;
   let disabledProviderIds = new Set<string>();
   for (const config of configs) {
-    const enabledList = readProviderIdList(config.enabled_providers);
+    const enabledList = readStringList(config.enabled_providers);
     if (enabledList) {
       enabledProviderIds = new Set(enabledList);
     }
-    const disabledList = readProviderIdList(config.disabled_providers);
+    const disabledList = readStringList(config.disabled_providers);
     if (disabledList) {
       disabledProviderIds = new Set(disabledList);
     }
@@ -601,18 +728,43 @@ const applyProviderAccessRules = (
   }
 
   const options = definition.OPTIONS.filter((option) => {
-    const providerId = option.value.split('/')[0];
+    const providerId = providerIdOf(option.value);
     return (!enabledProviderIds || enabledProviderIds.has(providerId))
       && !disabledProviderIds.has(providerId);
   });
+  if (options.length === 0) {
+    return definition;
+  }
 
   return {
     ...definition,
     OPTIONS: options,
     DEFAULT: options.some((option) => option.value === definition.DEFAULT)
       ? definition.DEFAULT
-      : (options[0]?.value ?? ''),
+      : options[0].value,
   };
+};
+
+/**
+ * Makes the config's top-level `model` the picker default when it is one of the
+ * final options, since that is the model OpenCode itself starts with. A later
+ * config file wins. When the configured model is absent from the list, the
+ * default chosen by the earlier steps (curated default if it survives, else the
+ * first option) stays in place.
+ */
+const applyConfiguredModelDefault = (
+  definition: ProviderModelsDefinition,
+  configs: Record<string, unknown>[],
+): ProviderModelsDefinition => {
+  let configuredModel: string | null = null;
+  for (const config of configs) {
+    configuredModel = readOptionalString(config.model) ?? configuredModel;
+  }
+
+  if (configuredModel && definition.OPTIONS.some((option) => option.value === configuredModel)) {
+    return { ...definition, DEFAULT: configuredModel };
+  }
+  return definition;
 };
 
 /**
@@ -627,7 +779,10 @@ export const loadOpenCodeModelCatalog = async (
   const configs = await readOpenCodeConfigs(homeDir);
   const connectedProviderIds = await readConnectedOpenCodeProviderIds(homeDir, configs);
   const curated = filterOpenCodeModelsByProvider(OPENCODE_PREDEFINED_MODELS, connectedProviderIds);
-  return applyProviderAccessRules(appendCustomProviderModels(curated, configs), configs);
+  const withCustomModels = appendCustomProviderModels(curated, configs);
+  const withListRules = applyProviderModelListRules(withCustomModels, configs);
+  const withAccessRules = applyProviderAccessRules(withListRules, configs);
+  return applyConfiguredModelDefault(withAccessRules, configs);
 };
 
 const parseOpenCodeSessionModelValue = (rawModel: unknown): string | null => {
