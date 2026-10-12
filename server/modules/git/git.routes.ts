@@ -10,6 +10,7 @@ import { AppError, getGitErrorDetails } from '@/shared/utils.js';
 import { parseGitLogWithStats, parseGitStatusOutput } from './git-parsing.service.js';
 import { deleteLocalBranch } from './git-branch.service.js';
 import { getBranchDiffForFile, listBranchDiffFiles } from './git-branch-diff.service.js';
+import { hideProtectedPatchSections, refuseProtectedFile } from './git-protected-files.js';
 
 type GitRouterDependencies = {
   fileSystem: typeof import('node:fs/promises');
@@ -422,6 +423,9 @@ router.get('/diff', async (req, res) => {
       repositoryRootPath,
       repositoryRelativeFilePath,
     } = await resolveRepositoryFilePath(projectPath, file);
+    if (refuseProtectedFile(res, repositoryRootPath, repositoryRelativeFilePath)) {
+      return;
+    }
 
     // Check if file is untracked or deleted
     const { stdout: statusOutput } = await spawnAsync(
@@ -505,6 +509,9 @@ router.get('/file-with-diff', async (req, res) => {
       repositoryRootPath,
       repositoryRelativeFilePath,
     } = await resolveRepositoryFilePath(projectPath, file);
+    if (refuseProtectedFile(res, repositoryRootPath, repositoryRelativeFilePath)) {
+      return;
+    }
 
     // Check file status
     const { stdout: statusOutput } = await spawnAsync(
@@ -873,6 +880,11 @@ router.get('/branch-diff/file', async (req, res) => {
     if (repositoryRelativeOldPath !== undefined) {
       validateFilePath(repositoryRelativeOldPath, repositoryRootPath);
     }
+    if (refuseProtectedFile(res, repositoryRootPath, repositoryRelativeFilePath)
+      || (repositoryRelativeOldPath !== undefined
+        && refuseProtectedFile(res, repositoryRootPath, repositoryRelativeOldPath))) {
+      return;
+    }
 
     const diff = await getBranchDiffForFile({
       projectPath: repositoryRootPath,
@@ -1031,10 +1043,11 @@ router.get('/commit-diff', async (req, res) => {
       { cwd: projectPath }
     );
 
-    const isTruncated = stdout.length > COMMIT_DIFF_CHARACTER_LIMIT;
+    const visible = hideProtectedPatchSections(stdout, await getRepositoryRootPath(projectPath));
+    const isTruncated = visible.length > COMMIT_DIFF_CHARACTER_LIMIT;
     const diff = isTruncated
-      ? `${stdout.slice(0, COMMIT_DIFF_CHARACTER_LIMIT)}\n\n... Diff truncated to keep the UI responsive ...`
-      : stdout;
+      ? `${visible.slice(0, COMMIT_DIFF_CHARACTER_LIMIT)}\n\n... Diff truncated to keep the UI responsive ...`
+      : visible;
 
     res.json({ diff, isTruncated });
   } catch (error) {

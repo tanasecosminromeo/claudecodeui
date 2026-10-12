@@ -1358,6 +1358,8 @@ export type FileTreeNode = {
   permissions: string;
   permissionsRwx: string;
   isSymlink?: boolean;
+  /** Env, key or credential file: listed, but its contents are never sent. */
+  protected?: boolean;
   children?: FileTreeNode[];
 };
 

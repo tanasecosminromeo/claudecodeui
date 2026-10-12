@@ -10,6 +10,7 @@ import type {
   FileTreeServices,
   FileTreeUploadedFile,
 } from '@/shared/types.js';
+import { isProtectedOrLinksToProtected, isProtectedPath } from '@/shared/protected-paths.js';
 import { AppError, FORBIDDEN_WORKSPACE_PATHS, normalizeProjectPath } from '@/shared/utils.js';
 
 const HARD_EXCLUDED_DIRECTORY_NAMES = new Set([
@@ -314,6 +315,12 @@ export function createFileTreeService(dependencies: FileTreeServiceDependencies)
           if (stats.isSymbolicLink()) {
             item.isSymlink = true;
           }
+          // Listed, so the user knows the file is there, but marked: its
+          // contents never reach the browser (see assertNotProtected).
+          if (entry.isDirectory() ? isProtectedPath(itemPath, dependencies.workspace.homePath)
+            : await isProtectedOrLinksToProtected(itemPath, dependencies.workspace.homePath, (target) => fileSystem.realpath(target))) {
+            item.protected = true;
+          }
         } finally {
           release();
         }
@@ -359,6 +366,16 @@ export function createFileTreeService(dependencies: FileTreeServiceDependencies)
    */
   function resolveReadablePath(projectRoot: string, requestedPath: string): string {
     return path.resolve(projectRoot, expandHomePath(dependencies.workspace.homePath, requestedPath));
+  }
+
+  /**
+   * Refuses a file whose contents the UI must never show: env files, keys and
+   * credential stores (`@/shared/protected-paths`), also through a symlink.
+   */
+  async function assertNotProtected(resolvedPath: string): Promise<void> {
+    if (await isProtectedOrLinksToProtected(resolvedPath, dependencies.workspace.homePath, (target) => fileSystem.realpath(target))) {
+      throw createFileTreeError('Protected: may contain keys. Contents hidden.', 403, 'PROTECTED_FILE');
+    }
   }
 
   /**
@@ -467,6 +484,7 @@ export function createFileTreeService(dependencies: FileTreeServiceDependencies)
     async readTextFile(projectId, filePath) {
       const projectRoot = await resolveProjectRoot(projectId);
       const resolvedPath = resolveReadablePath(projectRoot, filePath);
+      await assertNotProtected(resolvedPath);
       try {
         const content = await fileSystem.readTextFile(resolvedPath);
         return { content, path: resolvedPath };
@@ -481,6 +499,7 @@ export function createFileTreeService(dependencies: FileTreeServiceDependencies)
     async openFile(projectId, filePath) {
       const projectRoot = await resolveProjectRoot(projectId);
       const resolvedPath = resolveReadablePath(projectRoot, filePath);
+      await assertNotProtected(resolvedPath);
       try {
         // Checked for reading, not mere existence: the stream would otherwise
         // fail only after the response headers had gone out.
@@ -529,6 +548,8 @@ export function createFileTreeService(dependencies: FileTreeServiceDependencies)
     async saveTextFile(projectId, filePath, content) {
       const projectRoot = await resolveProjectRoot(projectId);
       const resolvedPath = resolvePathInsideProject(projectRoot, filePath);
+      // Never shown, so never edited through the UI either.
+      await assertNotProtected(resolvedPath);
       try {
         await fileSystem.writeTextFile(resolvedPath, content);
       } catch (error) {

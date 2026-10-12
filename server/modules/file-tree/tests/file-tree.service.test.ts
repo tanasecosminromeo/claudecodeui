@@ -650,3 +650,40 @@ test('resolveFileReference returns the first readable file, else a folder, else 
     await fsPromises.rm(projectRoot, { recursive: true, force: true });
   }
 });
+
+test('env, key and credential files are listed as protected and their contents never read', async () => {
+  const homePath = await fsPromises.mkdtemp(path.join(os.tmpdir(), 'file-tree-home-'));
+  const projectRoot = await fsPromises.mkdtemp(path.join(os.tmpdir(), 'file-tree-project-'));
+  const FAKE = 'FAKE_TEST_VALUE_not_a_real_key';
+
+  try {
+    await fsPromises.writeFile(path.join(projectRoot, '.env'), `API_TOKEN=${FAKE}\n`, 'utf8');
+    await fsPromises.writeFile(path.join(projectRoot, 'release.jks'), FAKE, 'utf8');
+    await fsPromises.writeFile(path.join(projectRoot, 'load-env.ts'), 'export {};\n', 'utf8');
+    await fsPromises.mkdir(path.join(homePath, '.ssh'));
+    await fsPromises.writeFile(path.join(homePath, '.ssh', 'id_ed25519'), FAKE, 'utf8');
+    await fsPromises.symlink(path.join(homePath, '.ssh', 'id_ed25519'), path.join(projectRoot, 'notes.txt'));
+
+    const service = createRealFileSystemService(projectRoot, homePath);
+    const listed = await service.listProjectFiles('project-1', { respectGitignore: false });
+    const marks = Object.fromEntries(listed.map((entry) => [entry.name, entry.protected === true]));
+    assert.deepEqual(marks, { '.env': true, 'load-env.ts': false, 'notes.txt': true, 'release.jks': true });
+
+    const refused = (error: unknown) => (error as AppError).statusCode === 403
+      && (error as AppError & { code?: string }).code === 'PROTECTED_FILE'
+      && !String((error as Error).message).includes(FAKE);
+    for (const target of ['.env', 'release.jks', 'notes.txt', '~/.ssh/id_ed25519', path.join(homePath, '.ssh', 'id_ed25519')]) {
+      await assert.rejects(service.readTextFile('project-1', target), refused, `read ${target}`);
+      await assert.rejects(service.openFile('project-1', target), refused, `open ${target}`);
+    }
+    // Never shown, so never overwritten through the editor either.
+    await assert.rejects(service.saveTextFile('project-1', '.env', 'API_TOKEN=changed'), refused);
+    assert.equal(await fsPromises.readFile(path.join(projectRoot, '.env'), 'utf8'), `API_TOKEN=${FAKE}\n`);
+
+    const plain = await service.readTextFile('project-1', 'load-env.ts');
+    assert.equal(plain.content, 'export {};\n');
+  } finally {
+    await fsPromises.rm(homePath, { recursive: true, force: true });
+    await fsPromises.rm(projectRoot, { recursive: true, force: true });
+  }
+});
