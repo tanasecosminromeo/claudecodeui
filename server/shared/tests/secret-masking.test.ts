@@ -51,12 +51,12 @@ test('assignments keep the name and separator and mask the value', () => {
   assert.equal(maskSecrets('API_KEY=FAKE_TEST_VALUE_not_a_real_key'), `API_KEY=${MASK}`);
   assert.equal(maskSecrets('export DB_PASSWORD=hunter2'), `export DB_PASSWORD=${MASK}`);
   assert.equal(maskSecrets('GITHUB_TOKEN: "FAKE_TEST_VALUE"'), `GITHUB_TOKEN: "${MASK}"`);
-  assert.equal(maskSecrets("client_secret='FAKE_TEST_VALUE'"), `client_secret='${MASK}'`);
-  assert.equal(maskSecrets('{"apiKey": "FAKE_TEST_VALUE"}'), `{"apiKey": "${MASK}"}`);
+  assert.equal(maskSecrets("client_secret='FAKE_TEST_VALUE_123'"), `client_secret='${MASK}'`);
+  assert.equal(maskSecrets('{"apiKey": "FAKE_TEST_VALUE_123"}'), `{"apiKey": "${MASK}"}`);
   assert.equal(maskSecrets('password: hunter2'), `password: ${MASK}`);
   assert.equal(maskSecrets('MY_CREDENTIALS=abc123'), `MY_CREDENTIALS=${MASK}`);
   assert.equal(maskSecrets('AUTH_HEADER_SECRET = xyz789'), `AUTH_HEADER_SECRET = ${MASK}`);
-  assert.equal(maskSecrets('private_key: FAKE_TEST_VALUE'), `private_key: ${MASK}`);
+  assert.equal(maskSecrets('private_key: FAKE_TEST_VALUE_123'), `private_key: ${MASK}`);
   assert.equal(maskSecrets('NPM_PWD=FAKE_TEST_VALUE'), `NPM_PWD=${MASK}`);
   assert.equal(maskSecrets('BASE64_KEY=abc123=='), `BASE64_KEY=${MASK}`);
 });
@@ -124,4 +124,30 @@ test('masking twice is the same as masking once', () => {
 
 test('empty input is returned as is', () => {
   assert.equal(maskSecrets(''), '');
+});
+
+// Measured on this repository before the rule was narrowed: 23% of its source
+// files opened masked and read-only because of lines like these.
+test('labels, storage keys and translations with secret-sounding names stay visible', () => {
+  for (const line of [
+    '"password": "Password",',
+    '"changePassword": "Change password",',
+    "const AUTH_TOKEN_STORAGE_KEY = 'auth-token';",
+    "const STORAGE_KEY = 'claude-ui-theme';",
+    "{ id: 'html', labelKey: 'settings.html', descriptionKey: 'settings.htmlHint' },",
+    'compact: { phase: "done", preTokens: 1234, postTokens: 567 },',
+    'key: index,',
+    'apiKey: apiKeyFromEnv,',
+    'Environment Variables (KEY=value, one per line)',
+    'TOKEN=your-token',
+  ]) {
+    assert.equal(maskSecrets(line), line, line);
+  }
+});
+
+test('env files, compose and MCP env maps mask any real value', () => {
+  assert.equal(maskSecrets('DB_PASSWORD=FAKEpassword'), `DB_PASSWORD=${MASK}`);
+  assert.equal(maskSecrets('export API_KEY="FAKEvalue"'), `export API_KEY="${MASK}"`);
+  assert.equal(maskSecrets('  GITHUB_TOKEN: FAKEvalue'), `  GITHUB_TOKEN: ${MASK}`);
+  assert.equal(maskSecrets('"BRAVE_API_KEY": "FAKEvalue"'), `"BRAVE_API_KEY": "${MASK}"`);
 });

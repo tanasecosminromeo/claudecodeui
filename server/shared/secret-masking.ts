@@ -76,7 +76,9 @@ function isSecretName(name: string): boolean {
 
 /** A value that is already a placeholder or mask: `${TOKEN}`, `<key>`, `***`, `••••`. */
 function isPlaceholder(value: string): boolean {
-  return /^[•*.x…\s]+$/i.test(value) || /^(\$|%|<|\{|~|\/|\.\.?\/)/.test(value);
+  return /^[•*.x…\s]+$/i.test(value) || /^(\$|%|<|\{|~|\/|\.\.?\/)/.test(value)
+    // Documentation stand-ins: `KEY=value`, `TOKEN=your-token`, `PASSWORD=changeme`.
+    || /^(value|values|example|placeholder|changeme|change[-_]me|your[-_a-z]*|secret|token|password|key)$/i.test(value);
 }
 
 function isMaskableQuoted(value: string): boolean {
@@ -115,10 +117,28 @@ function maskAssignment(
       ? `${name}${separator}${quote}${maskSecrets(quoted)}${quote}`
       : match;
   }
+  // `export DB_PASSWORD=…` and env-file lines hold the value itself, so any real
+  // value is masked. In code, JSON and YAML a secret-sounding name far more often
+  // holds a label, a storage key or a variable (`key: 'auth-token'`,
+  // `"password": "Password"`), so there only a value shaped like a credential is.
+  // Env-style: an UPPER_SNAKE name with `=` or `:` straight after it (an optional
+  // closing quote allowed), as in env files, compose/CI YAML and MCP `env` maps.
+  // `const STORAGE_KEY = '…'` has a space before `=`, so code is not env-style.
+  const envStyle = /^[A-Z][A-Z0-9_]*$/.test(name) && /^["']?[=:]/.test(separator);
   if (quote !== undefined) {
-    return isMaskableQuoted(quoted ?? '') ? `${name}${separator}${quote}${MASK}${quote}` : match;
+    const value = quoted ?? '';
+    return isMaskableQuoted(value) && (envStyle || looksLikeCredential(value))
+      ? `${name}${separator}${quote}${MASK}${quote}`
+      : match;
   }
-  return bare !== undefined && isMaskableBare(bare) ? `${name}${separator}${MASK}` : match;
+  return bare !== undefined && isMaskableBare(bare) && (envStyle || looksLikeCredential(bare))
+    ? `${name}${separator}${MASK}`
+    : match;
+}
+
+/** At least 6 characters with no spaces, mixing letters and digits: a key or password, not a word or a label. */
+function looksLikeCredential(value: string): boolean {
+  return /^\S{6,}$/.test(value) && /[A-Za-z]/.test(value) && /\d/.test(value);
 }
 
 /** Returns `text` with secret values replaced by `••••`. Text without secrets is returned unchanged. */
