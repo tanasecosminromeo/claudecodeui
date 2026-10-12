@@ -424,12 +424,14 @@ const readOpenCodeJsonFile = async (filePath: string): Promise<Record<string, un
  * project-level `opencode.json` are not visible here; the null fallback and the
  * env-key sweep keep those installs on the full list.
  */
-const readConnectedOpenCodeProviderIds = async (): Promise<Set<string> | null> => {
+const readConnectedOpenCodeProviderIds = async (
+  homeDir: string,
+  configs: Record<string, unknown>[],
+): Promise<Set<string> | null> => {
   const providerIds = new Set<string>();
-  const configDir = path.join(os.homedir(), '.config', 'opencode');
 
   const auth = await readOpenCodeJsonFile(
-    path.join(os.homedir(), '.local', 'share', 'opencode', 'auth.json'),
+    path.join(homeDir, '.local', 'share', 'opencode', 'auth.json'),
   );
   for (const [providerId, credential] of Object.entries(auth ?? {})) {
     if (readObjectRecord(credential)) {
@@ -437,9 +439,8 @@ const readConnectedOpenCodeProviderIds = async (): Promise<Set<string> | null> =
     }
   }
 
-  for (const configFile of OPENCODE_CONFIG_FILES) {
-    const config = await readOpenCodeJsonFile(path.join(configDir, configFile));
-    for (const providerId of Object.keys(readObjectRecord(config?.provider) ?? {})) {
+  for (const config of configs) {
+    for (const providerId of Object.keys(readObjectRecord(config.provider) ?? {})) {
       providerIds.add(providerId);
     }
   }
@@ -481,6 +482,96 @@ const filterOpenCodeModelsByProvider = (
       ? definition.DEFAULT
       : options[0].value,
   };
+};
+
+/** Reads every global config file that exists, in the order the CLI loads them. */
+const readOpenCodeConfigs = async (homeDir: string): Promise<Record<string, unknown>[]> => {
+  const configDir = path.join(homeDir, '.config', 'opencode');
+  const configs: Record<string, unknown>[] = [];
+
+  for (const configFile of OPENCODE_CONFIG_FILES) {
+    const config = await readOpenCodeJsonFile(path.join(configDir, configFile));
+    if (config) {
+      configs.push(config);
+    }
+  }
+
+  return configs;
+};
+
+/**
+ * Builds picker options for models a user declared under `provider.<id>.models`,
+ * such as a local llama.cpp or LM Studio server.
+ *
+ * OpenCode addresses these as `<providerId>/<modelId>`, the same form the
+ * curated catalog uses, so the value is exactly what the CLI expects. The
+ * provider's display name becomes the description, matching how the curated
+ * options name their gateway.
+ */
+const buildCustomProviderModelOptions = (
+  configs: Record<string, unknown>[],
+): ProviderModelsDefinition['OPTIONS'] => {
+  const options: ProviderModelsDefinition['OPTIONS'] = [];
+
+  for (const config of configs) {
+    for (const [providerId, rawProvider] of Object.entries(readObjectRecord(config.provider) ?? {})) {
+      const provider = readObjectRecord(rawProvider);
+      const providerName = readOptionalString(provider?.name) ?? providerId;
+
+      for (const [modelId, rawModel] of Object.entries(readObjectRecord(provider?.models) ?? {})) {
+        const model = readObjectRecord(rawModel);
+        options.push({
+          value: `${providerId}/${modelId}`,
+          label: readOptionalString(model?.name) ?? modelId,
+          description: providerName,
+        });
+      }
+    }
+  }
+
+  return options;
+};
+
+/**
+ * Appends custom-provider models after the curated options.
+ *
+ * Curated entries win on a repeated `value`, so a user who declares a model
+ * that already exists in the catalog does not see it twice.
+ */
+const appendCustomProviderModels = (
+  definition: ProviderModelsDefinition,
+  configs: Record<string, unknown>[],
+): ProviderModelsDefinition => {
+  const customOptions = buildCustomProviderModelOptions(configs);
+  if (customOptions.length === 0) {
+    return definition;
+  }
+
+  const seenValues = new Set(definition.OPTIONS.map((option) => option.value));
+  const options = [...definition.OPTIONS];
+  for (const option of customOptions) {
+    if (!seenValues.has(option.value)) {
+      seenValues.add(option.value);
+      options.push(option);
+    }
+  }
+
+  return { ...definition, OPTIONS: options };
+};
+
+/**
+ * Builds the model picker catalog for the OpenCode config under `homeDir`.
+ *
+ * Takes the home directory as a parameter so tests can point it at a fixture
+ * instead of replacing `os.homedir` for the whole process.
+ */
+export const loadOpenCodeModelCatalog = async (
+  homeDir: string = os.homedir(),
+): Promise<ProviderModelsDefinition> => {
+  const configs = await readOpenCodeConfigs(homeDir);
+  const connectedProviderIds = await readConnectedOpenCodeProviderIds(homeDir, configs);
+  const curated = filterOpenCodeModelsByProvider(OPENCODE_PREDEFINED_MODELS, connectedProviderIds);
+  return appendCustomProviderModels(curated, configs);
 };
 
 const parseOpenCodeSessionModelValue = (rawModel: unknown): string | null => {
@@ -527,10 +618,7 @@ const parseOpenCodeSessionModelValue = (rawModel: unknown): string | null => {
 /** Provider registry model adapter for OpenCode predefined models and session metadata. */
 export class OpenCodeProviderModels implements IProviderModels {
   async getSupportedModels(): Promise<ProviderModelsDefinition> {
-    return filterOpenCodeModelsByProvider(
-      OPENCODE_PREDEFINED_MODELS,
-      await readConnectedOpenCodeProviderIds(),
-    );
+    return loadOpenCodeModelCatalog();
   }
 
   async getCurrentActiveModel(sessionId?: string): Promise<ProviderCurrentActiveModel> {

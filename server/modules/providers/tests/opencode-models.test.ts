@@ -8,6 +8,7 @@ import Database from 'better-sqlite3';
 
 import { closeConnection, initializeDatabase } from '@/modules/database/index.js';
 import {
+  loadOpenCodeModelCatalog,
   OpenCodeProviderModels,
   OPENCODE_PREDEFINED_MODELS,
   parseOpenCodeConfigText,
@@ -266,6 +267,97 @@ test('OpenCode reads providers from a commented opencode.jsonc', async () => {
       assert.deepEqual([...providerIds], ['anthropic']);
     },
   );
+});
+
+/** A commented opencode.jsonc declaring the two custom providers from the user's real config. */
+const CUSTOM_PROVIDER_CONFIG = [
+  '{',
+  '  // Local llama.cpp server',
+  '  "provider": {',
+  '    "local": {',
+  '      "name": "Local (llama.cpp)",',
+  '      "npm": "@ai-sdk/openai-compatible",',
+  '      "options": { "baseURL": "http://127.0.0.1:8090/v1", "apiKey": "none" },',
+  '      "models": { "gemma-4-E2B-it-Q4_0.gguf": { "name": "Gemma 4 E2B (local)" } },',
+  '    },',
+  '    "mac-lmstudio": {',
+  '      "name": "LM Studio (Mac M4, tailnet)",',
+  '      "npm": "@ai-sdk/openai-compatible",',
+  '      "options": { "baseURL": "http://host:11435/v1", "apiKey": "none" },',
+  '      "models": {',
+  '        "qwen3.8-27b-mlx": {',
+  '          "name": "Qwen3.8 27B (MLX 4-bit, thinking)",',
+  '          "limit": { "context": 65536, "output": 32000 },',
+  '        },',
+  '      },',
+  '    },',
+  '    "opencode": { "whitelist": ["nemotron-3-ultra-free"] },',
+  '  },',
+  '  "enabled_providers": ["opencode", "local", "mac-lmstudio"],',
+  '}',
+].join('\n');
+
+/** Creates a throwaway home dir holding one opencode.jsonc, for injected catalog loads. */
+const withConfigHome = async (
+  configText: string,
+  runTest: (homeDir: string) => Promise<void>,
+): Promise<void> => {
+  const homeDir = await mkdtemp(path.join(os.tmpdir(), 'opencode-config-home-'));
+  try {
+    const configDir = path.join(homeDir, '.config', 'opencode');
+    await mkdir(configDir, { recursive: true });
+    await writeFile(path.join(configDir, 'opencode.jsonc'), configText, 'utf8');
+    await runTest(homeDir);
+  } finally {
+    await rm(homeDir, { recursive: true, force: true });
+  }
+};
+
+test('OpenCode lists models declared under custom providers', async () => {
+  await withConfigHome(CUSTOM_PROVIDER_CONFIG, async (homeDir) => {
+    const catalog = await loadOpenCodeModelCatalog(homeDir);
+    const byValue = new Map(catalog.OPTIONS.map((option) => [option.value, option]));
+
+    assert.deepEqual(byValue.get('local/gemma-4-E2B-it-Q4_0.gguf'), {
+      value: 'local/gemma-4-E2B-it-Q4_0.gguf',
+      label: 'Gemma 4 E2B (local)',
+      description: 'Local (llama.cpp)',
+    });
+    assert.deepEqual(byValue.get('mac-lmstudio/qwen3.8-27b-mlx'), {
+      value: 'mac-lmstudio/qwen3.8-27b-mlx',
+      label: 'Qwen3.8 27B (MLX 4-bit, thinking)',
+      description: 'LM Studio (Mac M4, tailnet)',
+    });
+    // Custom models come after the curated ones, so the picker keeps the
+    // catalog order for everything OpenCode ships.
+    const customIndex = catalog.OPTIONS.findIndex((option) => option.value === 'local/gemma-4-E2B-it-Q4_0.gguf');
+    assert.ok(customIndex > 0);
+    assert.ok(catalog.OPTIONS.slice(0, customIndex).every((option) => !option.value.startsWith('local/')));
+    // The default stays on the curated catalog rather than moving to a local model.
+    assert.ok(catalog.OPTIONS.some((option) => option.value === catalog.DEFAULT));
+  });
+});
+
+test('OpenCode keeps the curated entry when a custom model repeats its value', async () => {
+  const config = JSON.stringify({
+    provider: {
+      anthropic: { models: { 'claude-opus-5': { name: 'Renamed locally' } } },
+    },
+  });
+  await withConfigHome(config, async (homeDir) => {
+    const catalog = await loadOpenCodeModelCatalog(homeDir);
+    const matches = catalog.OPTIONS.filter((option) => option.value === 'anthropic/claude-opus-5');
+
+    assert.equal(matches.length, 1);
+    assert.equal(matches[0].label, 'Claude Opus 5');
+  });
+});
+
+test('OpenCode leaves the catalog unchanged when no custom models are declared', async () => {
+  await withConfigHome('{ "provider": { "local": { "options": {} } } }', async (homeDir) => {
+    const catalog = await loadOpenCodeModelCatalog(homeDir);
+    assert.equal(catalog.OPTIONS.some((option) => option.value.startsWith('local/')), false);
+  });
 });
 
 const writeOpenCodeSessionDatabase = async (homeDir: string, rows: Array<Record<string, unknown>>) => {
