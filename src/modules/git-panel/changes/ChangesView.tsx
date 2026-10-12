@@ -13,6 +13,7 @@ type ChangesViewProps = {
   projectPath: string;
   gitStatus: GitStatusResponse | null;
   gitDiff: GitDiffMap;
+  gitProtectedPaths: Record<string, true>;
   isLoading: boolean;
   wrapText: boolean;
   isCreatingInitialCommit: boolean;
@@ -34,6 +35,7 @@ export default function ChangesView({
   projectPath,
   gitStatus,
   gitDiff,
+  gitProtectedPaths,
   isLoading,
   wrapText,
   isCreatingInitialCommit,
@@ -240,6 +242,7 @@ export default function ChangesView({
               <FileChangeList
                 gitStatus={gitStatus}
                 gitDiff={gitDiff}
+                gitProtectedPaths={gitProtectedPaths}
                 expandedFiles={expandedFiles}
                 selectedFiles={selectedFiles}
                 isMobile={isMobile}
@@ -277,6 +280,7 @@ export default function ChangesView({
               <FileChangeList
                 gitStatus={gitStatus}
                 gitDiff={gitDiff}
+                gitProtectedPaths={gitProtectedPaths}
                 expandedFiles={expandedFiles}
                 selectedFiles={selectedFiles}
                 isMobile={isMobile}

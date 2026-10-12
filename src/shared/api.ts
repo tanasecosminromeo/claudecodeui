@@ -103,8 +103,10 @@ export async function readApiJson<T>(response: Response): Promise<T> {
     const raw = data.error ?? data.details;
     const payload = raw && typeof raw === 'object' ? raw : {};
     const message = (typeof raw === 'string' ? raw : payload?.message) || data.details || `Request failed (${response.status})`;
+    // File endpoints answer `{ error: 'message', code }`, so the code sits next to a string error.
+    const code = typeof payload?.code === 'string' ? payload.code : data.code;
     throw new ApiRequestError(message, {
-      code: typeof payload?.code === 'string' ? payload.code : undefined,
+      code: typeof code === 'string' ? code : undefined,
       details: payload?.details ?? data.details,
       status: response.status,
     });

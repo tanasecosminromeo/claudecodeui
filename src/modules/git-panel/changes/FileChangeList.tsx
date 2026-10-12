@@ -6,6 +6,7 @@ import FileChangeItem from '@/modules/git-panel/changes/FileChangeItem';
 type FileChangeListProps = {
   gitStatus: GitStatusResponse;
   gitDiff: GitDiffMap;
+  gitProtectedPaths: Record<string, true>;
   expandedFiles: Set<string>;
   selectedFiles: Set<string>;
   isMobile: boolean;
@@ -22,6 +23,7 @@ type FileChangeListProps = {
 export default function FileChangeList({
   gitStatus,
   gitDiff,
+  gitProtectedPaths,
   expandedFiles,
   selectedFiles,
   isMobile,
@@ -47,6 +49,7 @@ export default function FileChangeList({
               isExpanded={expandedFiles.has(filePath)}
               isSelected={selectedFiles.has(filePath)}
               diff={gitDiff[filePath]}
+              isProtected={gitProtectedPaths[filePath] === true}
               wrapText={wrapText}
               onToggleSelected={onToggleSelected}
               onToggleExpanded={onToggleExpanded}

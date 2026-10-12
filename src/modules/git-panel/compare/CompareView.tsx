@@ -3,7 +3,7 @@ import { useCallback, useState } from 'react';
 import { Trans, useTranslation } from 'react-i18next';
 
 import type { GitBranchDiffFile, GitStatusResponse } from '@/shared/types';
-import { useBranchCompare } from '@/modules/git-panel/hooks/useBranchCompare';
+import { PROTECTED_FILE_ERROR, useBranchCompare } from '@/modules/git-panel/hooks/useBranchCompare';
 import CompareFileItem from '@/modules/git-panel/compare/CompareFileItem';
 
 type CompareViewProps = {
@@ -191,6 +191,7 @@ export default function CompareView({
                 isExpanded={expandedFiles.has(file.path)}
                 diff={fileDiffs[file.path]}
                 loadError={fileDiffErrors[file.path]}
+                isProtected={fileDiffErrors[file.path] === PROTECTED_FILE_ERROR}
                 wrapText={wrapText}
                 onToggleExpanded={toggleFileExpanded}
                 onOpenFile={(filePath) => { void onOpenFile(filePath); }}

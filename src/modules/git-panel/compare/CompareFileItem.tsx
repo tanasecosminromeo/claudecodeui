@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import type { GitBranchDiffFile } from '@/shared/types';
 import { getStatusBadgeClass, getStatusLabelKey } from '@/modules/git-panel/utils/gitPanelUtils';
 import GitDiffViewer from '@/modules/git-panel/GitDiffViewer';
+import { ProtectedFileNotice } from '@/shared/ui';
 
 type CompareFileItemProps = {
   file: GitBranchDiffFile;
@@ -13,6 +14,8 @@ type CompareFileItemProps = {
   diff?: string;
   /** Why the diff could not be loaded, shown in place of it. */
   loadError?: string;
+  /** The file's contents are hidden by the server, so there is no diff to load. */
+  isProtected: boolean;
   wrapText: boolean;
   onToggleExpanded: (file: GitBranchDiffFile) => void;
   onOpenFile: (filePath: string) => void;
@@ -26,6 +29,7 @@ export default function CompareFileItem({
   isExpanded,
   diff,
   loadError,
+  isProtected,
   wrapText,
   onToggleExpanded,
   onOpenFile,
@@ -107,7 +111,9 @@ export default function CompareFileItem({
         </div>
 
         <div className="max-h-96 overflow-y-auto">
-          {loadError !== undefined ? (
+          {isProtected ? (
+            <ProtectedFileNotice path={file.path} />
+          ) : loadError !== undefined ? (
             <div className="flex items-start gap-2 p-3 text-xs text-muted-foreground">
               <AlertCircle className="h-4 w-4 shrink-0 text-destructive/70" />
               <span className="min-w-0 break-words">
