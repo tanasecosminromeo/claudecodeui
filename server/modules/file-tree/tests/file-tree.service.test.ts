@@ -794,3 +794,37 @@ test('a text file opened raw is masked like the editor', async () => {
     await fsPromises.rm(projectRoot, { recursive: true, force: true });
   }
 });
+
+test('a save outside the project never writes a protected or masked file', async () => {
+  const homePath = await fsPromises.mkdtemp(path.join(os.tmpdir(), 'file-tree-home-'));
+  const projectRoot = await fsPromises.mkdtemp(path.join(os.tmpdir(), 'file-tree-project-'));
+  const FAKE = ['FAKE', 'outside', '5521'].join('');
+  try {
+    await fsPromises.mkdir(path.join(homePath, '.aws'));
+    await fsPromises.writeFile(path.join(homePath, '.aws', 'credentials'), `key=${FAKE}\n`, 'utf8');
+    await fsPromises.mkdir(path.join(homePath, 'notes'));
+    await fsPromises.writeFile(path.join(homePath, 'notes', 'deploy.yml'), `password: ${FAKE}\n`, 'utf8');
+    await fsPromises.writeFile(path.join(homePath, 'notes', 'todo.md'), '- one\n', 'utf8');
+
+    const service = createRealFileSystemService(projectRoot, homePath);
+    await assert.rejects(
+      service.saveTextFile('project-1', '~/.aws/credentials', 'changed'),
+      (error: unknown) => (error as AppError).code === 'PROTECTED_FILE',
+    );
+    await assert.rejects(
+      service.saveTextFile('project-1', '~/notes/deploy.yml', 'password: ••••\n'),
+      (error: unknown) => (error as AppError).code === 'MASKED_FILE',
+    );
+    assert.equal(await fsPromises.readFile(path.join(homePath, '.aws', 'credentials'), 'utf8'), `key=${FAKE}\n`);
+    assert.equal(await fsPromises.readFile(path.join(homePath, 'notes', 'deploy.yml'), 'utf8'), `password: ${FAKE}\n`);
+
+    // A plain file outside the project that the OS lets us write is saved, and reads report it writable.
+    const opened = await service.readTextFile('project-1', '~/notes/todo.md');
+    assert.equal(opened.writable, true);
+    await service.saveTextFile('project-1', '~/notes/todo.md', '- one\n- two\n');
+    assert.equal(await fsPromises.readFile(path.join(homePath, 'notes', 'todo.md'), 'utf8'), '- one\n- two\n');
+  } finally {
+    await fsPromises.rm(homePath, { recursive: true, force: true });
+    await fsPromises.rm(projectRoot, { recursive: true, force: true });
+  }
+});
