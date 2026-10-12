@@ -55,7 +55,7 @@ import { fileTreeRoutes } from './modules/file-tree/index.js';
 import { worktreesRoutes } from './modules/worktrees/index.js';
 import browserUseMcpRoutes from './modules/browser-use/browser-use-mcp.routes.js';
 import { browserUseService } from './modules/browser-use/browser-use.service.js';
-import { initializeDatabase, sessionsDb } from './modules/database/index.js';
+import { initializeDatabase, sessionsDb, sideQuestionsDb } from './modules/database/index.js';
 import { configureWebPush } from './modules/notifications/index.js';
 // Imported directly, not through the notifications index: the relay reaches into plugins and the
 // websocket run registry, and providers import that index (an import cycle otherwise).
@@ -342,6 +342,10 @@ async function startServer() {
     try {
         // Initialize authentication database
         await initializeDatabase();
+
+        // A /btw answer that was in flight when the previous server stopped
+        // can never arrive; mark it failed so its panel entry does not spin.
+        sideQuestionsDb.failPending('Interrupted by a server restart');
 
         // Configure Web Push (VAPID keys)
         configureWebPush();

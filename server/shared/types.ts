@@ -688,6 +688,32 @@ export type SideQuestionOutcome =
   | { status: 'unsupported' };
 
 /**
+ * One `/btw` question and its answer, as the side panel lists it.
+ *
+ * `id` is the stored row id; an entry that was not stored (the session has no
+ * row yet) gets a negative id and `saved: false`, and it is gone after a reload.
+ */
+export type SideQuestionEntry = {
+  id: number;
+  sessionId: string;
+  question: string;
+  answer: string | null;
+  status: 'pending' | 'answered' | 'failed';
+  source: 'live' | 'fork' | null;
+  error: string | null;
+  createdAt: string;
+  answeredAt: string | null;
+  saved: boolean;
+};
+
+/** Pushed to every connected client when a stored side question changes state. */
+export type SideQuestionUpdatedEvent = {
+  kind: 'side_question_updated';
+  sessionId: string;
+  entry: SideQuestionEntry;
+};
+
+/**
  * Another agent process that has a session open — a terminal `claude
  * --resume`, typically. Reported to the client so the user can decide whether
  * to take the session over; `entrypoint` says where it runs (`cli` for a

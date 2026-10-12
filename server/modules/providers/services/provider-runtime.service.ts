@@ -98,6 +98,15 @@ export function createProviderRuntimeService(
       }
     },
 
+    /** Whether the provider's runtime can answer `/btw` side questions. */
+    supportsSideQuestions(providerName: LLMProvider): boolean {
+      try {
+        return Boolean(dependencies.resolveProvider(providerName).runtime.askSideQuestion);
+      } catch {
+        return false;
+      }
+    },
+
     getRunner(provider: LLMProvider): ProviderRunFunction {
       return (command, options, writer) => run(provider, command, options, writer);
     },

@@ -5,10 +5,12 @@ import test from 'node:test';
 
 import express from 'express';
 
-import type { LLMProvider, SideQuestionOptions, SideQuestionOutcome } from '@/shared/types.js';
+import type { LLMProvider, SideQuestionEntry, SideQuestionOptions, SideQuestionOutcome } from '@/shared/types.js';
 
 import { createCommandsRouter } from '../commands.routes.js';
 import { createSideQuestionService } from '../side-question.service.js';
+
+import { createMemorySideQuestionStore, flushBackground } from './side-question-fakes.js';
 
 /**
  * Stands in for `providerModelsService`. `resolveSessionModel` mirrors the real
@@ -48,18 +50,30 @@ type SideQuestionCall = { provider: LLMProvider; sessionId: string; question: st
  * records what reached the runtime and answers with `outcome`.
  */
 function createSideQuestions(
-  sessions: Record<string, { provider: LLMProvider; projectPath: string | null }> = {},
+  sessions: Record<string, { provider: LLMProvider; projectPath: string | null; transcriptPath?: string | null }> = {},
   outcome: SideQuestionOutcome = { status: 'answered', answer: '**yes**', source: 'live' },
 ) {
   const calls: SideQuestionCall[] = [];
+  const store = createMemorySideQuestionStore();
+  const broadcasts: SideQuestionEntry[] = [];
   const service = createSideQuestionService({
-    findSession: (sessionId) => sessions[sessionId] ?? null,
+    findSession: (sessionId) => {
+      const session = sessions[sessionId];
+      return session
+        ? { sessionId, provider: session.provider, projectPath: session.projectPath, transcriptPath: session.transcriptPath ?? null }
+        : null;
+    },
+    supportsSideQuestions: (provider) => provider === 'claude',
     askProvider: async (provider, sessionId, question, options) => {
       calls.push({ provider, sessionId, question, options });
       return outcome;
     },
+    store,
+    broadcast: (_sessionId, entry) => {
+      broadcasts.push(entry);
+    },
   });
-  return { service, calls };
+  return { service, calls, store, broadcasts };
 }
 
 async function executeCommand(
@@ -80,6 +94,19 @@ async function postCommands(
   sessionModels: Record<string, string> = {},
   sideQuestions: ReturnType<typeof createSideQuestionService> = createSideQuestions().service,
 ): Promise<Record<string, unknown>> {
+  const response = await commandsRequest('POST', `${route}`, body, sessionModels, sideQuestions);
+  assert.equal(response.status, 200);
+  return response.body;
+}
+
+/** Sends one request to the commands router; returns the status and parsed JSON body. */
+async function commandsRequest(
+  method: 'GET' | 'POST',
+  pathAndQuery: string,
+  body: Record<string, unknown> | null,
+  sessionModels: Record<string, string> = {},
+  sideQuestions: ReturnType<typeof createSideQuestionService> = createSideQuestions().service,
+): Promise<{ status: number; body: Record<string, unknown> }> {
   const router = createCommandsRouter({
     sideQuestions,
     fileSystem: {
@@ -87,7 +114,7 @@ async function postCommands(
       // No `.claude/commands` folder anywhere: only the server's own lists remain.
       access: async () => { throw Object.assign(new Error('missing'), { code: 'ENOENT' }); },
     } as unknown as typeof import('node:fs/promises'),
-    homeDirectory: () => '/home/test',
+    homeDirectory: () => '/users/someone',
     appRoot: '/app',
     models: createModelsService(sessionModels) as never,
     runtime: {
@@ -101,12 +128,12 @@ async function postCommands(
   await once(server, 'listening');
   try {
     const address = server.address() as AddressInfo;
-    const response = await fetch(`http://127.0.0.1:${address.port}/api/commands/${route}`, {
-      method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(body),
+    const response = await fetch(`http://127.0.0.1:${address.port}/api/commands/${pathAndQuery}`, {
+      method,
+      headers: { 'content-type': 'application/json' },
+      body: body ? JSON.stringify(body) : undefined,
     });
-    assert.equal(response.status, 200);
-    return await response.json() as Record<string, unknown>;
+    return { status: response.status, body: await response.json() as Record<string, unknown> };
   } finally {
     await new Promise<void>((resolve) => server.close(() => resolve()));
   }
@@ -154,7 +181,7 @@ test('cost and status commands report the same resolved model as /models', async
 });
 
 test('btw asks the session row\'s provider in its project folder, with the words rejoined', async () => {
-  const { service, calls } = createSideQuestions({ 'session-1': { provider: 'claude', projectPath: '/work/app' } });
+  const { service, calls, store } = createSideQuestions({ 'session-1': { provider: 'claude', projectPath: '/work/app' } });
 
   const result = await executeCommand(
     '/btw',
@@ -170,9 +197,27 @@ test('btw asks the session row\'s provider in its project folder, with the words
     options: { cwd: '/work/app', model: 'haiku' },
   }]);
   assert.equal(result.action, 'btw');
-  assert.deepEqual(result.data, {
-    question: 'what is it doing?', status: 'answered', answer: '**yes**', source: 'live',
-  });
+  const data = result.data as { question: string; entry: SideQuestionEntry };
+  assert.equal(data.question, 'what is it doing?');
+  assert.equal(data.entry.status, 'pending');
+  assert.equal(data.entry.saved, true);
+
+  await flushBackground();
+  assert.equal(store.rows[0]?.status, 'answered');
+  assert.equal(store.rows[0]?.answer, '**yes**');
+});
+
+test('btw answers a session with no row in the response and stores nothing', async () => {
+  const { service, store, broadcasts } = createSideQuestions();
+
+  const result = await executeCommand('/btw', { provider: 'claude', sessionId: 'native-id' }, {}, { args: ['why?'], sideQuestions: service });
+
+  const data = result.data as { question: string; entry: SideQuestionEntry };
+  assert.equal(data.entry.status, 'answered');
+  assert.equal(data.entry.answer, '**yes**');
+  assert.equal(data.entry.saved, false);
+  assert.equal(store.rows.length, 0);
+  assert.equal(broadcasts.length, 0);
 });
 
 test('btw falls back to the client\'s provider and folder for an unindexed session', async () => {
@@ -211,7 +256,34 @@ test('btw reports a provider without side questions as unsupported', async () =>
   assert.equal(data.message, '/btw is only available in Claude sessions.');
 });
 
-type ListedCommand = { name: string; description: string; namespace: string; metadata: { type: string } };
+test('side-questions lists the session\'s entries oldest first with its transcript path', async () => {
+  const { service } = createSideQuestions({
+    'session-1': { provider: 'claude', projectPath: '/work/app', transcriptPath: '/transcripts/s1.jsonl' },
+  });
+  await executeCommand('/btw', { provider: 'claude', sessionId: 'session-1' }, {}, { args: ['first?'], sideQuestions: service });
+  await flushBackground();
+  await executeCommand('/btw', { provider: 'claude', sessionId: 'session-1' }, {}, { args: ['second?'], sideQuestions: service });
+  await flushBackground();
+
+  const response = await commandsRequest('GET', 'side-questions?sessionId=session-1', null, {}, service);
+
+  assert.equal(response.status, 200);
+  assert.equal(response.body.transcriptPath, '/transcripts/s1.jsonl');
+  const entries = response.body.entries as SideQuestionEntry[];
+  assert.deepEqual(entries.map((entry) => entry.question), ['first?', 'second?']);
+  assert.deepEqual(entries.map((entry) => entry.status), ['answered', 'answered']);
+  assert.equal(entries[0]?.sessionId, 'session-1');
+  assert.equal(entries[0]?.saved, true);
+});
+
+test('side-questions answers 400 without a sessionId', async () => {
+  const response = await commandsRequest('GET', 'side-questions', null);
+
+  assert.equal(response.status, 400);
+  assert.equal(response.body.error, 'sessionId is required');
+});
+
+type ListedCommand ={ name: string; description: string; namespace: string; metadata: { type: string } };
 
 test('the list offers the Claude CLI\'s own commands apart from the built-ins, marked to pass through', async () => {
   const listed = await postCommands('list', { projectPath: '/work/app' });

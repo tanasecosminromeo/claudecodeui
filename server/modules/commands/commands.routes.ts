@@ -5,6 +5,8 @@ import express from "express";
 
 import { parseFrontMatter } from "../../shared/frontmatter.js";
 
+import { SIDE_QUESTION_MESSAGES } from "./side-question.service.js";
+
 type CommandsRouterDependencies = {
   fileSystem: typeof import('node:fs/promises');
   homeDirectory(): string;
@@ -257,14 +259,6 @@ const cliCommands = [
   },
 ];
 
-// Fallback wording for each `/btw` outcome that is not an answer; the client
-// shows its own translated text and uses these only when it has none.
-const SIDE_QUESTION_MESSAGES = {
-  empty_question: "Usage: /btw <question>",
-  no_context: "This session has no conversation yet. Send a message first, then ask /btw.",
-  unsupported: "/btw is only available in Claude sessions.",
-};
-
 /**
  * Built-in command handlers
  * Each handler returns { type: 'builtin', action: string, data: any }
@@ -497,13 +491,22 @@ Custom commands can be created in:
       model: context?.model || null,
     });
 
+    // An asked question comes back as its entry (pending, or answered when the
+    // session has no row to store it in); anything else says why it was not asked.
+    if ("entry" in result) {
+      return {
+        type: "builtin",
+        action: "btw",
+        data: { question: question.trim(), entry: result.entry },
+      };
+    }
     return {
       type: "builtin",
       action: "btw",
       data: {
         question: question.trim(),
-        ...result,
-        ...(result.status === "answered" ? {} : { message: SIDE_QUESTION_MESSAGES[result.status] }),
+        status: result.status,
+        message: SIDE_QUESTION_MESSAGES[result.status],
       },
     };
   },
@@ -567,6 +570,30 @@ router.post("/list", async (req, res) => {
     console.error("Error listing commands:", error);
     res.status(500).json({
       error: "Failed to list commands",
+      message: error.message,
+    });
+  }
+});
+
+/**
+ * GET /api/commands/side-questions?sessionId=...
+ * The session's `/btw` entries, oldest first, with its transcript path for the
+ * seed of a session started from one of them.
+ */
+router.get("/side-questions", (req, res) => {
+  const sessionId = typeof req.query.sessionId === "string" ? req.query.sessionId.trim() : "";
+  if (!sessionId) {
+    return res.status(400).json({
+      error: "sessionId is required",
+    });
+  }
+
+  try {
+    res.json(sideQuestionService.list(sessionId));
+  } catch (error) {
+    console.error("Error listing side questions:", error);
+    res.status(500).json({
+      error: "Failed to list side questions",
       message: error.message,
     });
   }
