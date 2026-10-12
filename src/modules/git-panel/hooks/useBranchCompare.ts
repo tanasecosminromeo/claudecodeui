@@ -64,6 +64,9 @@ const EMPTY_FILES: GitBranchDiffFile[] = [];
 const EMPTY_DIFFS: GitDiffMap = {};
 const EMPTY_ERRORS: Record<string, string> = {};
 
+/** The `fileDiffErrors` entry for a file the server never shows a diff of (env, key, credential files). */
+export const PROTECTED_FILE_ERROR = 'PROTECTED_FILE';
+
 function isAbortError(error: unknown): boolean {
   return error instanceof DOMException && error.name === 'AbortError';
 }
@@ -178,6 +181,12 @@ export function useBranchCompare({
         const data = (await response.json()) as GitFileDiffResponse;
 
         if (signal?.aborted || requestKeyRef.current !== fileRequestKey) {
+          return;
+        }
+
+        if (data.code === 'PROTECTED_FILE') {
+          // Expected for env, key and credential files, so it is not logged as an error.
+          recordOutcome({ error: PROTECTED_FILE_ERROR });
           return;
         }
 

@@ -18,6 +18,8 @@ type UseGitPanelControllerOptions = {
 type GitPanelController = {
   gitStatus: GitStatusResponse | null;
   gitDiff: GitDiffMap;
+  // Files whose diff the server refuses (env, key, credential files), shown as a notice.
+  gitProtectedPaths: Record<string, true>;
   isLoading: boolean;
   isLoadingCommits: boolean;
   currentBranch: string;
@@ -74,6 +76,7 @@ type GitGenerateMessageResponse = GitApiErrorResponse & {
 };
 
 type GitFileWithDiffResponse = GitApiErrorResponse & {
+  code?: string;
   oldContent?: string;
   currentContent?: string;
   isDeleted?: boolean;
@@ -105,6 +108,7 @@ export function useGitPanelController({
 }: UseGitPanelControllerOptions): GitPanelController {
   const [gitStatus, setGitStatus] = useState<GitStatusResponse | null>(null);
   const [gitDiff, setGitDiff] = useState<GitDiffMap>({});
+  const [gitProtectedPaths, setGitProtectedPaths] = useState<Record<string, true>>({});
   const [isLoading, setIsLoading] = useState(false);
   const [currentBranch, setCurrentBranch] = useState('');
   const [branches, setBranches] = useState<string[]>([]);
@@ -158,6 +162,12 @@ export function useGitPanelController({
           signal?.aborted ||
           selectedProjectIdRef.current !== projectId
         ) {
+          return;
+        }
+
+        if (data.code === 'PROTECTED_FILE') {
+          // Expected for env, key and credential files: the row says so instead of showing a diff.
+          setGitProtectedPaths((previous) => ({ ...previous, [filePath]: true }));
           return;
         }
 
@@ -743,7 +753,9 @@ export function useGitPanelController({
         const data = await readJson<GitFileWithDiffResponse>(response);
 
         if (data.error) {
-          console.error('Error fetching file with diff:', data.error);
+          if (data.code !== 'PROTECTED_FILE') {
+            console.error('Error fetching file with diff:', data.error);
+          }
           onFileOpen(filePath);
           return;
         }
@@ -810,6 +822,7 @@ export function useGitPanelController({
   return {
     gitStatus,
     gitDiff,
+    gitProtectedPaths,
     isLoading,
     // History is "loading" until the first commits response for this project
     // lands, so an empty list never renders before the data exists.

@@ -42,6 +42,7 @@ export default function GitPanel({
   const {
     gitStatus,
     gitDiff,
+    gitProtectedPaths,
     isLoading,
     isLoadingCommits,
     currentBranch,
@@ -175,6 +176,7 @@ export default function GitPanel({
               projectPath={selectedProject.fullPath}
               gitStatus={gitStatus}
               gitDiff={gitDiff}
+              gitProtectedPaths={gitProtectedPaths}
               isLoading={isLoading}
               wrapText={wrapText}
               isCreatingInitialCommit={isCreatingInitialCommit}

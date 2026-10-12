@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import type { FileStatusCode } from '@/shared/types';
 import { getStatusBadgeClass, getStatusLabelKey } from '@/modules/git-panel/utils/gitPanelUtils';
 import GitDiffViewer from '@/modules/git-panel/GitDiffViewer';
+import { ProtectedFileNotice } from '@/shared/ui';
 
 type FileChangeItemProps = {
   filePath: string;
@@ -12,6 +13,8 @@ type FileChangeItemProps = {
   isExpanded: boolean;
   isSelected: boolean;
   diff?: string;
+  /** The server hides this file's contents, so its diff is replaced by a notice. */
+  isProtected: boolean;
   wrapText: boolean;
   onToggleSelected: (filePath: string) => void;
   onToggleExpanded: (filePath: string) => void;
@@ -28,6 +31,7 @@ export default function FileChangeItem({
   isExpanded,
   isSelected,
   diff,
+  isProtected,
   wrapText,
   onToggleSelected,
   onToggleExpanded,
@@ -38,6 +42,7 @@ export default function FileChangeItem({
   const { t } = useTranslation();
   const statusLabel = t(getStatusLabelKey(status));
   const badgeClass = getStatusBadgeClass(status);
+  const hasBody = Boolean(diff) || isProtected;
 
   return (
     <div className="border-b border-border last:border-0">
@@ -99,7 +104,7 @@ export default function FileChangeItem({
       </div>
 
       <div
-        className={`duration-400 overflow-hidden bg-muted/50 transition-all ease-in-out ${isExpanded && diff ? 'max-h-[600px] translate-y-0 opacity-100' : 'max-h-0 -translate-y-1 opacity-0'
+        className={`duration-400 overflow-hidden bg-muted/50 transition-all ease-in-out ${isExpanded && hasBody ? 'max-h-[600px] translate-y-0 opacity-100' : 'max-h-0 -translate-y-1 opacity-0'
           }`}
       >
         <div className="flex items-center justify-between border-b border-border p-2">
@@ -124,7 +129,11 @@ export default function FileChangeItem({
         </div>
 
         <div className="max-h-96 overflow-y-auto">
-          {diff && <GitDiffViewer diff={diff} isMobile={isMobile} wrapText={wrapText} />}
+          {isProtected ? (
+            <ProtectedFileNotice path={filePath} />
+          ) : (
+            diff && <GitDiffViewer diff={diff} isMobile={isMobile} wrapText={wrapText} />
+          )}
         </div>
       </div>
     </div>

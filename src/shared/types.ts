@@ -1100,6 +1100,8 @@ export type GitOperationResponse = GitApiErrorResponse & {
 /** Response of the single-file diff endpoints (`/diff`, `/branch-diff/file`): the shared error fields plus the unified `diff` text with its headers stripped. */
 export type GitFileDiffResponse = GitApiErrorResponse & {
   diff?: string;
+  // `PROTECTED_FILE` for env, key and credential files, which have no diff to show.
+  code?: string;
 };
 
 /** One file the working copy changed relative to the compare base's merge base, as listed by the branch-diff endpoint; `oldPath` is only set for renames. */
