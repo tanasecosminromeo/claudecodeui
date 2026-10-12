@@ -14,6 +14,8 @@ type CodeEditorHeaderProps = {
   saving: boolean;
   saveSuccess: boolean;
   hasUnsavedChanges: boolean;
+  // No save or download: the contents are hidden, or read-only here.
+  readOnly: boolean;
   onToggleMarkdownPreview: () => void;
   onOpenHtmlPreview: () => void;
   onOpenSettings: () => void;
@@ -51,6 +53,7 @@ export default function CodeEditorHeader({
   saving,
   saveSuccess,
   hasUnsavedChanges,
+  readOnly,
   onToggleMarkdownPreview,
   onOpenHtmlPreview,
   onOpenSettings,
@@ -159,34 +162,38 @@ export default function CodeEditorHeader({
           <SettingsIcon className="h-4 w-4" />
         </button>
 
-        <button
-          type="button"
-          onClick={onDownload}
-          className="flex items-center justify-center rounded-md p-1.5 text-gray-600 hover:bg-gray-100 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-white"
-          title={labels.download}
-        >
-          <Download className="h-4 w-4" />
-        </button>
+        {!readOnly && (
+          <button
+            type="button"
+            onClick={onDownload}
+            className="flex items-center justify-center rounded-md p-1.5 text-gray-600 hover:bg-gray-100 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-white"
+            title={labels.download}
+          >
+            <Download className="h-4 w-4" />
+          </button>
+        )}
 
-        <button
-          type="button"
-          onClick={onSave}
-          disabled={saving}
-          className={`flex items-center justify-center rounded-md p-1.5 transition-colors disabled:opacity-50 ${
-            saveSuccess
-              ? 'bg-green-50 text-green-600 dark:bg-green-900/30 dark:text-green-400'
-              : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-white'
-          }`}
-          title={saveTitle}
-        >
-          {saveSuccess ? (
-            <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-            </svg>
-          ) : (
-            <Save className="h-4 w-4" />
-          )}
-        </button>
+        {!readOnly && (
+          <button
+            type="button"
+            onClick={onSave}
+            disabled={saving}
+            className={`flex items-center justify-center rounded-md p-1.5 transition-colors disabled:opacity-50 ${
+              saveSuccess
+                ? 'bg-green-50 text-green-600 dark:bg-green-900/30 dark:text-green-400'
+                : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-white'
+            }`}
+            title={saveTitle}
+          >
+            {saveSuccess ? (
+              <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+              </svg>
+            ) : (
+              <Save className="h-4 w-4" />
+            )}
+          </button>
+        )}
 
         {!isSidebar && (
           <button

@@ -18,6 +18,12 @@ const getErrorMessage = (error: unknown) => {
   return String(error);
 };
 
+// The API's machine-readable code (`PROTECTED_FILE`, `MASKED_FILE`), when the failure carried one.
+const getErrorCode = (error: unknown) => {
+  const code = (error as { code?: unknown } | null)?.code;
+  return typeof code === 'string' ? code : undefined;
+};
+
 // CodeMirror reports its document with LF line endings whatever the file used,
 // so a CRLF file would look edited from the first keystroke (and stay "edited"
 // after an undo) unless both sides of the comparison are normalised.
@@ -34,6 +40,9 @@ export const useCodeEditorDocument = ({ file, projectPath }: UseCodeEditorDocume
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [isBinary, setIsBinary] = useState(false);
+  // Env, key and credential files: the server refuses their contents, so there is
+  // nothing to show or save and the editor says so instead of reporting an error.
+  const [isProtected, setIsProtected] = useState(false);
   // Some binaries (images, PDFs, audio, video) can be rendered natively, so the
   // editor shows an inline preview instead of the generic binary placeholder.
   const previewKind = getPreviewKind(file.name);
@@ -65,6 +74,7 @@ export const useCodeEditorDocument = ({ file, projectPath }: UseCodeEditorDocume
       try {
         setLoading(true);
         setIsBinary(false);
+        setIsProtected(false);
         // Any save still in flight or failed belongs to the previous file.
         setSaving(false);
         setSaveError(null);
@@ -111,6 +121,11 @@ export const useCodeEditorDocument = ({ file, projectPath }: UseCodeEditorDocume
         if (isStaleLoad()) {
           return;
         }
+        if (getErrorCode(error) === 'PROTECTED_FILE') {
+          setIsProtected(true);
+          applyLoadedContent('');
+          return;
+        }
         const message = getErrorMessage(error);
         console.error('Error loading file:', error);
         applyLoadedContent(`// Error loading file: ${message}\n// File: ${fileName}\n// Path: ${filePath}`);
@@ -127,7 +142,7 @@ export const useCodeEditorDocument = ({ file, projectPath }: UseCodeEditorDocume
   const handleSave = useCallback(async () => {
     // Preview-only and binary files have no editable text buffer; never write
     // them back (e.g. via Cmd/Ctrl+S) or we'd corrupt the file on disk.
-    if (previewKind || isBinaryFile(fileName)) {
+    if (previewKind || isBinaryFile(fileName) || isProtected) {
       return;
     }
 
@@ -180,7 +195,7 @@ export const useCodeEditorDocument = ({ file, projectPath }: UseCodeEditorDocume
         setSaving(false);
       }
     }
-  }, [content, filePath, fileProjectId, previewKind, fileName]);
+  }, [content, filePath, fileProjectId, previewKind, fileName, isProtected]);
 
   const handleDownload = useCallback(() => {
     const blob = new Blob([content], { type: 'text/plain' });
@@ -223,6 +238,7 @@ export const useCodeEditorDocument = ({ file, projectPath }: UseCodeEditorDocume
     saveSuccess,
     saveError,
     isBinary,
+    isProtected,
     previewKind,
     fileProjectId,
     hasUnsavedChanges,
