@@ -1822,7 +1822,6 @@ async function startClaudeProcess(command, options = {}, ws, context, reattachRe
         if (
           message.type === 'assistant'
           || message.type === 'stream_event'
-          || message.type === 'user'
           || (message.type === 'system' && message.subtype === 'init')
         ) {
           clearStoppedRelease();
