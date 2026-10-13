@@ -63,6 +63,29 @@ async function isRecordedProcessAlive(pid: number, procStart: unknown): Promise<
   }
 }
 
+/** How far ahead of this machine's clock a registry timestamp may be before it is ignored. */
+const MAX_FUTURE_SKEW_MS = 60_000;
+
+/**
+ * When the current turn began, according to one registry record.
+ *
+ * `startedAt` is when the `claude` process launched, so it can be weeks before
+ * the turn that is running now and is only a last resort. `statusUpdatedAt` is
+ * when `status` last changed, which for a busy record is when this turn went
+ * busy. The first usable value among the three wins; otherwise the turn is
+ * treated as starting now.
+ */
+function turnStartedAt(record: Record<string, unknown>): number {
+  const now = Date.now();
+  for (const key of ['statusUpdatedAt', 'updatedAt', 'startedAt'] as const) {
+    const value = record[key];
+    if (typeof value === 'number' && Number.isFinite(value) && value > 0 && value <= now + MAX_FUTURE_SKEW_MS) {
+      return value;
+    }
+  }
+  return now;
+}
+
 /** Reads one registry file, returning null for anything that is not a live busy session. */
 async function readLiveBusySession(filePath: string): Promise<LiveClaudeCliSession | null> {
   let parsed: unknown;
@@ -89,8 +112,7 @@ async function readLiveBusySession(filePath: string): Promise<LiveClaudeCliSessi
     return null;
   }
 
-  const startedAt = typeof record.startedAt === 'number' ? record.startedAt : Date.now();
-  return { providerSessionId, startedAt };
+  return { providerSessionId, startedAt: turnStartedAt(record) };
 }
 
 /**
