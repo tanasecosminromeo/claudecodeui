@@ -48,7 +48,7 @@ type SidebarProjectItemProps = {
   onRenameDraftChange: (name: string) => void;
   onToggleProject: (projectId: string) => void;
   onProjectSelect: (project: Project) => void;
-  /** Gmail-style: each click moves to the next color, then back to unstarred. */
+  /** Gmail-style: a quick re-click moves to the next color, a later click unstars. */
   onToggleStarProject: (projectId: string) => void;
   onSetStarColor: (projectId: string, color: StarColor | null) => void;
   onSetProjectGroup: (projectId: string, groupId: string | null) => void;

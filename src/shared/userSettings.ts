@@ -59,7 +59,8 @@ const LEGACY_STORAGE_KEYS: Record<UserPreferenceKey, string> = {
   userLanguage: 'userLanguage',
   tasksEnabled: 'tasks-enabled',
   projectSortOrder: 'claude-settings',
-  projectStarFilter: 'projectStarFilter',
+  // New with the account-backed store; there is no legacy key to migrate.
+  projectStarFilter: '',
   claudePermissions: 'claude-settings',
   cursorPermissions: 'cursor-tools-settings',
   codexPermissions: 'codex-settings',

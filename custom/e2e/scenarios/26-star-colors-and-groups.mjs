@@ -126,9 +126,11 @@ export async function run({ chat, page, app, paths, expect, snapshot, log }) {
   expect(await chip.getAttribute('data-star-filter') === 'all', 'the first chip click shows all starred');
   expect(await page.locator('[data-testid="project-star"][data-star-color="none"]').count() === 0, 'starred filter hides unstarred projects');
   expect(JSON.stringify(await visibleProjectNames()) === JSON.stringify(names), 'starred filter keeps both starred e2e projects');
+  await snapshot('starred filter: all starred');
   await chip.click();
   expect(await chip.getAttribute('data-star-filter') === 'yellow', 'the next chip click picks the yellow colour');
   expect(JSON.stringify(await visibleProjectNames()) === JSON.stringify([names[1]]), 'yellow filter shows only the yellow project');
+  await snapshot('starred filter: yellow only');
   await chip.click();
   expect(await chip.getAttribute('data-star-filter') === 'blue', 'the next chip click picks the blue colour');
   expect(JSON.stringify(await visibleProjectNames()) === JSON.stringify([names[0]]), 'blue filter shows only the blue project');
@@ -149,10 +151,17 @@ export async function run({ chat, page, app, paths, expect, snapshot, log }) {
   expect(await star(names[0]).getAttribute('data-star-color') === 'blue', 'the blue star survived the reload');
   await snapshot('after reload');
 
-  // A click more than 3 s after the last star click unstars the project.
+  // Gmail timing on a fresh page: the first click on a starred project unstars
+  // it, a click stars it again, and a quick one recolours; after 3 s it unstars.
+  await star(names[0]).click();
+  expect(await star(names[0]).getAttribute('data-star-color') === 'none', 'the first click after a reload removes the star');
+  await star(names[0]).click();
+  expect(await star(names[0]).getAttribute('data-star-color') === 'yellow', 'clicking an unstarred project stars it yellow');
+  await star(names[0]).click();
+  expect(await star(names[0]).getAttribute('data-star-color') === 'orange', 'a quick click recolours it');
   await page.waitForTimeout(3200);
   await star(names[0]).click();
-  expect(await star(names[0]).getAttribute('data-star-color') === 'none', 'a slow click removes the star');
+  expect(await star(names[0]).getAttribute('data-star-color') === 'none', 'a click more than 3 s later removes the star');
   await waitForServer(names[0], (project) => !project.starColor, 'the server cleared the star');
   await page.reload();
   await row(names[0]).waitFor({ timeout: 20000 });
