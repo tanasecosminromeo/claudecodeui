@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
 import type { KeyboardEvent, MouseEvent } from 'react';
-import { Check } from 'lucide-react';
+import { Check, CircleDashed } from 'lucide-react';
 import type { TFunction } from 'i18next';
 
 import { cn } from '@/shared/utils';
@@ -182,7 +182,8 @@ export function SessionStatusEmoji({ status, t, onActivate }: SessionStatusEmoji
         !emoji && 'text-muted-foreground/50 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100',
       )}
     >
-      {emoji ?? '·'}
+      {/* No text when unset: an icon keeps the row's text (its title) first. */}
+      {emoji ?? <CircleDashed className="h-3 w-3" aria-hidden="true" />}
     </span>
   );
 }
