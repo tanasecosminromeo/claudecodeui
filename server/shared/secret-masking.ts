@@ -6,8 +6,10 @@
  * This is a best-effort net for text that is shown to the browser: chat
  * messages, history, search snippets and files that are not protected by name.
  * It works on the shapes of known tokens and on `name = value` pairs, so it
- * can miss a secret with no recognisable name or shape. It must stay idempotent:
- * masking already-masked text changes nothing.
+ * can miss a secret with no recognisable name or shape. A URL is not searched
+ * for `name = value` pairs, because its query string is a link the reader
+ * needs, not a setting; known token shapes inside a URL are still masked. It
+ * must stay idempotent: masking already-masked text changes nothing.
  */
 
 const MASK = '••••';
@@ -105,6 +107,10 @@ function isMaskableBare(value: string): boolean {
 // which closes an HTML element around the value (`<td>API_KEY=abc</td>`).
 const ASSIGNMENT = /(?<![A-Za-z0-9_.-])([A-Za-z0-9_.-]+)(["']?[ \t]*[=:](?![=>])[ \t]*)(?:(["'`])([^"'`\r\n]*)\3|([^\s"'`;,()[\]{}<>=]+=*)(?![\w(.=]|<(?!\/)))/g;
 
+// A URL, from its scheme to the next space or link delimiter. Its query string
+// and fragment (`?key=…`, `#token=…`) are links, so the name rule skips them.
+const URL_SPAN = /([a-z][a-z0-9+.-]*:\/\/[^\s<>"'`()[\]{}]+)/gi;
+
 function maskAssignment(
   match: string,
   name: string,
@@ -143,6 +149,14 @@ function looksLikeCredential(value: string): boolean {
   return /^\S{6,}$/.test(value) && /[A-Za-z]/.test(value) && /\d/.test(value);
 }
 
+/** Runs the name rule on the text outside URLs only; `split` with a capture group puts the URLs at the odd indexes. */
+function maskAssignments(text: string): string {
+  return text
+    .split(URL_SPAN)
+    .map((piece, index) => (index % 2 === 1 ? piece : piece.replace(ASSIGNMENT, maskAssignment)))
+    .join('');
+}
+
 /** Returns `text` with secret values replaced by `••••`. Text without secrets is returned unchanged. */
 export function maskSecrets(text: string): string {
   if (!text) {
@@ -154,6 +168,6 @@ export function maskSecrets(text: string): string {
   }
   masked = masked.replace(BEARER_TOKEN, `$1${MASK}`);
   masked = masked.replace(URL_PASSWORD, `$1${MASK}@`);
-  masked = masked.replace(ASSIGNMENT, maskAssignment);
+  masked = maskAssignments(masked);
   return masked;
 }
