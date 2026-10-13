@@ -46,10 +46,60 @@ const CSS = `
 .sr-error{color:#dc2626}
 .sr-toast{padding:4px 12px;font-size:11px;color:#dc2626}
 .sr-other .sr-dot{background:hsl(var(--muted-foreground)/.35)}
-.sr-chev{flex:0 0 14px;width:14px;height:14px;margin:1px -4px 0 -6px;border:0;background:none;color:hsl(var(--muted-foreground));font:inherit;font-size:10px;line-height:14px;cursor:pointer;padding:0}
-.sr-chev:hover{color:hsl(var(--foreground))}
+/* The expand toggle: a 32px hit area around a 14px glyph (the visual stays small, the tap target does not). */
+.sr-chev{flex:0 0 32px;width:32px;height:32px;margin:-8px -14px -8px -12px;display:flex;align-items:center;justify-content:center;border:0;border-radius:6px;background:none;color:hsl(var(--muted-foreground));font:inherit;font-size:14px;line-height:1;cursor:pointer;padding:0;-webkit-tap-highlight-color:transparent}
+.sr-chev:hover{color:hsl(var(--foreground));background:hsl(var(--muted))}
+.sr-chev:active{color:hsl(var(--foreground));background:hsl(var(--border))}
+.sr-chev:focus-visible{outline:2px solid hsl(var(--primary));outline-offset:-2px;color:hsl(var(--foreground))}
+.sr-chev[aria-expanded="true"]{color:hsl(var(--foreground))}
+.sr-acts{min-width:0;margin-top:2px}
+.sr-act{font-size:12px;line-height:1.35;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:hsl(var(--foreground))}
+.sr-act-cmd{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px}
+.sr-act-recent{color:hsl(var(--muted-foreground))}
 .sr-tree{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:10.5px;padding:0 8px 4px 20px;border-left:2px solid transparent}
 .sr-node{display:flex;gap:6px;align-items:baseline;white-space:nowrap;line-height:17px}
+.sr-node.sr-live{cursor:pointer;border-radius:4px;padding:5px 4px;margin-left:-4px;margin-right:-4px}
+.sr-node.sr-live:hover{background:hsl(var(--accent))}
+.sr-node.sr-live:active{background:hsl(var(--muted))}
+.sr-node.sr-live:focus-visible{outline:2px solid hsl(var(--primary));outline-offset:-1px}
+.sr-pm-overlay{position:fixed;inset:0;z-index:2147483000;display:flex;align-items:center;justify-content:center;padding:8px;background:rgba(0,0,0,.45)}
+.sr-pm-card{display:flex;flex-direction:column;width:min(560px,100%);max-height:min(85vh,700px);max-height:min(85dvh,700px);background:hsl(var(--background));color:hsl(var(--foreground));border:1px solid hsl(var(--border));box-shadow:0 16px 48px rgba(0,0,0,.3);font:13px/1.4 system-ui,-apple-system,"Segoe UI",sans-serif}
+.sr-pm-head{display:flex;align-items:center;gap:6px;padding:8px 10px 4px 14px}
+.sr-pm-title{flex:1 1 auto;min-width:0;margin:0;font-size:16px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sr-pm-btn{min-height:40px;min-width:40px;padding:0 10px;border:0;background:none;color:hsl(var(--muted-foreground));font:inherit;font-size:13px;cursor:pointer;border-radius:4px}
+.sr-pm-btn:hover,.sr-pm-btn:focus-visible{background:hsl(var(--accent));color:hsl(var(--foreground))}
+.sr-pm-x{flex:0 0 40px;font-size:24px;line-height:1;padding:0}
+.sr-pm-body{flex:1 1 auto;min-height:0;overflow-y:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;border-top:1px solid hsl(var(--border));padding:4px 14px 8px}
+.sr-pm-note{padding:18px 0;text-align:center;color:hsl(var(--muted-foreground))}
+.sr-pm-sec{margin-top:12px}
+.sr-pm-sec h3{margin:0 0 4px;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:hsl(var(--muted-foreground))}
+.sr-pm-facts{display:grid;grid-template-columns:auto 1fr;gap:3px 12px;margin:0;font-size:12px}
+.sr-pm-facts dt{color:hsl(var(--muted-foreground));white-space:nowrap}
+.sr-pm-facts dd{margin:0;min-width:0;overflow-wrap:anywhere;font-variant-numeric:tabular-nums}
+.sr-pm-mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:11.5px}
+.sr-pm-cmd{margin:0;padding:8px 10px;white-space:pre-wrap;overflow-wrap:anywhere;user-select:all;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px;line-height:1.45;background:hsl(var(--muted));border:1px solid hsl(var(--border))}
+.sr-pm-copy{min-height:40px;margin-top:4px;padding:0 12px;border:1px solid hsl(var(--border));background:hsl(var(--background));color:hsl(var(--foreground));font:inherit;font-size:12px}
+.sr-pm-list{list-style:none;margin:0;padding:0}
+.sr-pm-list li{border-bottom:1px solid hsl(var(--border))}
+.sr-pm-link{display:block;width:100%;min-height:44px;padding:6px 4px;text-align:left;border:0;background:none;color:inherit;font:inherit;cursor:pointer}
+.sr-pm-link:hover,.sr-pm-link:focus-visible{background:hsl(var(--accent))}
+.sr-pm-link:active{background:hsl(var(--muted))}
+.sr-pm-link b{display:block;font-weight:600;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sr-pm-link small{display:block;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;color:hsl(var(--muted-foreground));overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sr-pm-hist li{display:flex;gap:8px;padding:5px 0;font-size:12px;border-bottom:1px solid hsl(var(--border))}
+.sr-pm-hist time{flex:0 0 auto;color:hsl(var(--muted-foreground));font-variant-numeric:tabular-nums}
+.sr-pm-hist span{flex:1 1 auto;min-width:0;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11.5px;overflow-wrap:anywhere}
+.sr-pm-hist em{flex:0 0 auto;font-style:normal;color:hsl(var(--muted-foreground));font-size:11px}
+.sr-pm-hist em.sr-fail{color:#dc2626}
+.sr-pm-foot{display:flex;flex-direction:column;gap:6px;padding:10px 14px 12px;border-top:1px solid hsl(var(--border))}
+.sr-pm-err{font-size:12px;color:#dc2626;overflow-wrap:anywhere}
+.sr-pm-err:empty{display:none}
+.sr-pm-btns{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:8px}
+.sr-pm-btns button{min-height:40px;padding:0 16px;font:inherit;font-size:13px;cursor:pointer;border:1px solid hsl(var(--border));background:hsl(var(--background));color:hsl(var(--foreground))}
+.sr-pm-btns button:hover,.sr-pm-btns button:focus-visible{background:hsl(var(--accent))}
+.sr-pm-btns button[hidden]{display:none}
+.sr-pm-kill{border-color:#dc2626!important;background:#dc2626!important;color:#fff!important;font-weight:600!important}
+.sr-pm-kill:disabled{opacity:.45;cursor:default}
 .sr-node-chev{flex:0 0 10px;width:10px;border:0;background:none;padding:0;color:hsl(var(--muted-foreground));font:inherit;font-size:9px;cursor:pointer}
 .sr-node-pad{flex:0 0 10px}
 .sr-cmd{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis}
@@ -137,9 +187,56 @@ function fmtDur(ms) {
   return m < 60 ? `${m}m${Math.round((ms % 60000) / 1000)}s` : `${Math.floor(m / 60)}h${m % 60}m`;
 }
 
+// "3m", "1h5m": how long something has been running (the row's activity lines).
+function runFor(ms, now) {
+  if (!ms) return '';
+  const s = Math.max(0, Math.round((now - ms) / 1000));
+  if (s < 60) return '<1m';
+  const m = Math.floor(s / 60);
+  return m < 60 ? `${m}m` : `${Math.floor(m / 60)}h${m % 60}m`;
+}
+
+// "12 s", "3 min", "2 h 5 min", "4 d": an age for the process modal.
+function fmtAgo(ms) {
+  const s = Math.max(0, Math.round(ms / 1000));
+  if (s < 90) return `${s} s`;
+  const m = Math.round(s / 60);
+  if (m < 90) return `${m} min`;
+  const h = Math.round(m / 60);
+  return h < 48 ? `${h} h` : `${Math.round(h / 24)} d`;
+}
+
+// Local clock time, HH:MM:SS.
+function clockText(ms) {
+  return new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
+}
+
+const SCOPE_LABEL = {
+  session: 'live session',
+  leftover: 'leftover (no session runs it any more)',
+  scope: 'ended session, too new to count as leftover',
+  service: 'CloudCLI service',
+  other: 'other scope',
+  none: 'no scope',
+};
+
+// Lines under a running row: each agent and task still running, the current shell command, and the
+// recent commands. Max ACT_MAX lines; the rest is cut (the row's title lists the same facts).
+const ACT_MAX = 4;
+function activityLines(s, now) {
+  const a = s.activity;
+  if (!a || !(s.state === 'busy' || s.state === 'waiting')) return [];
+  const out = [];
+  for (const g of a.agents || []) out.push({ cls: 'sr-act-agent', text: `agent: ${g.description}${g.startedAt ? ` · ${runFor(g.startedAt, now)}` : ''}` });
+  for (const t of a.tasks || []) out.push({ cls: 'sr-act-task', text: `task: ${t.description}${t.startedAt ? ` · ${runFor(t.startedAt, now)}` : ''}` });
+  if (a.current) out.push({ cls: 'sr-act-cmd', text: `$ ${a.current}` });
+  if ((a.recent || []).length) out.push({ cls: 'sr-act-recent', text: `recent: ${a.recent.join(', ')}` });
+  return out.slice(0, ACT_MAX);
+}
+
 // ---- process-tree nodes (GET /tree) ----
 function nodeTitle(n) {
-  const lines = [`pid ${n.pid}`, n.argv, `started ${new Date(n.startMs).toLocaleTimeString()}`];
+  const lines = [`pid ${n.pid}`, n.fullArgv || n.argv, `started ${new Date(n.startMs).toLocaleTimeString()}`];
   if (n.live) lines.push(`memory ${fmtMem(Math.round(n.rssKb / 1024))}`);
   else if (n.endMs) lines.push(`ran ${fmtDur(n.endMs - n.startMs)}, ${n.sig ? `killed by signal ${n.sig}` : `exit ${n.code}`}`);
   else lines.push('ended (no exit recorded)');
@@ -199,6 +296,19 @@ function rowEl(doc, s, now, currentId, onOpen, onMenu, tree) {
     meta.textContent = [STATE_LABEL[s.state], ...parts].filter(Boolean).join(' · ');
   }
   main.append(title, meta);
+  const acts = activityLines(s, now);
+  if (acts.length) {
+    const box = doc.createElement('div');
+    box.className = 'sr-acts';
+    for (const a of acts) {
+      const line = doc.createElement('div');
+      line.className = `sr-act ${a.cls}`;
+      line.textContent = a.text;
+      line.title = a.text;
+      box.append(line);
+    }
+    main.append(box);
+  }
   const more = doc.createElement('button');
   more.type = 'button';
   more.className = 'sr-more';
@@ -241,9 +351,13 @@ export function openSession(sessionId, win = window) {
  * Render a live-updating session list into `container`.
  * fetchData(): Promise<{now, machine, sessions}>; stopSession(sessionId) kills a live session's process;
  * fetchTree(sid): Promise<{now, history, roots, nodes, truncated}> (optional: without it rows have no chevron).
+ * fetchProcess(pid, procStart): Promise<process detail> (optional: without it tree lines do not open a modal).
+ * killLeftover({ unit, pid, procStart }): Promise (optional: the modal shows Kill only for leftover scopes).
  * Returns { destroy, refresh }.
  */
-export function renderRadar(container, { fetchData, stopSession, fetchTree, onOpen = (id) => openSession(id) } = {}) {
+export function renderRadar(container, {
+  fetchData, stopSession, fetchTree, fetchProcess, killLeftover, onOpen = (id) => openSession(id),
+} = {}) {
   const doc = container.ownerDocument;
   const win = doc.defaultView;
   ensureStyle(doc);
@@ -349,6 +463,18 @@ export function renderRadar(container, { fetchData, stopSession, fetchTree, onOp
         line.className = `sr-node${n.live ? '' : ' sr-dead'}${!n.live && (n.code || n.sig) ? ' sr-fail' : ''}`;
         line.style.paddingLeft = `${depth * 10}px`;
         line.title = nodeTitle(n);
+        // A live process opens its details (the modal); a finished one has nothing to fetch.
+        if (fetchProcess && n.live && n.procStart) {
+          const ref = { pid: n.pid, procStart: n.procStart, name: n.cmd };
+          line.classList.add('sr-live');
+          line.tabIndex = 0;
+          line.setAttribute('role', 'button');
+          line.setAttribute('aria-label', `Details of pid ${n.pid}: ${n.cmd}`);
+          line.addEventListener('click', () => openProcess(ref, line));
+          line.addEventListener('keydown', (e) => {
+            if (e.target === line && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); openProcess(ref, line); }
+          });
+        }
         const children = kids.get(n.pid) || [];
         if (children.length) {
           const open = isOpen(n);
@@ -380,6 +506,188 @@ export function renderRadar(container, { fetchData, stopSession, fetchTree, onOp
     if (!history) out.push(note('Command history needs the exec tracer (make exec-tracer)'));
     if (truncated) out.push(note(`${truncated} older process${truncated === 1 ? '' : 'es'} not shown`));
     el.replaceChildren(...out);
+  }
+
+  // ---- process modal: one live process (GET /process). Child links walk down, Back walks up. ----
+  let pm = null; // { el, title, back, body, kill, err, close, stack, ref, data, seq, arm, opener, onKey }
+  const mkEl = (tag, cls, text) => Object.assign(doc.createElement(tag), { className: cls || '', textContent: text == null ? '' : text });
+
+  function closeProcess() {
+    if (!pm) return;
+    const m = pm;
+    pm = null;
+    doc.removeEventListener('keydown', m.onKey, true);
+    m.el.remove();
+    if (m.opener && m.opener.isConnected && m.opener.focus) m.opener.focus();
+  }
+
+  function openProcess(ref, opener) {
+    if (!fetchProcess) return;
+    closeProcess();
+    const overlay = mkEl('div', 'sr-pm-overlay');
+    const card = mkEl('div', 'sr-pm-card');
+    card.setAttribute('role', 'dialog');
+    card.setAttribute('aria-modal', 'true');
+    const head = mkEl('div', 'sr-pm-head');
+    const back = mkEl('button', 'sr-pm-btn', '← Back');
+    back.type = 'button';
+    back.hidden = true;
+    const title = mkEl('h2', 'sr-pm-title');
+    const x = mkEl('button', 'sr-pm-btn sr-pm-x', '×');
+    x.type = 'button';
+    x.setAttribute('aria-label', 'Close');
+    head.append(back, title, x);
+    const body = mkEl('div', 'sr-pm-body');
+    const foot = mkEl('div', 'sr-pm-foot');
+    const err = mkEl('div', 'sr-pm-err');
+    err.setAttribute('role', 'alert');
+    const btns = mkEl('div', 'sr-pm-btns');
+    const kill = mkEl('button', 'sr-pm-kill', 'Kill');
+    kill.type = 'button';
+    kill.hidden = true;
+    const close = mkEl('button', '', 'Close');
+    close.type = 'button';
+    btns.append(kill, close);
+    foot.append(err, btns);
+    card.append(head, body, foot);
+    overlay.append(card);
+    doc.body.append(overlay);
+    const onKey = (e) => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); closeProcess(); } };
+    pm = { el: overlay, title, back, body, kill, err, close, stack: [], ref: null, data: null, seq: 0, arm: false, opener, onKey };
+    doc.addEventListener('keydown', onKey, true);
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) closeProcess(); });
+    x.addEventListener('click', closeProcess);
+    close.addEventListener('click', closeProcess);
+    back.addEventListener('click', () => { const prev = pm && pm.stack.pop(); if (prev) showProcess(prev); });
+    kill.addEventListener('click', killProcess);
+    showProcess(ref);
+    close.focus();
+  }
+
+  function showProcess(ref) {
+    const m = pm;
+    if (!m) return;
+    m.ref = ref; m.data = null; m.seq += 1;
+    const seq = m.seq;
+    m.title.textContent = ref.name || `pid ${ref.pid}`;
+    m.back.hidden = m.stack.length === 0;
+    m.kill.hidden = true; m.kill.disabled = false; m.kill.textContent = 'Kill'; m.arm = false;
+    m.err.textContent = '';
+    m.body.replaceChildren(mkEl('div', 'sr-pm-note', 'Loading…'));
+    m.body.scrollTop = 0;
+    fetchProcess(ref.pid, ref.procStart).then((data) => {
+      if (pm !== m || m.seq !== seq) return;
+      m.data = data;
+      renderProcess(m, data);
+    }, (err) => {
+      if (pm !== m || m.seq !== seq) return;
+      const text = err && err.status === 404 ? 'This process has ended (or its pid was reused).'
+        : `Could not load the process: ${err && err.message ? err.message : err}`;
+      m.body.replaceChildren(mkEl('div', 'sr-pm-note', text));
+    });
+  }
+
+  // Kill is a leftover-only action: first click arms it, the second sends it (as the row menu does).
+  function killProcess() {
+    const m = pm;
+    if (!m || !m.data || !m.data.killable || !killLeftover) return;
+    if (!m.arm) { m.arm = true; m.kill.textContent = 'Click again to kill'; return; }
+    const d = m.data;
+    m.kill.disabled = true;
+    m.err.textContent = '';
+    killLeftover({ unit: d.scope.unit, pid: d.pid, procStart: d.procStart }).then(() => {
+      if (pm === m) closeProcess();
+      forceRefresh();
+    }, (err) => {
+      if (pm !== m) return;
+      m.kill.disabled = false; m.arm = false; m.kill.textContent = 'Kill';
+      m.err.textContent = `Could not kill it: ${err && err.message ? err.message : err}`;
+    });
+  }
+
+  function factRow(dl, key, value) {
+    dl.append(mkEl('dt', '', key), mkEl('dd', '', value));
+  }
+
+  function renderProcess(m, d) {
+    m.title.textContent = d.name || `pid ${d.pid}`;
+    m.title.title = d.command;
+    const body = [];
+
+    const facts = mkEl('dl', 'sr-pm-facts');
+    factRow(facts, 'PID', `${d.pid} · parent ${d.ppid}`);
+    factRow(facts, 'Started', `${clockText(d.startedAt)} · ${fmtAgo(d.ageMs)} ago`);
+    factRow(facts, 'Memory', fmtMem(Math.round(d.rssBytes / 1048576)));
+    const cpu = d.cpu ? `${d.cpu.seconds} s${d.cpu.percent != null ? ` · ${d.cpu.percent}% on average` : ''}` : '—';
+    factRow(facts, 'CPU time', cpu);
+    factRow(facts, 'State', d.state || '—');
+    factRow(facts, 'Threads', d.threads != null ? String(d.threads) : '—');
+    factRow(facts, 'Working dir', d.cwd || '—');
+    const scope = d.scope || { kind: 'none' };
+    const scopeText = `${SCOPE_LABEL[scope.kind] || scope.kind}${scope.unit ? ` · ${scope.unit}` : ''}`;
+    factRow(facts, 'Scope', scopeText);
+    body.push(facts);
+
+    // The command: masked by the server; wraps, monospace, and selectable for copying.
+    const cmdSec = mkEl('section', 'sr-pm-sec');
+    cmdSec.append(mkEl('h3', '', 'Command line'));
+    const cmd = mkEl('pre', 'sr-pm-cmd', d.command);
+    const copy = mkEl('button', 'sr-pm-copy', 'Copy command');
+    copy.type = 'button';
+    copy.addEventListener('click', () => {
+      copyText(d.command).then((ok) => { copy.textContent = ok ? 'Copied' : 'Copy failed'; });
+    });
+    cmdSec.append(cmd, copy);
+    body.push(cmdSec);
+
+    if ((d.children || []).length) {
+      const sec = mkEl('section', 'sr-pm-sec');
+      sec.append(mkEl('h3', '', `Child processes (${d.children.length})`));
+      const list = mkEl('ul', 'sr-pm-list');
+      for (const c of d.children) {
+        const li = mkEl('li');
+        const link = mkEl('button', 'sr-pm-link');
+        link.type = 'button';
+        link.append(mkEl('b', '', `${c.name} · pid ${c.pid}`), mkEl('small', '', c.command));
+        link.title = c.command;
+        link.addEventListener('click', () => {
+          m.stack.push(m.ref);
+          showProcess({ pid: c.pid, procStart: c.procStart, name: c.name });
+        });
+        li.append(link);
+        list.append(li);
+      }
+      sec.append(list);
+      body.push(sec);
+    }
+
+    const hist = mkEl('section', 'sr-pm-sec');
+    hist.append(mkEl('h3', '', 'Commands run in this tree, newest first'));
+    if (!d.historyAvailable) {
+      hist.append(mkEl('div', 'sr-tree-note', 'Command history needs the exec tracer (make exec-tracer)'));
+    } else if ((d.history || []).length === 0) {
+      hist.append(mkEl('div', 'sr-tree-note', 'No commands logged for this process yet.'));
+    } else {
+      const list = mkEl('ol', 'sr-pm-list sr-pm-hist');
+      for (const h of d.history) {
+        const li = mkEl('li');
+        const status = h.endMs == null ? 'running' : h.status;
+        const fail = h.endMs != null && (h.code || h.sig);
+        li.append(mkEl('time', '', clockText(h.ts)), mkEl('span', '', h.cmd), mkEl('em', fail ? 'sr-fail' : '', status));
+        li.title = `pid ${h.pid}`;
+        list.append(li);
+      }
+      hist.append(list);
+      if (d.historyTotal > d.history.length) {
+        hist.append(mkEl('div', 'sr-tree-note', `${d.historyTotal - d.history.length} older not shown`));
+      }
+    }
+    body.push(hist);
+
+    m.body.replaceChildren(...body);
+    const canKill = !!d.killable && !!killLeftover;
+    m.kill.hidden = !canKill;
+    m.kill.textContent = 'Kill';
   }
 
   function startRename(s, row) {
@@ -529,7 +837,8 @@ export function renderRadar(container, { fetchData, stopSession, fetchTree, onOp
       const data = await fetchData();
       if (dead) return;
       if (busyUi || menu) return; // don't yank the row out from under an open menu/rename
-      const json = JSON.stringify([data.machine, data.sessions]) + currentSessionId(win) + endedOpen();
+      // The minute is in the key so the ages on activity lines move on without new data.
+      const json = JSON.stringify([data.machine, data.sessions]) + currentSessionId(win) + endedOpen() + Math.floor(data.now / 60000);
       if (json === lastJson) return; // nothing changed: keep DOM (and hover) stable
       lastJson = json;
       draw(data);
@@ -645,6 +954,7 @@ export function renderRadar(container, { fetchData, stopSession, fetchTree, onOp
     destroy() {
       dead = true;
       closeMenu();
+      closeProcess();
       for (const sid of [...trees.keys()]) stopTree(sid);
       win.clearTimeout(timer);
       win.removeEventListener('popstate', onNav);
@@ -661,6 +971,8 @@ export function mount(container, api) {
     fetchData: () => api.rpc('GET', 'sessions'),
     stopSession: (sessionId) => api.rpc('POST', 'stop', { sessionId }),
     fetchTree: (sid) => api.rpc('GET', `tree?sid=${encodeURIComponent(sid)}`),
+    fetchProcess: (pid, procStart) => api.rpc('GET', `process?pid=${pid}&procStart=${encodeURIComponent(procStart)}`),
+    killLeftover: (body) => api.rpc('POST', 'leftovers/kill', body),
   });
 }
 

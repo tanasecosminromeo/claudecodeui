@@ -9,8 +9,29 @@ import { machineStats, processDetail, stopSession, transcriptDetail } from './de
 import {
   EventLog, STATE_RANK, aggregateStates, createStatusWatcher, findTranscript, lastAssistantEntry, readStatusRecords,
 } from './events.mjs';
-import { ExecLog } from './proctree.mjs';
+import { killLeftovers, leftoversFor } from './leftovers.mjs';
+import { ExecLog, topAgentAncestor } from './proctree.mjs';
+import { sessionActivity } from './activity.mjs';
+import { processFor } from './process-detail.mjs';
 import { otherAgentRows, treeFor } from './tree-route.mjs';
+import { acquireLock, lockPath, startOrphanGuard } from './orphan-guard.mjs';
+
+// Server mode runs only as CloudCLI's plugin (the plugin host sets PLUGIN_NAME) and only once per
+// CloudCLI instance. --dump is a read-only print and works anywhere.
+const DUMP = process.argv.includes('--dump');
+if (!DUMP) {
+  if (process.env.PLUGIN_NAME !== 'session-radar') {
+    console.error('session-radar: start it through CloudCLI, or use --dump');
+    process.exit(1);
+  }
+  const lock = acquireLock({ file: lockPath() });
+  if (!lock.ok) {
+    console.error(`session-radar: already running for this CloudCLI (pid ${lock.holder}), exiting`);
+    process.exit(0);
+  }
+  process.on('exit', lock.release);
+  for (const sig of ['SIGINT', 'SIGTERM']) process.once(sig, () => process.exit(0));
+}
 
 const HOME = process.env.HOME || os.homedir();
 const SESSIONS_DIR = path.join(HOME, '.claude', 'sessions');
@@ -18,6 +39,8 @@ const PROJECTS_DIR = path.join(HOME, '.claude', 'projects');
 const DB_PATH = path.join(HOME, '.cloudcli', 'auth.db');
 const RECENT_MS = 24 * 60 * 60 * 1000;
 const execLog = new ExecLog(); // the exec tracer's log for this user (custom/exec-tracer), if installed
+// A CloudCLI restart restarts this server, so the UI shows leftover processes once per restart.
+const SERVER_STARTED_AT = Date.now();
 // Status changes CloudCLI turns into push notifications (it polls GET /events).
 const eventLog = new EventLog();
 const watchTick = createStatusWatcher({
@@ -111,19 +134,22 @@ function cwdFromTranscript(file) {
 }
 
 // ---- live-process detail ----
-function liveDetail(s, transcript) {
-  let rssKb = 0; let procs = 0; const commands = [];
+function liveDetail(s, transcript, records, now) {
+  let rssKb = 0; let procs = 0; const commands = []; const shells = [];
   for (const pid of s.pids) {
     const d = processDetail(pid);
-    rssKb += d.rssKb; procs += d.procs; commands.push(...d.commands);
+    rssKb += d.rssKb; procs += d.procs; commands.push(...d.commands); shells.push(...d.shells);
   }
   const t = transcriptDetail(transcript && transcript.file) || {};
+  const roots = [...new Set(s.pids.map(topAgentAncestor))];
   return {
     rssMb: Math.round(rssKb / 1024), procs, commands: commands.slice(0, 5),
     agents: t.agents || 0, model: t.model || null, branch: t.branch || null,
     mode: t.mode || null, contextTokens: t.contextTokens || null,
     // What a waiting session asks about (its last tool request without a result).
     pending: s.state === 'waiting' ? t.pending || null : null,
+    // Lines under the row: background work, the current shell command, recent commands.
+    activity: sessionActivity({ running: t.running || [], shells, records, roots, now }),
   };
 }
 
@@ -131,6 +157,7 @@ function liveDetail(s, transcript) {
 function listSessions() {
   const now = Date.now();
   const bySession = new Map();
+  const records = execLog.records(); // read once per refresh, shared by every live row
 
   for (const d of readStatusRecords(SESSIONS_DIR)) {
     const { state } = d;
@@ -172,7 +199,7 @@ function listSessions() {
     s.appSessionId = (row && row.id) || s.sessionId; // what CloudCLI routes on (/session/<id>)
     s.project = (row && row.projectName) || (s.cwd ? path.basename(s.cwd) : null);
     s.archived = Boolean(row && row.archived);
-    if (s.live) Object.assign(s, liveDetail(s, transcripts.get(s.sessionId)));
+    if (s.live) Object.assign(s, liveDetail(s, transcripts.get(s.sessionId), records, now));
     delete s.statusAt; delete s.transcriptAt;
     out.push(s);
   }
@@ -210,6 +237,37 @@ const server = http.createServer((req, res) => {
     res.end(JSON.stringify(r.body));
     return;
   }
+  if (req.method === 'GET' && url.pathname === '/leftovers') {
+    let body;
+    try { body = JSON.stringify(leftoversFor({ serverStartedAt: SERVER_STARTED_AT, labelFor: titlesFor })); }
+    catch (err) { res.writeHead(500, { 'content-type': 'application/json' }); res.end(JSON.stringify({ error: String(err) })); return; }
+    res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' });
+    res.end(body);
+    return;
+  }
+  if (req.method === 'GET' && url.pathname === '/process') {
+    const pid = Number(url.searchParams.get('pid'));
+    let r;
+    try {
+      r = processFor({ pid, procStart: url.searchParams.get('procStart') }, { execLog, uid: process.getuid() });
+    } catch (err) { r = { status: 500, body: { error: String(err) } }; }
+    res.writeHead(r.status, { 'content-type': 'application/json', 'cache-control': 'no-store' });
+    res.end(JSON.stringify(r.body));
+    return;
+  }
+  if (req.method === 'POST' && url.pathname === '/leftovers/kill') {
+    let raw = '';
+    req.on('data', (c) => { raw += c; if (raw.length > 4096) req.destroy(); });
+    req.on('end', () => {
+      const send = (code, obj) => { res.writeHead(code, { 'content-type': 'application/json' }); res.end(JSON.stringify(obj)); };
+      let parsed = null;
+      try { parsed = JSON.parse(raw); } catch { /* bad body: refused below */ }
+      // This server's own pid and its parent (CloudCLI) are never signalled.
+      killLeftovers(parsed, { avoid: [process.pid, process.ppid] })
+        .then((r) => send(r.status, r.body), (err) => send(500, { error: String(err) }));
+    });
+    return;
+  }
   if (req.method === 'POST' && url.pathname === '/stop') {
     let raw = '';
     req.on('data', (c) => { raw += c; if (raw.length > 4096) req.destroy(); });
@@ -232,7 +290,8 @@ const server = http.createServer((req, res) => {
 
 server.listen(0, '127.0.0.1', () => {
   console.log(JSON.stringify({ ready: true, port: server.address().port }));
-  if (!process.argv.includes('--dump')) {
+  if (!DUMP) {
+    startOrphanGuard(); // exits when CloudCLI (our parent) goes away
     const safeTick = () => { try { watchTick(); } catch (err) { console.error('session-radar watcher:', err.message); } };
     safeTick();
     setInterval(safeTick, 3000).unref();

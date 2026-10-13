@@ -3,7 +3,19 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { livePidsOf, processDetail } from './detail.mjs';
-import { buildTree, liveTree, otherAgentPids, procInfo, topAgentAncestor } from './proctree.mjs';
+import { maskSecrets } from './mask.mjs';
+import { buildTree, isClaudeArgv, liveTree, otherAgentPids, procInfo, topAgentAncestor } from './proctree.mjs';
+
+/**
+ * A tree node as the browser gets it: argv and cmd masked. A Claude CLI node also gets fullArgv
+ * (masked), which the tooltip shows in place of the short argv.
+ */
+export function redactNode(n) {
+  const argv = maskSecrets(n.argv || '');
+  const out = { ...n, argv, cmd: maskSecrets(n.cmd || '') };
+  if (isClaudeArgv(n.argv)) out.fullArgv = argv;
+  return out;
+}
 
 function ownedLive(pid, uid) {
   try { return fs.statSync(`/proc/${pid}`).uid === uid; } catch { return false; }
@@ -24,10 +36,12 @@ export function treeFor(sid, { sessionsDir, execLog, uid }) {
   const live = roots.flatMap((p) => liveTree(p));
   const records = execLog.records();
   const tree = buildTree({ rootPids: roots, live, records });
-  return { status: 200, body: { now: Date.now(), history: records !== null, ...tree } };
+  return { status: 200, body: { now: Date.now(), history: records !== null, ...tree, nodes: tree.nodes.map(redactNode) } };
 }
 
 const REGISTER_GRACE_MS = 10000;
+// Masked before it is cut, so a secret never reaches the browser half-shown.
+const shownTitle = (argv) => { const m = maskSecrets(argv); return m.length > 70 ? `${m.slice(0, 69)}…` : m; };
 
 /**
  * Rows for claude / claude-swap processes that registered no ~/.claude/sessions file.
@@ -45,10 +59,10 @@ export function otherAgentRows(registeredPids, uid, find = otherAgentPids, now =
     const d = processDetail(pid);
     rows.push({
       sessionId: `pid:${pid}`, other: true, live: true, state: 'other', waitingFor: null,
-      title: info.argv.length > 70 ? `${info.argv.slice(0, 69)}…` : info.argv,
+      title: shownTitle(info.argv),
       name: null, entrypoint: null, cwd, project: cwd ? path.basename(cwd) : null,
       pids: [pid], tasks: d.commands.length, startedAt: info.startMs, lastMessage: null, lastActivity: info.startMs,
-      rssMb: Math.round(d.rssKb / 1024), procs: d.procs, commands: d.commands.slice(0, 5),
+      rssMb: Math.round(d.rssKb / 1024), procs: d.procs, commands: d.commands.slice(0, 5).map(maskSecrets),
       agents: 0, model: null, branch: null, mode: null, contextTokens: null, archived: false, active: true,
     });
   }
