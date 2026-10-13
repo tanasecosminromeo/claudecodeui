@@ -8,6 +8,7 @@ import type { ServerEvent,
   LoadingProgress,
   Project,
   ProjectSession,
+  SessionMetaPatch,
   StarColor,IsSessionProcessing } from '@/shared/types';
 import { mergeProjectSelectionMetadata } from '@/modules/project-workspace/utils/projectSelectionMetadata';
 import { readSelectedProvider } from '@/shared/selectedProvider';
@@ -365,6 +366,36 @@ const renameSessionInProject = (project: Project, sessionIdToRename: string, sum
 
   const nextSessions = [...sessions];
   nextSessions[existingIndex] = { ...sessions[existingIndex], summary };
+  return { ...project, sessions: nextSessions };
+};
+
+// The session fields an automatic rename or status change writes, keyed as on
+// a `ProjectSession`. Only the fields the patch carries are included.
+const sessionFieldsFromPatch = (patch: SessionMetaPatch): Partial<ProjectSession> => {
+  const fields: Partial<ProjectSession> = {};
+  if (patch.summary !== undefined) fields.summary = patch.summary;
+  if (patch.status !== undefined) fields.status = patch.status;
+  if (patch.statusSource !== undefined) fields.statusSource = patch.statusSource;
+  if (patch.nameSource !== undefined) fields.nameSource = patch.nameSource;
+  return fields;
+};
+
+// Writes an automatic rename or status change onto the matching sidebar row.
+// Returns the same project when it holds no such row or nothing changed.
+const patchSessionInProject = (project: Project, sessionIdToPatch: string, fields: Partial<ProjectSession>): Project => {
+  const sessions = project.sessions ?? [];
+  const existingIndex = sessions.findIndex((session) => session.id === sessionIdToPatch);
+  if (existingIndex < 0) {
+    return project;
+  }
+  const current = sessions[existingIndex];
+  const changed = Object.entries(fields).some(([key, value]) => current[key] !== value);
+  if (!changed) {
+    return project;
+  }
+
+  const nextSessions = [...sessions];
+  nextSessions[existingIndex] = { ...current, ...fields };
   return { ...project, sessions: nextSessions };
 };
 
@@ -1205,6 +1236,34 @@ export function useProjectsState({
     return true;
   }, []);
 
+  /**
+   * Writes an automatic rename or status change onto the sidebar row and the
+   * workspace header's `selectedSession`, the same two copies a manual rename
+   * patches. Called by the sidebar once its own request has succeeded.
+   */
+  const applySessionMeta = useCallback((sessionIdToPatch: string, patch: SessionMetaPatch) => {
+    const fields = sessionFieldsFromPatch(patch);
+    setProjects((previousProjects) => {
+      let changed = false;
+      const nextProjects = previousProjects.map((project) => {
+        const patchedProject = patchSessionInProject(project, sessionIdToPatch, fields);
+        if (patchedProject !== project) {
+          changed = true;
+        }
+        return patchedProject;
+      });
+      return changed ? nextProjects : previousProjects;
+    });
+
+    setSelectedSession((previousSession) => {
+      if (previousSession?.id !== sessionIdToPatch) {
+        return previousSession;
+      }
+      const unchanged = Object.entries(fields).every(([key, value]) => previousSession[key] === value);
+      return unchanged ? previousSession : { ...previousSession, ...fields };
+    });
+  }, []);
+
   const loadMoreProjectSessions = useCallback(async (projectId: string) => {
     const project = projects.find((candidate) => candidate.projectId === projectId);
     if (!project) {
@@ -1277,6 +1336,7 @@ export function useProjectsState({
       isLoading: isLoadingProjects,
       loadingProgress,
       onRefresh: handleSidebarRefresh,
+      onSessionUpdated: applySessionMeta,
       onShowSettings: () => setShowSettings(true),
       showSettings,
       settingsInitialTab,
@@ -1290,6 +1350,7 @@ export function useProjectsState({
       handleProjectSelect,
       handleSessionDelete,
       loadMoreProjectSessions,
+      applySessionMeta,
       handleSessionSelect,
       handleSidebarRefresh,
       isLoadingProjects,

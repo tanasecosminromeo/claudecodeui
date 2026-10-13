@@ -288,6 +288,12 @@ export const api = {
     post(`/api/providers/sessions/${encodeURIComponent(sessionId)}/fork`, body),
   renameSession: (sessionId: string, summary: string) =>
     put(`/api/providers/sessions/${sessionId}`, { summary }),
+  // Asks Claude for a title and status from the transcript, then saves both.
+  autoRenameSession: (sessionId: string) =>
+    post(`/api/providers/sessions/${encodeURIComponent(sessionId)}/auto-rename`, {}),
+  // `status` null hands the emoji back to automatic checks ("Auto").
+  setSessionStatus: (sessionId: string, status: string | null) =>
+    put(`/api/providers/sessions/${encodeURIComponent(sessionId)}/status`, { status }),
   // What one agent of a workflow run did, read from its transcript on demand
   // when its row in the workflow card is opened.
   workflowAgentActivity: (sessionId: string, runId: string, agentId: string) =>
