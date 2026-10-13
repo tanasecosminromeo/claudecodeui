@@ -21,6 +21,7 @@ export type UserPreferences = {
   userLanguage: string;
   tasksEnabled: boolean;
   projectSortOrder: 'name' | 'date';
+  projectStarFilter: string;
   claudePermissions: unknown;
   cursorPermissions: unknown;
   codexPermissions: unknown;
@@ -58,6 +59,7 @@ const LEGACY_STORAGE_KEYS: Record<UserPreferenceKey, string> = {
   userLanguage: 'userLanguage',
   tasksEnabled: 'tasks-enabled',
   projectSortOrder: 'claude-settings',
+  projectStarFilter: 'projectStarFilter',
   claudePermissions: 'claude-settings',
   cursorPermissions: 'cursor-tools-settings',
   codexPermissions: 'codex-settings',

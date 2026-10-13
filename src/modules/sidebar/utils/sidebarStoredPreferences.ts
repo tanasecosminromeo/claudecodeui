@@ -1,9 +1,23 @@
-import type { ProjectSortOrder } from '@/shared/types';
-import { readUserPreference } from '@/shared/userSettings';
+import type { ProjectSortOrder, StarFilter } from '@/shared/types';
+import { readUserPreference, writeUserPreference } from '@/shared/userSettings';
+import { isStarColor } from '@/modules/sidebar/utils/starColors';
 
 export const readProjectSortOrder = (): ProjectSortOrder => (
   readUserPreference<ProjectSortOrder>('projectSortOrder', 'name') === 'date' ? 'date' : 'name'
 );
+
+/** The starred-filter chip, kept on the user's account like the sort order. Unknown values read as off. */
+export const readProjectStarFilter = (): StarFilter => {
+  const stored = readUserPreference<unknown>('projectStarFilter', 'off');
+  if (stored === 'off' || stored === 'all' || isStarColor(stored)) {
+    return stored;
+  }
+  return 'off';
+};
+
+export const writeProjectStarFilter = (filter: StarFilter) => {
+  writeUserPreference('projectStarFilter', filter);
+};
 
 const LEGACY_STARRED_PROJECTS_STORAGE_KEY = 'starredProjects';
 

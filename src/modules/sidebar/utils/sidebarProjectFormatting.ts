@@ -8,8 +8,9 @@ import type {
   ProjectSortOrder,
   SessionWithProvider,
   SettingsProject,
+  StarFilter,
 } from '@/shared/types';
-import { getStarColor, starColorRank } from '@/modules/sidebar/utils/starColors';
+import { getStarColor, STAR_COLORS } from '@/modules/sidebar/utils/starColors';
 
 // Presentation data the sidebar derives from a session before rendering its row.
 type SessionViewModel = {
@@ -120,6 +121,10 @@ const getProjectLastActivity = (project: Project): Date => {
   }, new Date(0));
 };
 
+/**
+ * Orders projects by name or by last activity. Stars never take part: a star
+ * click changes colour in place, so the row stays where the user clicked it.
+ */
 export const sortProjects = (
   projects: Project[],
   projectSortOrder: ProjectSortOrder,
@@ -127,12 +132,6 @@ export const sortProjects = (
   const byName = [...projects];
 
   byName.sort((projectA, projectB) => {
-    // Starred first, then by color in STAR_COLORS order (Gmail style).
-    const rankDifference = starColorRank(getStarColor(projectA)) - starColorRank(getStarColor(projectB));
-    if (rankDifference !== 0) {
-      return rankDifference;
-    }
-
     if (projectSortOrder === 'date') {
       return getProjectLastActivity(projectB).getTime() - getProjectLastActivity(projectA).getTime();
     }
@@ -192,6 +191,24 @@ export const filterProjects = (projects: Project[], searchFilter: string): Proje
     // folder-derived name is gone; fall back to displayName above.
     const searchPath = (project.path || project.fullPath || '').toLowerCase();
     return displayName.includes(normalizedSearch) || searchPath.includes(normalizedSearch);
+  });
+};
+
+/** The star colours at least one project has right now, in STAR_COLORS order. */
+export const getStarColorsInUse = (projects: Project[]) => {
+  const inUse = new Set(projects.map((project) => getStarColor(project)));
+  return STAR_COLORS.filter((color) => inUse.has(color));
+};
+
+/** Keeps the projects the star filter allows: `off` keeps all, `all` starred ones, a colour only that colour. */
+export const filterProjectsByStar = (projects: Project[], filter: StarFilter): Project[] => {
+  if (filter === 'off') {
+    return projects;
+  }
+
+  return projects.filter((project) => {
+    const color = getStarColor(project);
+    return filter === 'all' ? color !== null : color === filter;
   });
 };
 

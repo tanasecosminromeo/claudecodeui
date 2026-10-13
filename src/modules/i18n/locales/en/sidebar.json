@@ -17,7 +17,14 @@
     "projects": "projects",
     "noMatchingProjects": "No matching projects",
     "tryDifferentSearch": "Try adjusting your search term",
-    "runClaudeCli": "Run Claude CLI in a project directory to get started"
+    "runClaudeCli": "Run Claude CLI in a project directory to get started",
+    "starFilter": {
+      "off": "Show all projects. Click to show starred projects only.",
+      "all": "Showing starred projects. Click to filter by colour.",
+      "color": "Showing {{color}} stars. Click for the next filter.",
+      "empty": "No starred projects",
+      "showAll": "Show all projects"
+    }
   },
   "app": {
     "title": "CloudCLI",
@@ -59,7 +66,7 @@
     "openCommandPalette": "Open command palette",
     "attentionRequiredIndicator": "Session needs attention",
     "backgroundWorkIndicator": "Background work running",
-    "cycleStarColor": "Star: click to change color, right-click to pick one",
+    "cycleStarColor": "Star: click quickly to change colour, click later to unstar; hold or right-click for colours",
     "moveToGroup": "Move to group"
   },
   "navigation": {

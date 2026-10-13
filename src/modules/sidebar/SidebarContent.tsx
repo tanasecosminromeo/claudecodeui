@@ -3,7 +3,7 @@ import { Activity, Archive, Folder, MessageSquare, RotateCcw, Search, Trash2 } f
 import type { TFunction } from 'i18next';
 
 import { LLMProviderLogo, ScrollArea } from '@/shared/ui';
-import type { ArchivedProjectListItem, ArchivedSessionListItem, ConversationSearchResults, Project, RecentConversationListItem, ReleaseInfo, SearchProgress, SidebarProjectListProps, SidebarSearchMode } from '@/shared/types';
+import type { ArchivedProjectListItem, ArchivedSessionListItem, ConversationSearchResults, Project, RecentConversationListItem, ReleaseInfo, SearchProgress, SidebarProjectListProps, SidebarSearchMode, StarFilter } from '@/shared/types';
 import { formatCompactAge, getAllSessions } from '@/modules/sidebar/utils/sidebarProjectFormatting';
 import SidebarFooter from '@/modules/sidebar/SidebarFooter';
 import SidebarHeader from '@/modules/sidebar/SidebarHeader';
@@ -100,6 +100,8 @@ type SidebarContentProps = {
   searchFilter: string;
   onSearchFilterChange: (value: string) => void;
   onClearSearchFilter: () => void;
+  starFilter: StarFilter;
+  onCycleStarFilter: () => void;
   searchMode: SidebarSearchMode;
   onSearchModeChange: (mode: SidebarSearchMode) => void;
   conversationResults: ConversationSearchResults | null;
@@ -149,6 +151,8 @@ export default function SidebarContent({
   searchFilter,
   onSearchFilterChange,
   onClearSearchFilter,
+  starFilter,
+  onCycleStarFilter,
   searchMode,
   onSearchModeChange,
   conversationResults,
@@ -200,6 +204,8 @@ export default function SidebarContent({
         searchFilter={searchFilter}
         onSearchFilterChange={onSearchFilterChange}
         onClearSearchFilter={onClearSearchFilter}
+        starFilter={starFilter}
+        onCycleStarFilter={onCycleStarFilter}
         searchMode={searchMode}
         onSearchModeChange={onSearchModeChange}
         onRefresh={onRefresh}

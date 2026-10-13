@@ -4,11 +4,13 @@ import type { TFunction } from 'i18next';
 import { api } from '@/shared/api';
 import { subscribeToUserPreferences } from '@/shared/userSettings';
 import { usePaletteOps } from '@/modules/command-palette';
-import type { ArchivedProjectListItem, ArchivedSessionListItem, ConversationProjectResult, ConversationSearchResults, LLMProvider, Project, ProjectGroup, ProjectSession, StarColor, ProjectSortOrder, RecentConversationListItem, SearchProgress, ActiveSidebarRename, PendingSidebarDeletion, SessionTitleSearchResult, SessionWithProvider, SidebarSearchMode, SidebarSessionSelection } from '@/shared/types';
+import type { ArchivedProjectListItem, ArchivedSessionListItem, ConversationProjectResult, ConversationSearchResults, LLMProvider, Project, ProjectGroup, ProjectSession, StarColor, StarFilter, ProjectSortOrder, RecentConversationListItem, SearchProgress, ActiveSidebarRename, PendingSidebarDeletion, SessionTitleSearchResult, SessionWithProvider, SidebarSearchMode, SidebarSessionSelection } from '@/shared/types';
 import { useQuickArchive } from '@/modules/sidebar/hooks/useQuickArchive';
 import {
   filterProjects,
+  filterProjectsByStar,
   getAllSessions,
+  getStarColorsInUse,
   sortProjects,
 } from '@/modules/sidebar/utils/sidebarProjectFormatting';
 import {
@@ -16,9 +18,16 @@ import {
   readCollapsedProjectGroupIds,
   readLegacyStarredProjectIds,
   readProjectSortOrder,
+  readProjectStarFilter,
   writeCollapsedProjectGroupIds,
+  writeProjectStarFilter,
 } from '@/modules/sidebar/utils/sidebarStoredPreferences';
-import { getStarColor, nextStarColor } from '@/modules/sidebar/utils/starColors';
+import {
+  getStarColor,
+  nextStarFilter,
+  normalizeStarFilter,
+  starAfterClick,
+} from '@/modules/sidebar/utils/starColors';
 
 type ProjectGroupsApiPayload = {
   success?: boolean;
@@ -120,6 +129,7 @@ export function useSidebarController({
   const [initialSessionsLoaded, setInitialSessionsLoaded] = useState<Set<string>>(new Set());
   const [currentTime, setCurrentTime] = useState(new Date());
   const [projectSortOrder, setProjectSortOrder] = useState<ProjectSortOrder>('name');
+  const [starFilter, setStarFilter] = useState<StarFilter>(() => readProjectStarFilter());
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [searchFilter, setSearchFilter] = useState('');
   const [deletingProjects, setDeletingProjects] = useState<Set<string>>(new Set());
@@ -160,6 +170,8 @@ export function useSidebarController({
   const recentConversationsSeqRef = useRef(0);
   const eventSourceRef = useRef<EventSource | null>(null);
   const starToggleSequenceByProjectRef = useRef<Map<string, number>>(new Map());
+  /** When each project's star was last clicked, for Gmail-style quick re-clicks. Palette picks do not touch it. */
+  const lastStarClickAtByProjectRef = useRef<Map<string, number>>(new Map());
   const migrationStartedRef = useRef(false);
   const onRefreshRef = useRef(onRefresh);
 
@@ -216,6 +228,7 @@ export function useSidebarController({
   useEffect(() => {
     const loadSortOrder = () => {
       setProjectSortOrder(readProjectSortOrder());
+      setStarFilter(readProjectStarFilter());
     };
 
     loadSortOrder();
@@ -695,9 +708,17 @@ export function useSidebarController({
     void updateStar();
   }, [resolveProjectStarColor, t]);
 
-  /** Gmail-style: each click moves to the next color, and past the last one unstars. */
+  /**
+   * Gmail-style: an unstarred project turns yellow, a quick second click moves
+   * to the next colour, and a click after the window (or past purple) unstars.
+   */
   const toggleStarProject = useCallback((projectId: string) => {
-    setStarColor(projectId, nextStarColor(resolveProjectStarColor(projectId)));
+    const now = Date.now();
+    const lastClickAt = lastStarClickAtByProjectRef.current.get(projectId);
+    lastStarClickAtByProjectRef.current.set(projectId, now);
+
+    const msSinceLastClick = lastClickAt === undefined ? null : now - lastClickAt;
+    setStarColor(projectId, starAfterClick(resolveProjectStarColor(projectId), msSinceLastClick));
   }, [resolveProjectStarColor, setStarColor]);
 
   const isProjectStarred = useCallback(
@@ -923,9 +944,40 @@ export function useSidebarController({
     }, []);
   }, [activeSessionIds, sortedProjects]);
 
+  // Star colours that exist right now, in chip order. A colour nobody has any
+  // more is shown as `all` (see normalizeStarFilter), so the chip never gets stuck.
+  const starColorsInUse = useMemo(
+    () => getStarColorsInUse(sortedProjects),
+    [sortedProjects],
+  );
+
+  const effectiveStarFilter = useMemo(
+    () => normalizeStarFilter(starFilter, starColorsInUse),
+    [starColorsInUse, starFilter],
+  );
+
+  // The star chip lives in the Projects list only; Running and search stay unfiltered by it.
+  const starFilteredProjects = useMemo(
+    () => (searchMode === 'projects' ? filterProjectsByStar(sortedProjects, effectiveStarFilter) : sortedProjects),
+    [effectiveStarFilter, searchMode, sortedProjects],
+  );
+
+  const isStarFilterEmpty = searchMode === 'projects' && effectiveStarFilter !== 'off' && starFilteredProjects.length === 0;
+
+  const cycleStarFilter = useCallback(() => {
+    const next = nextStarFilter(effectiveStarFilter, starColorsInUse);
+    setStarFilter(next);
+    writeProjectStarFilter(next);
+  }, [effectiveStarFilter, starColorsInUse]);
+
+  const clearStarFilter = useCallback(() => {
+    setStarFilter('off');
+    writeProjectStarFilter('off');
+  }, []);
+
   const filteredProjects = useMemo(
-    () => filterProjects(searchMode === 'running' ? runningProjects : sortedProjects, debouncedSearchQuery),
-    [debouncedSearchQuery, runningProjects, searchMode, sortedProjects],
+    () => filterProjects(searchMode === 'running' ? runningProjects : starFilteredProjects, debouncedSearchQuery),
+    [debouncedSearchQuery, runningProjects, searchMode, starFilteredProjects],
   );
 
   const filteredArchivedSessions = useMemo(() => {
@@ -1584,6 +1636,10 @@ export function useSidebarController({
       setConversationResults(null);
     }, []),
     setSearchFilter,
+    starFilter: effectiveStarFilter,
+    cycleStarFilter,
+    clearStarFilter,
+    isStarFilterEmpty,
     setPendingDeletion,
     setShowVersionModal,
   };
