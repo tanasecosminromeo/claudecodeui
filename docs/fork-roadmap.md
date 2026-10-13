@@ -46,6 +46,7 @@ Today the archive button only appears on hover, where it replaces the row's age.
 - **Done:** e2e scenario 19 archives without hovering first.
 
 ### 2.2 Stars like Gmail
+Status ✅. Done 2026-10-13.
 - A quick click cycles the colour. Clicking again after a few seconds removes the star instead.
 - Starring or recolouring doesn't move the project; add a "Starred" filter to the sidebar instead.
 - **Done:** e2e scenario 26 covers cycling, unstarring after the delay, the project staying in place, and the filter.

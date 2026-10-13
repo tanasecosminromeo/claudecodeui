@@ -1,6 +1,7 @@
 import { Fragment, useEffect, useMemo } from 'react';
 
 import type { SidebarProjectListProps } from '@/shared/types';
+import { Button } from '@/shared/ui';
 import { getPageTitle } from '@/shared/utils';
 import SidebarProjectItem from '@/modules/sidebar/SidebarProjectItem';
 import SidebarProjectsState from '@/modules/sidebar/SidebarProjectsState';
@@ -31,6 +32,8 @@ export default function SidebarProjectList({
   backgroundSessionIds,
   attentionSessionIds,
   getProjectStarColor,
+  isStarFilterEmpty,
+  onClearStarFilter,
   projectGroups,
   allProjectGroups,
   isProjectGroupCollapsed,
@@ -79,6 +82,15 @@ export default function SidebarProjectList({
     document.title = pageTitle;
   }, [pageTitle]);
 
+  const starFilterState = (
+    <div className="px-4 py-12 text-center md:py-8" data-testid="starred-filter-empty">
+      <p className="text-sm text-muted-foreground">{t('projects.starFilter.empty')}</p>
+      <Button variant="ghost" size="sm" className="mt-2" onClick={onClearStarFilter} data-testid="starred-filter-clear">
+        {t('projects.starFilter.showAll')}
+      </Button>
+    </div>
+  );
+
   const showProjects = !isLoading && projects.length > 0 && filteredProjects.length > 0;
   const sections = useMemo(
     () => buildProjectSections(filteredProjects, projectGroups),
@@ -88,7 +100,7 @@ export default function SidebarProjectList({
   return (
       <div className="pb-safe-area-inset-bottom md:space-y-1">
         {!showProjects
-          ? state
+          ? (isStarFilterEmpty && !isLoading ? starFilterState : state)
           : sections.map(({ group, projects: sectionProjects }) => {
             const rows = sectionProjects.map((project) => {
               // Both renames are resolved here rather than inside the row, so

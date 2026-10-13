@@ -138,6 +138,9 @@ export type Project = {
 /** Gmail-style project star colors; the order lives in the sidebar's `STAR_COLORS`. */
 export type StarColor = 'yellow' | 'orange' | 'red' | 'green' | 'blue' | 'purple';
 
+/** The Projects list's star chip: `off` shows all, `all` only starred projects, a colour only that colour. */
+export type StarFilter = 'off' | 'all' | StarColor;
+
 /** A named, collapsible sidebar folder that projects can be filed under. */
 export type ProjectGroup = {
   groupId: string;
@@ -1577,6 +1580,10 @@ export type SidebarProjectListProps = SessionRowActions & {
   loadingMoreProjects: Set<string>;
   isProjectStarred: (projectId: string) => boolean;
   getProjectStarColor: (projectId: string) => StarColor | null;
+  starFilter: StarFilter;
+  /** True when the star filter hides every project, so the list shows the "No starred projects" line. */
+  isStarFilterEmpty: boolean;
+  onClearStarFilter: () => void;
   /** Folders for the Projects list; empty where the list should stay flat (Running). */
   projectGroups: ProjectGroup[];
   /** Every known group, offered by a row's "Move to group" menu. */

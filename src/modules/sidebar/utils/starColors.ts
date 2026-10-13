@@ -1,4 +1,4 @@
-import type { Project, StarColor } from '@/shared/types';
+import type { Project, StarColor, StarFilter } from '@/shared/types';
 
 /** Click-to-cycle order, which is also the sort rank. Mirrors the server's list. */
 export const STAR_COLORS: readonly StarColor[] = ['yellow', 'orange', 'red', 'green', 'blue', 'purple'];
@@ -85,6 +85,50 @@ export const nextStarColor = (current: StarColor | null): StarColor | null => {
   return index === STAR_COLORS.length - 1 ? null : STAR_COLORS[index + 1];
 };
 
-/** Sort rank: starred colors in list order, unstarred last. */
-export const starColorRank = (color: StarColor | null): number =>
-  color === null ? STAR_COLORS.length : STAR_COLORS.indexOf(color);
+/**
+ * How long after a star click another click still counts as "the same
+ * gesture", so it moves to the next colour instead of starting over.
+ */
+export const STAR_CYCLE_WINDOW_MS = 3000;
+
+/**
+ * What one click on a project's star does. Gmail style: an unstarred project
+ * becomes yellow; a quick second click moves on through the colours (purple
+ * then clears); a click after the window clears the star.
+ *
+ * `msSinceLastClick` is null when this project has no recorded star click.
+ */
+export const starAfterClick = (current: StarColor | null, msSinceLastClick: number | null): StarColor | null => {
+  if (current === null) {
+    return STAR_COLORS[0];
+  }
+  if (msSinceLastClick !== null && msSinceLastClick < STAR_CYCLE_WINDOW_MS) {
+    return nextStarColor(current);
+  }
+  return null;
+};
+
+export type { StarFilter } from '@/shared/types';
+
+/**
+ * A colour filter nobody uses any more reads as `all`, so the list is never
+ * stuck on an empty colour.
+ */
+export const normalizeStarFilter = (filter: StarFilter, colorsInUse: readonly StarColor[]): StarFilter => (
+  filter !== 'off' && filter !== 'all' && !colorsInUse.includes(filter) ? 'all' : filter
+);
+
+/** Chip click order: off → all → each colour in use (STAR_COLORS order) → off. */
+export const nextStarFilter = (current: StarFilter, colorsInUse: readonly StarColor[]): StarFilter => {
+  const normalized = normalizeStarFilter(current, colorsInUse);
+  const colorOptions = STAR_COLORS.filter((color) => colorsInUse.includes(color));
+
+  if (normalized === 'off') {
+    return 'all';
+  }
+  if (normalized === 'all') {
+    return colorOptions[0] ?? 'off';
+  }
+  const index = colorOptions.indexOf(normalized);
+  return index === colorOptions.length - 1 ? 'off' : colorOptions[index + 1];
+};

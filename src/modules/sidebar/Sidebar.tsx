@@ -160,6 +160,10 @@ function Sidebar({
     expandSidebar: handleExpandSidebar,
     setShowNewProject,
     setSearchFilter,
+    starFilter,
+    cycleStarFilter,
+    clearStarFilter,
+    isStarFilterEmpty,
     setPendingDeletion,
     setShowVersionModal,
   } = useSidebarController({
@@ -233,6 +237,9 @@ function Sidebar({
     attentionSessionIds,
     isProjectStarred,
     getProjectStarColor,
+    starFilter,
+    isStarFilterEmpty,
+    onClearStarFilter: clearStarFilter,
     projectGroups,
     allProjectGroups,
     isProjectGroupCollapsed,
@@ -329,6 +336,8 @@ function Sidebar({
             searchFilter={searchFilter}
             onSearchFilterChange={setSearchFilter}
             onClearSearchFilter={() => setSearchFilter('')}
+            starFilter={starFilter}
+            onCycleStarFilter={cycleStarFilter}
             searchMode={searchMode}
             onSearchModeChange={(mode) => {
               setSearchMode(mode);

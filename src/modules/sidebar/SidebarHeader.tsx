@@ -1,12 +1,13 @@
-import { FolderPlus, Plus, RefreshCw, Search, X, PanelLeftClose } from 'lucide-react';
+import { FolderPlus, Plus, RefreshCw, Search, Star, X, PanelLeftClose } from 'lucide-react';
 import type { TFunction } from 'i18next';
 
 import { Button, Input } from '@/shared/ui';
 import { CLOUDCLI_WORDMARK_FONT_FAMILY } from '@/shared/constants';
-import { IS_PLATFORM } from '@/shared/utils';
-import type { SidebarSearchMode } from '@/shared/types';
+import { cn, IS_PLATFORM } from '@/shared/utils';
+import type { SidebarSearchMode, StarFilter } from '@/shared/types';
 import GitHubStarBadge from '@/modules/sidebar/GitHubStarBadge';
 import SidebarModeTabs from '@/modules/sidebar/SidebarModeTabs';
+import { STAR_COLOR_CLASSES } from '@/modules/sidebar/utils/starColors';
 
 const MOD_KEY =
   typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform) ? '⌘' : 'Ctrl';
@@ -22,6 +23,8 @@ type SidebarHeaderProps = {
   searchFilter: string;
   onSearchFilterChange: (value: string) => void;
   onClearSearchFilter: () => void;
+  starFilter: StarFilter;
+  onCycleStarFilter: () => void;
   searchMode: SidebarSearchMode;
   onSearchModeChange: (mode: SidebarSearchMode) => void;
   onRefresh: () => void;
@@ -50,6 +53,50 @@ function LogoBlock({ t }: { t: TFunction }) {
   );
 }
 
+/**
+ * The Projects list's star filter, beside the search box. Click cycles
+ * off → all starred → each colour in use → off.
+ */
+function StarFilterChip({
+  starFilter,
+  onCycleStarFilter,
+  t,
+}: {
+  starFilter: StarFilter;
+  onCycleStarFilter: () => void;
+  t: TFunction;
+}) {
+  const isOff = starFilter === 'off';
+  const iconClass = starFilter === 'all'
+    ? 'text-foreground'
+    : isOff
+      ? 'text-muted-foreground/60'
+      : STAR_COLOR_CLASSES[starFilter].icon;
+  const title = isOff
+    ? t('projects.starFilter.off')
+    : starFilter === 'all'
+      ? t('projects.starFilter.all')
+      : t('projects.starFilter.color', { color: t(`starColors.${starFilter}`) });
+
+  return (
+    <button
+      type="button"
+      data-testid="starred-filter"
+      data-star-filter={starFilter}
+      aria-pressed={!isOff}
+      aria-label={title}
+      title={title}
+      onClick={onCycleStarFilter}
+      className={cn(
+        'flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl transition-colors hover:bg-accent/80',
+        !isOff && 'bg-accent/60',
+      )}
+    >
+      <Star className={cn('h-4 w-4', iconClass)} fill={isOff ? 'none' : 'currentColor'} />
+    </button>
+  );
+}
+
 /** Rendered by SidebarContent at the top of the panel for the search box, search-mode tabs, refresh and new-project actions. */
 export default function SidebarHeader({
   isPWA,
@@ -62,6 +109,8 @@ export default function SidebarHeader({
   searchFilter,
   onSearchFilterChange,
   onClearSearchFilter,
+  starFilter,
+  onCycleStarFilter,
   searchMode,
   onSearchModeChange,
   onRefresh,
@@ -147,33 +196,38 @@ export default function SidebarHeader({
               runningSessionsCount={runningSessionsCount}
               t={t}
             />
-            <div className="relative">
-              <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground/50" />
-              <Input
-                type="text"
-                placeholder={searchPlaceholder}
-                value={searchFilter}
-                onChange={(event) => onSearchFilterChange(event.target.value)}
-                className="nav-search-input h-9 rounded-xl border-0 pl-9 pr-14 text-sm transition-all duration-200 placeholder:text-muted-foreground/40 focus-visible:ring-0 focus-visible:ring-offset-0"
-              />
-              {searchFilter ? (
-                <button
-                  onClick={onClearSearchFilter}
-                  aria-label={t('tooltips.clearSearch')}
-                  className="absolute right-2.5 top-1/2 -translate-y-1/2 rounded-md p-0.5 hover:bg-accent"
-                >
-                  <X className="h-3 w-3 text-muted-foreground" />
-                </button>
-              ) : (
-                <kbd
-                  aria-hidden
-                  title={t('tooltips.openCommandPalette')}
-                  className="pointer-events-none absolute right-2.5 top-1/2 hidden -translate-y-1/2 items-center gap-0.5 rounded border border-border/60 bg-muted/40 px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground md:inline-flex"
-                >
-                  {MOD_KEY}
-                  <span>K</span>
-                </kbd>
-              )}
+            <div className="flex items-center gap-1.5">
+              <div className="relative min-w-0 flex-1">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground/50" />
+                <Input
+                  type="text"
+                  placeholder={searchPlaceholder}
+                  value={searchFilter}
+                  onChange={(event) => onSearchFilterChange(event.target.value)}
+                  className="nav-search-input h-9 rounded-xl border-0 pl-9 pr-14 text-sm transition-all duration-200 placeholder:text-muted-foreground/40 focus-visible:ring-0 focus-visible:ring-offset-0"
+                />
+                {searchFilter ? (
+                  <button
+                    onClick={onClearSearchFilter}
+                    aria-label={t('tooltips.clearSearch')}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 rounded-md p-0.5 hover:bg-accent"
+                  >
+                    <X className="h-3 w-3 text-muted-foreground" />
+                  </button>
+                ) : (
+                  <kbd
+                    aria-hidden
+                    title={t('tooltips.openCommandPalette')}
+                    className="pointer-events-none absolute right-2.5 top-1/2 hidden -translate-y-1/2 items-center gap-0.5 rounded border border-border/60 bg-muted/40 px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground md:inline-flex"
+                  >
+                    {MOD_KEY}
+                    <span>K</span>
+                  </kbd>
+                )}
+            </div>
+            {searchMode === 'projects' && (
+              <StarFilterChip starFilter={starFilter} onCycleStarFilter={onCycleStarFilter} t={t} />
+            )}
             </div>
           </div>
         )}
@@ -226,24 +280,29 @@ export default function SidebarHeader({
               runningSessionsCount={runningSessionsCount}
               t={t}
             />
-            <div className="relative">
-              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground/50" />
-              <Input
-                type="text"
-                placeholder={searchPlaceholder}
-                value={searchFilter}
-                onChange={(event) => onSearchFilterChange(event.target.value)}
-                className="nav-search-input h-10 rounded-xl border-0 pl-10 pr-9 text-sm transition-all duration-200 placeholder:text-muted-foreground/40 focus-visible:ring-0 focus-visible:ring-offset-0"
-              />
-              {searchFilter && (
-                <button
-                  onClick={onClearSearchFilter}
-                  aria-label={t('tooltips.clearSearch')}
-                  className="absolute right-2.5 top-1/2 -translate-y-1/2 rounded-md p-1 hover:bg-accent"
-                >
-                  <X className="h-3.5 w-3.5 text-muted-foreground" />
-                </button>
-              )}
+            <div className="flex items-center gap-1.5">
+              <div className="relative min-w-0 flex-1">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground/50" />
+                <Input
+                  type="text"
+                  placeholder={searchPlaceholder}
+                  value={searchFilter}
+                  onChange={(event) => onSearchFilterChange(event.target.value)}
+                  className="nav-search-input h-10 rounded-xl border-0 pl-10 pr-9 text-sm transition-all duration-200 placeholder:text-muted-foreground/40 focus-visible:ring-0 focus-visible:ring-offset-0"
+                />
+                {searchFilter && (
+                  <button
+                    onClick={onClearSearchFilter}
+                    aria-label={t('tooltips.clearSearch')}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 rounded-md p-1 hover:bg-accent"
+                  >
+                    <X className="h-3.5 w-3.5 text-muted-foreground" />
+                  </button>
+                )}
+            </div>
+            {searchMode === 'projects' && (
+              <StarFilterChip starFilter={starFilter} onCycleStarFilter={onCycleStarFilter} t={t} />
+            )}
             </div>
           </div>
         )}
