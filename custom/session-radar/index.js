@@ -139,7 +139,7 @@ function fmtDur(ms) {
 
 // ---- process-tree nodes (GET /tree) ----
 function nodeTitle(n) {
-  const lines = [`pid ${n.pid}`, n.argv, `started ${new Date(n.startMs).toLocaleTimeString()}`];
+  const lines = [`pid ${n.pid}`, n.fullArgv || n.argv, `started ${new Date(n.startMs).toLocaleTimeString()}`];
   if (n.live) lines.push(`memory ${fmtMem(Math.round(n.rssKb / 1024))}`);
   else if (n.endMs) lines.push(`ran ${fmtDur(n.endMs - n.startMs)}, ${n.sig ? `killed by signal ${n.sig}` : `exit ${n.code}`}`);
   else lines.push('ended (no exit recorded)');

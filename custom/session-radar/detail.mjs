@@ -4,6 +4,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { maskSecrets } from './mask.mjs';
 
 const TAIL_BYTES = 256 * 1024;
 const AGENT_TOOLS = new Set(['Agent', 'Task']);
@@ -56,7 +57,7 @@ export function processDetail(pid) {
     if (p === pid) continue;
     const cmd = readText(`/proc/${p}/cmdline`);
     const sh = cmd && shellCommand(cmd);
-    if (sh) commands.push(sh);
+    if (sh) commands.push(maskSecrets(sh));
   }
   return { rssKb: kb, procs: tree.length, commands };
 }
@@ -70,7 +71,8 @@ export function pendingSummary(name, input) {
     : name === 'WebFetch' ? i.url
       : i.file_path || i.notebook_path || '';
   const text = String(raw || '').replace(/\s+/g, ' ').trim();
-  return text.length > SUMMARY_MAX ? `${text.slice(0, SUMMARY_MAX - 1)}…` : text;
+  const masked = maskSecrets(text);
+  return masked.length > SUMMARY_MAX ? `${masked.slice(0, SUMMARY_MAX - 1)}…` : masked;
 }
 
 /** Parse transcript JSONL lines (the tail of a file) into session facts. */

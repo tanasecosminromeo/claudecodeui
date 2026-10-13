@@ -7,6 +7,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { maskSecrets } from './mask.mjs';
 
 const UNIT_RE = /^cloudcli-claude-(.+)-([A-Za-z0-9]{6})\.scope$/;
 const CLK_TCK = 100;
@@ -210,6 +211,7 @@ export function leftoversFor({ serverStartedAt, labelFor = () => new Map(), ...o
       const row = rows.get(g.appSessionId);
       return {
         ...g,
+        processes: g.processes.map((p) => ({ ...p, command: maskSecrets(p.command) })),
         title: (row && row.name && row.name.trim()) || g.appSessionId.slice(0, 8),
         project: (row && row.projectName) || null,
       };

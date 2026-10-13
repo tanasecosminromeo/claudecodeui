@@ -33,12 +33,29 @@ export function procInfo(pid) {
   return { pid, ppid: Number(f[1]), comm, startMs: bootTimeMs() + Math.round((Number(f[19]) / CLK_TCK) * 1000), argv, cmdline };
 }
 
+/** The Claude CLI itself: an argv starting with a path ending in /claude that runs stream-json output. */
+export function isClaudeArgv(argv) {
+  const first = String(argv || '').split(' ')[0];
+  return /(^|\/)claude$/.test(first) && String(argv).includes('--output-format stream-json');
+}
+
+/** `claude (<model>, resume <first 8 of the --resume id>)`: the short label; the full argv goes in a tooltip. */
+export function claudeLabel(argv) {
+  const model = (argv.match(/--model\s+(\S+)/) || [])[1];
+  const resume = (argv.match(/--resume\s+(\S+)/) || [])[1];
+  const parts = [];
+  if (model) parts.push(model);
+  if (resume) parts.push(`resume ${resume.slice(0, 8)}`);
+  return parts.length ? `claude (${parts.join(', ')})` : 'claude';
+}
+
 /**
  * What to show for a process: a Claude shell wrapper shows the command it runs. A wrapper whose
  * record was cut before the `eval` (the tracer's per-argument limit) says so instead of showing
  * the wrapper's preamble.
  */
 export function commandLabel(argv, cmdline) {
+  if (isClaudeArgv(argv)) return claudeLabel(argv);
   const text = cmdline || argv;
   // The Bash tool's wrapper is `<shell> -c source …/.claude/shell-snapshots/… && … eval '<cmd>'`;
   // other shells mentioning shell-snapshots (the snapshot builder) are shown as they are.
