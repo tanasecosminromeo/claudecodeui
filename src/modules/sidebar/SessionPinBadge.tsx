@@ -11,9 +11,9 @@ export default function SessionPinBadge() {
       role="img"
       title="Pinned"
       aria-label="Pinned"
-      className="pointer-events-none absolute -right-1 -top-1 flex h-2.5 w-2.5 items-center justify-center rounded-full bg-primary ring-2 ring-card"
+      className="pointer-events-none absolute -right-1.5 -top-1.5 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-primary ring-2 ring-card"
     >
-      <Pin className="h-[7px] w-[7px] text-white" aria-hidden="true" />
+      <Pin className="h-2.5 w-2.5 fill-white text-white" strokeWidth={2.5} aria-hidden="true" />
     </span>
   );
 }
