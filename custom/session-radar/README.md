@@ -25,6 +25,8 @@ stopped, only expanded.
 
 Stop (kill process) sends SIGTERM to a live session's pid after a second click; only pids from `~/.claude/sessions` whose start time still matches, owned by the same user.
 
+**Leftover processes** (`leftovers.mjs`): CloudCLI runs each Claude CLI in its own scope `cloudcli-claude-<appSessionId>-<6 chars>.scope`. When that Claude exits, the scope keeps running while a child it started (a `setsid`/`nohup` job, a dev server, a tunnel) survives. `GET /leftovers` lists those scopes (not the unit of a live record in `~/.cloudcli/claude-processes/`, holding processes, the oldest at least 30 s old) as `{ serverStartedAt, groups }`, each group labelled from CloudCLI's session title and project and carrying its processes as a tree (`depth`, `command`, `rssBytes`). `POST /leftovers/kill` takes `{ unit, pid, procStart }` (one process and its descendants inside that unit) or `{ all: true }`. It re-checks at kill time that the unit is still a leftover and the pid still has that start time, refuses anything else with 409 (400 for a malformed body), never signals its own pid or its parent, sends SIGTERM and then SIGKILL after 5 s to what still runs. `serverStartedAt` is when this plugin server started, so a CloudCLI restart is visible to the UI. In the sidebar (`../ui-cleanup`), a "Leftover processes (N)" entry shows in the Running view while N > 0, and the list opens by itself once per restart until it is closed; each process has an X button.
+
 A live process is always listed (even idle for days, or archived in CloudCLI). The "Ended · 24h" group is collapsed by default (remembered in localStorage).
 
 Status changes become push notifications: every 3 s `events.mjs` compares each session's state with the
