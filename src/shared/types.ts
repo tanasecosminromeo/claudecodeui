@@ -91,6 +91,8 @@ export type ProjectSession = {
   updated_at?: string;
   lastActivity?: string;
   messageCount?: number;
+  /** Pinned sessions are listed above the rest of their project. */
+  pinned?: boolean;
   provider?: LLMProvider;
   __provider?: LLMProvider;
   // Tags the session with the owning project's DB `projectId` so UI handlers
@@ -1560,6 +1562,8 @@ export type SessionRowActions = {
   onForkSession?: (session: SessionWithProvider) => void;
   /** Archives a session in one click, with Undo offered afterwards. Rows hide it while the session is processing. */
   onArchiveSession?: (session: SessionWithProvider) => void;
+  /** Pins or unpins a session to the top of its project. Rows hide the menu item when absent. */
+  onTogglePinSession?: (session: SessionWithProvider) => void;
 };
 
 export type SidebarProjectListProps = SessionRowActions & {
@@ -1670,7 +1674,10 @@ export type ArchivedSessionListItem = {
 export type RecentConversationListItem = Pick<
   ArchivedSessionListItem,
   'sessionId' | 'provider' | 'projectId' | 'projectDisplayName' | 'sessionTitle' | 'lastActivity'
->;
+> & {
+  /** Pinned in its project; drives the badge only, never the order. */
+  pinned?: boolean;
+};
 
 /**
  * The rename the sidebar currently has open, if any.

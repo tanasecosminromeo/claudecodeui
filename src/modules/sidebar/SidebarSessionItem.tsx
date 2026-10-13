@@ -1,6 +1,6 @@
 import { memo, useState } from 'react';
 import type { KeyboardEvent } from 'react';
-import { Archive, Check, CheckSquare, Edit2, Loader2, MoreHorizontal, Square, Trash2, X } from 'lucide-react';
+import { Archive, Check, CheckSquare, Edit2, Loader2, MoreHorizontal, Pin, PinOff, Square, Trash2, X } from 'lucide-react';
 import type { TFunction } from 'i18next';
 
 import { Badge, Dialog, DialogContent, DialogTitle, LLMProviderLogo, Tooltip, buttonVariants } from '@/shared/ui';
@@ -10,6 +10,7 @@ import { PROVIDER_LABELS, createSessionViewModel, formatCompactAge } from '@/mod
 import { useCompactSidebar } from '@/modules/sidebar/hooks/useCompactSidebar';
 import { useProviderSessionIdCopy } from '@/modules/sidebar/hooks/useProviderSessionIdCopy';
 import SessionOptions from '@/modules/sidebar/SessionOptions';
+import SessionPinBadge from '@/modules/sidebar/SessionPinBadge';
 
 type SidebarSessionItemProps = {
   project: Project;
@@ -19,6 +20,8 @@ type SidebarSessionItemProps = {
   /** The session's turn has ended but the agents, workflows or commands it launched still run. */
   hasBackgroundWork: boolean;
   needsAttention: boolean;
+  /** Pinned sessions carry a badge on their provider logo. Passed as a scalar so the memoized row can skip re-renders. */
+  isPinned: boolean;
   currentTime: Date;
   /** Resolved for this row, so a keystroke elsewhere does not invalidate it. */
   isEditing: boolean;
@@ -34,6 +37,7 @@ type SidebarSessionItemProps = {
   onForkSession?: (session: SessionWithProvider) => void;
   /** Archives this session in one click, with Undo offered afterwards. */
   onArchiveSession?: (session: SessionWithProvider) => void;
+  onTogglePinSession?: (session: SessionWithProvider) => void;
   /** This project's list is in bulk-selection mode: the row acts as a checkbox and hides its options. */
   isSelecting: boolean;
   /** Ticked for the pending bulk delete. Resolved by the list, which never ticks a running row. */
@@ -51,6 +55,7 @@ function SidebarSessionItem({
   isProcessing,
   hasBackgroundWork,
   needsAttention,
+  isPinned,
   currentTime,
   isEditing,
   renameDraft,
@@ -63,6 +68,7 @@ function SidebarSessionItem({
   onDeleteSession,
   onForkSession,
   onArchiveSession,
+  onTogglePinSession,
   isSelecting,
   isChecked,
   onToggleSessionSelected,
@@ -197,11 +203,12 @@ function SidebarSessionItem({
             {selectionIcon}
             <div
               className={cn(
-                'w-5 h-5 rounded-md flex items-center justify-center flex-shrink-0',
+                'relative w-5 h-5 rounded-md flex items-center justify-center flex-shrink-0',
                 isSelected ? 'bg-primary/10' : 'bg-muted/50',
               )}
             >
               <LLMProviderLogo provider={session.__provider} className="h-3 w-3" />
+              {isPinned && <SessionPinBadge />}
             </div>
 
             <div className="min-w-0 flex-1">
@@ -326,6 +333,20 @@ function SidebarSessionItem({
                   <span className="text-sm font-medium">Rename session</span>
                 </button>
 
+                {onTogglePinSession && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMobileOptionsOpen(false);
+                      onTogglePinSession(session);
+                    }}
+                    className="flex min-h-12 w-full items-center gap-3 rounded-xl border border-border bg-muted/35 px-4 py-3 text-left text-foreground transition-colors active:bg-muted"
+                  >
+                    {isPinned ? <PinOff className="h-5 w-5 flex-shrink-0" /> : <Pin className="h-5 w-5 flex-shrink-0" />}
+                    <span className="text-sm font-medium">{isPinned ? 'Unpin' : 'Pin to top'}</span>
+                  </button>
+                )}
+
                 <button
                   type="button"
                   onClick={handleCopyAction}
@@ -438,11 +459,12 @@ function SidebarSessionItem({
             {selectionIcon}
             <div
               className={cn(
-                'flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-md',
+                'relative flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-md',
                 isSelected ? 'bg-primary/10' : 'bg-muted/50',
               )}
             >
               <LLMProviderLogo provider={session.__provider} className="h-3 w-3" />
+              {isPinned && <SessionPinBadge />}
             </div>
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2">
@@ -500,6 +522,8 @@ function SidebarSessionItem({
             onDeleteSession={onDeleteSession}
             onFork={onForkSession ? () => onForkSession(session) : undefined}
             onArchive={onArchiveSession ? () => onArchiveSession(session) : undefined}
+            isPinned={isPinned}
+            onTogglePin={onTogglePinSession ? () => onTogglePinSession(session) : undefined}
             t={t}
           />
         )}

@@ -368,6 +368,20 @@ const renameSessionInProject = (project: Project, sessionIdToRename: string, sum
   return { ...project, sessions: nextSessions };
 };
 
+// Writes a pin change onto the matching sidebar row, the same way as
+// `renameSessionInProject`: the same project comes back when nothing changes.
+const setSessionPinnedInProject = (project: Project, sessionIdToPin: string, pinned: boolean): Project => {
+  const sessions = project.sessions ?? [];
+  const existingIndex = sessions.findIndex((session) => session.id === sessionIdToPin);
+  if (existingIndex < 0 || Boolean(sessions[existingIndex].pinned) === pinned) {
+    return project;
+  }
+
+  const nextSessions = [...sessions];
+  nextSessions[existingIndex] = { ...sessions[existingIndex], pinned };
+  return { ...project, sessions: nextSessions };
+};
+
 const VALID_TABS: Set<string> = new Set(['chat', 'files', 'shell', 'git', 'tasks', 'browser']);
 
 const isValidTab = (tab: string): tab is AppTab => {
@@ -1205,6 +1219,46 @@ export function useProjectsState({
     return true;
   }, []);
 
+  /**
+   * Pins or unpins a session. The row moves to its new place as soon as the
+   * click lands and is put back if the backend refuses or the request fails.
+   * Resolves `true` when the backend accepted the change.
+   */
+  const setSessionPinned = useCallback(async (sessionIdToPin: string, pinned: boolean): Promise<boolean> => {
+    const applyPinned = (value: boolean) => {
+      setProjects((previousProjects) => {
+        let changed = false;
+        const nextProjects = previousProjects.map((project) => {
+          const updatedProject = setSessionPinnedInProject(project, sessionIdToPin, value);
+          if (updatedProject !== project) {
+            changed = true;
+          }
+          return updatedProject;
+        });
+        return changed ? nextProjects : previousProjects;
+      });
+      setSelectedSession((previousSession) => (
+        previousSession?.id === sessionIdToPin && Boolean(previousSession.pinned) !== value
+          ? { ...previousSession, pinned: value }
+          : previousSession
+      ));
+    };
+
+    applyPinned(pinned);
+    try {
+      const response = await api.setSessionPinned(sessionIdToPin, pinned);
+      if (response.ok) {
+        return true;
+      }
+      console.error('[Workspace] Failed to pin session:', response.status);
+    } catch (error) {
+      console.error('[Workspace] Error pinning session:', error);
+    }
+
+    applyPinned(!pinned);
+    return false;
+  }, []);
+
   const loadMoreProjectSessions = useCallback(async (projectId: string) => {
     const project = projects.find((candidate) => candidate.projectId === projectId);
     if (!project) {
@@ -1277,6 +1331,7 @@ export function useProjectsState({
       isLoading: isLoadingProjects,
       loadingProgress,
       onRefresh: handleSidebarRefresh,
+      onSetSessionPinned: setSessionPinned,
       onShowSettings: () => setShowSettings(true),
       showSettings,
       settingsInitialTab,
@@ -1296,6 +1351,7 @@ export function useProjectsState({
       isMobile,
       loadingProgress,
       projects,
+      setSessionPinned,
       settingsInitialTab,
       selectedProject,
       selectedSession,

@@ -7,6 +7,7 @@ import { cn } from '@/shared/utils';
 import type { ProjectSession, RecentConversationListItem, SessionRowActions } from '@/shared/types';
 import { formatCompactAge } from '@/modules/sidebar/utils/sidebarProjectFormatting';
 import SessionOptions from '@/modules/sidebar/SessionOptions';
+import SessionPinBadge from '@/modules/sidebar/SessionPinBadge';
 
 type SidebarRecentConversationsProps = {
   conversations: RecentConversationListItem[];
@@ -123,6 +124,7 @@ export default function SidebarRecentConversations({
             summary: conversation.sessionTitle,
             __provider: conversation.provider,
             __projectId: conversation.projectId ?? undefined,
+            pinned: Boolean(conversation.pinned),
           };
           const canArchive = Boolean(sessionActions.onArchiveSession) && !isProcessing;
 
@@ -174,10 +176,11 @@ export default function SidebarRecentConversations({
                 )}
               >
                 <span className={cn(
-                  'flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-md',
+                  'relative flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-md',
                   isSelected ? 'bg-primary/10' : 'bg-muted/60',
                 )}>
                   <LLMProviderLogo provider={conversation.provider} className="h-3.5 w-3.5" />
+                  {conversation.pinned && <SessionPinBadge />}
                 </span>
 
                 <span className="min-w-0 flex-1">
@@ -237,6 +240,10 @@ export default function SidebarRecentConversations({
                   : undefined}
                 onArchive={sessionActions.onArchiveSession
                   ? () => sessionActions.onArchiveSession?.(sessionPayload)
+                  : undefined}
+                isPinned={Boolean(conversation.pinned)}
+                onTogglePin={sessionActions.onTogglePinSession
+                  ? () => sessionActions.onTogglePinSession?.(sessionPayload)
                   : undefined}
                 t={t}
               />

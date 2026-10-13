@@ -30,6 +30,7 @@ type SidebarProps = {
   isLoading: boolean;
   loadingProgress: LoadingProgress | null;
   onRefresh: () => Promise<void> | void;
+  onSetSessionPinned?: (sessionId: string, pinned: boolean) => Promise<boolean>;
   onShowSettings: () => void;
   showSettings: boolean;
   settingsInitialTab: string;
@@ -57,6 +58,7 @@ function Sidebar({
   isLoading,
   loadingProgress,
   onRefresh,
+  onSetSessionPinned,
   onShowSettings,
   showSettings,
   settingsInitialTab,
@@ -155,6 +157,7 @@ function Sidebar({
     undoQuickArchive,
     dismissQuickArchiveNotice,
     updateSessionSummary,
+    togglePinSession,
     forkSession,
     collapseSidebar: handleCollapseSidebar,
     expandSidebar: handleExpandSidebar,
@@ -178,6 +181,7 @@ function Sidebar({
     isMobile,
     t,
     onRefresh,
+    onSetSessionPinned,
     onProjectSelect,
     onSessionSelect,
     onSessionDelete,
@@ -263,6 +267,7 @@ function Sidebar({
     onDeleteSession: showDeleteSessionConfirmation,
     onForkSession: forkSession,
     onArchiveSession: quickArchiveSession,
+    onTogglePinSession: togglePinSession,
     onLoadMoreSessions: loadMoreSessionsForProject,
     onNewSession,
     onStartEditingSession: startEditingSession,

@@ -89,6 +89,8 @@ type UseSidebarControllerArgs = {
   isMobile: boolean;
   t: TFunction;
   onRefresh: () => Promise<void> | void;
+  /** Persists a pin change and resolves `true` when it was saved. */
+  onSetSessionPinned?: (sessionId: string, pinned: boolean) => Promise<boolean>;
   onProjectSelect: (project: Project) => void;
   onSessionSelect: (session: ProjectSession) => void;
   onSessionDelete?: (sessionId: string) => void;
@@ -110,6 +112,7 @@ export function useSidebarController({
   isMobile,
   t,
   onRefresh,
+  onSetSessionPinned,
   onProjectSelect,
   onSessionSelect,
   onSessionDelete,
@@ -393,23 +396,32 @@ export function useSidebarController({
 
     // Trimmed, because that is how the server derives a row's `sessionTitle`.
     const summaryBySessionId = new Map<string, string>();
+    const pinnedBySessionId = new Map<string, boolean>();
     for (const project of projects) {
       for (const session of project.sessions ?? []) {
         const summary = typeof session.summary === 'string' ? session.summary.trim() : '';
         if (summary) {
           summaryBySessionId.set(session.id, summary);
         }
+        pinnedBySessionId.set(session.id, Boolean(session.pinned));
       }
     }
 
     let changed = false;
     const next = recentConversations.map((conversation) => {
       const summary = summaryBySessionId.get(conversation.sessionId);
-      if (summary === undefined || summary === conversation.sessionTitle) {
+      const pinned = pinnedBySessionId.get(conversation.sessionId);
+      const titleChanged = summary !== undefined && summary !== conversation.sessionTitle;
+      const pinChanged = pinned !== undefined && pinned !== Boolean(conversation.pinned);
+      if (!titleChanged && !pinChanged) {
         return conversation;
       }
       changed = true;
-      return { ...conversation, sessionTitle: summary };
+      return {
+        ...conversation,
+        sessionTitle: titleChanged ? summary : conversation.sessionTitle,
+        pinned: pinned ?? conversation.pinned,
+      };
     });
     return changed ? next : recentConversations;
   }, [projects, recentConversations]);
@@ -1512,6 +1524,21 @@ export function useSidebarController({
   );
 
   /**
+   * Pins or unpins a session. The project state is patched optimistically by
+   * the caller, and the Conversations rows fold the pin in from `projects`, so
+   * both lists move the row at once. A refused change is announced here.
+   */
+  const togglePinSession = useCallback(async (session: SessionWithProvider) => {
+    if (!onSetSessionPinned) {
+      return;
+    }
+    const saved = await onSetSessionPinned(session.id, !session.pinned);
+    if (!saved) {
+      alert(t('messages.pinSessionFailed'));
+    }
+  }, [onSetSessionPinned, t]);
+
+  /**
    * Branches a session and opens the copy.
    *
    * The new row arrives over the websocket as a `session_upserted`, so nothing
@@ -1627,6 +1654,7 @@ export function useSidebarController({
     undoQuickArchive,
     dismissQuickArchiveNotice,
     updateSessionSummary,
+    togglePinSession,
     collapseSidebar,
     expandSidebar,
     setShowNewProject,

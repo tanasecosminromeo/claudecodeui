@@ -126,6 +126,7 @@
     "deleteSessionFailed": "Failed to delete session. Please try again.",
     "deleteSessionError": "Error deleting session. Please try again.",
     "renameSessionFailed": "Failed to rename session. Please try again.",
+    "pinSessionFailed": "Could not update the pin. Please try again.",
     "renameSessionError": "Error renaming session. Please try again.",
     "deleteProjectFailed": "Failed to remove project. Please try again.",
     "deleteProjectError": "Error removing project. Please try again.",
