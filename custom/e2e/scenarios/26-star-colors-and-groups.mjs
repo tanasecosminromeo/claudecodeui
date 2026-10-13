@@ -67,15 +67,18 @@ export async function run({ chat, page, app, paths, expect, snapshot, log }) {
     return names.map((name) => labels.findIndex((label) => label.includes(name)));
   };
 
-  // Quick clicks: none → green → yellow, and the row does not move.
+  // Quick clicks: none → green → yellow. In the default starred-first sort,
+  // starring may lift the row into the starred block; recolouring never moves it.
   expect(await star(names[0]).getAttribute('data-star-color') === 'none', 'a new project is not starred');
-  const indexesBefore = await sidebarIndexes();
-  expect(indexesBefore.every((index) => index >= 0), 'both e2e projects are in the sidebar list');
+  const indexesUnstarred = await sidebarIndexes();
+  expect(indexesUnstarred.every((index) => index >= 0), 'both e2e projects are in the sidebar list');
   await star(names[0]).click();
   expect(await star(names[0]).getAttribute('data-star-color') === 'green', 'one click makes the star green');
+  const indexesStarred = await sidebarIndexes();
+  expect(indexesStarred[0] <= indexesUnstarred[0], 'starring never moves a project down');
   await star(names[0]).click();
   expect(await star(names[0]).getAttribute('data-star-color') === 'yellow', 'a quick second click makes the star yellow');
-  expect(JSON.stringify(await sidebarIndexes()) === JSON.stringify(indexesBefore), 'recolouring a star does not move the project in the list');
+  expect(JSON.stringify(await sidebarIndexes()) === JSON.stringify(indexesStarred), 'recolouring a star does not move the project in the list');
   await waitForServer(names[0], (project) => project.starColor === 'yellow', 'the server stored yellow');
 
   // Right-click palette jumps straight to a color.

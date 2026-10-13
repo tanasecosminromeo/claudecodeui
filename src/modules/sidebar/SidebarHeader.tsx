@@ -247,6 +247,7 @@ export default function SidebarHeader({
                   placeholder={searchPlaceholder}
                   value={searchFilter}
                   onChange={(event) => onSearchFilterChange(event.target.value)}
+                  title={searchMode === 'projects' ? `${t('tooltips.openCommandPalette')} (${MOD_KEY}+K)` : undefined}
                   className="nav-search-input h-9 rounded-xl border-0 pl-9 pr-14 text-sm transition-all duration-200 placeholder:text-muted-foreground/40 focus-visible:ring-0 focus-visible:ring-offset-0"
                 />
                 {searchFilter ? (
@@ -257,7 +258,9 @@ export default function SidebarHeader({
                   >
                     <X className="h-3 w-3 text-muted-foreground" />
                   </button>
-                ) : (
+                ) : searchMode === 'projects' ? null : (
+                  // The star and sort buttons leave the Projects box too narrow
+                  // for this hint; the box's tooltip names the shortcut instead.
                   <kbd
                     aria-hidden
                     title={t('tooltips.openCommandPalette')}
