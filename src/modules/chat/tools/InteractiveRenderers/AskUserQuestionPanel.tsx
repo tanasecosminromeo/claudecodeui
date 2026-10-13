@@ -26,7 +26,7 @@ export const AskUserQuestionPanel: React.FC<PermissionPanelProps> = ({
   const [mounted, setMounted] = useState(false);
 
   const containerRef = useRef<HTMLDivElement>(null);
-  const otherInputRef = useRef<HTMLInputElement>(null);
+  const otherInputRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
     requestAnimationFrame(() => setMounted(true));
@@ -77,6 +77,34 @@ export const AskUserQuestionPanel: React.FC<PermissionPanelProps> = ({
   const setOtherText = useCallback((qIdx: number, text: string) => {
     setOtherTexts(prev => { const next = new Map(prev); next.set(qIdx, text); return next; });
   }, []);
+
+  // Grow the "Other" textarea with its text so a long answer wraps instead of
+  // scrolling sideways out of view, and keep its last line in view inside the
+  // scrolling options list. Refit when its width changes (rotation, resize).
+  const otherValue = otherTexts.get(currentStep) || '';
+  const fitOtherInput = useCallback(() => {
+    const el = otherInputRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = `${el.scrollHeight}px`;
+    if (document.activeElement === el) el.scrollIntoView({ block: 'nearest' });
+  }, []);
+
+  useEffect(fitOtherInput, [fitOtherInput, otherValue, otherActive, currentStep]);
+
+  const isOtherInputShown = otherActive.get(currentStep) || false;
+  useEffect(() => {
+    const el = otherInputRef.current;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    let width = el.clientWidth;
+    const observer = new ResizeObserver(() => {
+      if (el.clientWidth === width) return;
+      width = el.clientWidth;
+      fitOtherInput();
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [fitOtherInput, isOtherInputShown, currentStep]);
 
   const buildAnswers = useCallback(() => {
     const answers: Record<string, string> = {};
@@ -315,13 +343,13 @@ export const AskUserQuestionPanel: React.FC<PermissionPanelProps> = ({
             {isOtherOn && (
               <div className="pl-[30px] pr-0.5">
                 <div className="relative">
-                  <input
+                  <textarea
                     ref={otherInputRef}
-                    type="text"
-                    value={otherTexts.get(currentStep) || ''}
+                    rows={1}
+                    value={otherValue}
                     onChange={(e) => setOtherText(currentStep, e.target.value)}
                     onKeyDown={(e) => {
-                      if (e.key === 'Enter') {
+                      if (e.key === 'Enter' && !e.shiftKey) {
                         e.preventDefault();
                         if (isLast) handleSubmit();
                         else setCurrentStep(s => s + 1);
@@ -330,9 +358,9 @@ export const AskUserQuestionPanel: React.FC<PermissionPanelProps> = ({
                       e.stopPropagation();
                     }}
                     placeholder={t('chat:misc.typeAnswer')}
-                    className="w-full rounded-lg border-0 bg-gray-50 px-3 py-1.5 text-[13px] text-gray-900 outline-none ring-1 ring-gray-200 transition-shadow duration-200 placeholder:text-gray-400 focus:ring-2 focus:ring-blue-400 dark:bg-gray-900/60 dark:text-gray-100 dark:ring-gray-700 dark:placeholder:text-gray-600 dark:focus:ring-blue-500"
+                    className="block max-h-28 w-full scroll-mb-2 resize-none overflow-y-auto whitespace-pre-wrap break-words rounded-lg border-0 bg-gray-50 py-1.5 pl-3 pr-14 text-[13px] leading-snug text-gray-900 outline-none ring-1 ring-gray-200 transition-shadow duration-200 placeholder:text-gray-400 focus:ring-2 focus:ring-blue-400 dark:bg-gray-900/60 dark:text-gray-100 dark:ring-gray-700 dark:placeholder:text-gray-600 dark:focus:ring-blue-500"
                   />
-                  <kbd className="absolute right-2 top-1/2 -translate-y-1/2 rounded border border-gray-200 bg-gray-100 px-1 py-0.5 font-mono text-[9px] text-gray-300 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-600">
+                  <kbd className="pointer-events-none absolute bottom-1.5 right-2 rounded border border-gray-200 bg-gray-100 px-1 py-0.5 font-mono text-[9px] text-gray-300 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-600">
                     Enter
                   </kbd>
                 </div>
