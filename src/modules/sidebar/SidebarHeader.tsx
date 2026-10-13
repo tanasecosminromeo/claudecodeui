@@ -55,7 +55,7 @@ function LogoBlock({ t }: { t: TFunction }) {
 
 /**
  * The Projects list's star filter, beside the search box. Click cycles
- * off → all starred → each colour in use → off.
+ * off → all starred → each narrowing threshold → off.
  */
 function StarFilterChip({
   starFilter,
@@ -76,7 +76,9 @@ function StarFilterChip({
     ? t('projects.starFilter.off')
     : starFilter === 'all'
       ? t('projects.starFilter.all')
-      : t('projects.starFilter.color', { color: t(`starColors.${starFilter}`) });
+      : starFilter === 'red'
+        ? t('projects.starFilter.top')
+        : t('projects.starFilter.color', { color: t(`starColors.${starFilter}`) });
 
   return (
     <button

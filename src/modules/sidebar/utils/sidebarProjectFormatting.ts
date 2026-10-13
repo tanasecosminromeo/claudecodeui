@@ -8,6 +8,7 @@ import type {
   ProjectSortOrder,
   SessionWithProvider,
   SettingsProject,
+  StarColor,
   StarFilter,
 } from '@/shared/types';
 import { getStarColor, STAR_COLORS } from '@/modules/sidebar/utils/starColors';
@@ -194,22 +195,52 @@ export const filterProjects = (projects: Project[], searchFilter: string): Proje
   });
 };
 
-/** The star colours at least one project has right now, in STAR_COLORS order. */
-export const getStarColorsInUse = (projects: Project[]) => {
-  const inUse = new Set(projects.map((project) => getStarColor(project)));
-  return STAR_COLORS.filter((color) => inUse.has(color));
-};
-
-/** Keeps the projects the star filter allows: `off` keeps all, `all` starred ones, a colour only that colour. */
+/**
+ * Keeps the projects the star filter allows: `off` keeps all, `all` starred
+ * ones, and a colour that colour and every hotter one (STAR_COLORS order).
+ */
 export const filterProjectsByStar = (projects: Project[], filter: StarFilter): Project[] => {
   if (filter === 'off') {
     return projects;
   }
+  if (filter === 'all') {
+    return projects.filter((project) => getStarColor(project) !== null);
+  }
 
+  const threshold = STAR_COLORS.indexOf(filter);
   return projects.filter((project) => {
     const color = getStarColor(project);
-    return filter === 'all' ? color !== null : color === filter;
+    return color !== null && STAR_COLORS.indexOf(color) >= threshold;
   });
+};
+
+/** Colours the filter chip offers to narrow to, in click order (least to most selective). */
+const STAR_FILTER_THRESHOLDS: readonly StarColor[] = ['yellow', 'orange', 'red'];
+
+/**
+ * The thresholds worth a chip click. Starts from the `all` count and only
+ * offers a threshold that actually narrows the list, so every click visibly
+ * narrows. When two thresholds select the same projects, the hotter colour
+ * is the one offered (e.g. only yellow and red projects gives `['red']`).
+ */
+export const starFilterOptions = (projects: Project[]): StarColor[] => {
+  let previousCount = filterProjectsByStar(projects, 'all').length;
+  const options: StarColor[] = [];
+
+  for (const threshold of STAR_FILTER_THRESHOLDS) {
+    const count = filterProjectsByStar(projects, threshold).length;
+    if (count === 0) {
+      continue;
+    }
+    if (count < previousCount) {
+      options.push(threshold);
+      previousCount = count;
+    } else if (count === previousCount && options.length > 0) {
+      options[options.length - 1] = threshold;
+    }
+  }
+
+  return options;
 };
 
 export const getTaskIndicatorStatus = (

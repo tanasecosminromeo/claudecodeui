@@ -3,7 +3,7 @@ import test from 'node:test';
 
 import { projectsDb } from '@/modules/database/index.js';
 import { applyLegacyStarredProjectIds, toggleProjectStar } from '@/modules/projects/services/project-star.service.js';
-import { AppError } from '@/shared/utils.js';
+import { AppError, parseStarColor, STAR_COLORS } from '@/shared/utils.js';
 
 type ProjectRow = {
   project_id: string;
@@ -128,4 +128,21 @@ test('applyLegacyStarredProjectIds stars only valid, unstarred projects', () => 
     projectsDb.getProjectById = originalGetProjectById;
     projectsDb.updateProjectIsStarredById = originalUpdateProjectIsStarredById;
   }
+});
+
+test('star colors run green, yellow, orange, red in rising priority', () => {
+  assert.deepEqual(STAR_COLORS, ['green', 'yellow', 'orange', 'red']);
+});
+
+test('parseStarColor accepts the four colors and maps retired blue and purple to green', () => {
+  for (const color of ['green', 'yellow', 'orange', 'red']) {
+    assert.equal(parseStarColor(color), color);
+  }
+  assert.equal(parseStarColor('blue'), 'green');
+  assert.equal(parseStarColor('purple'), 'green');
+  assert.equal(parseStarColor('pink'), null);
+  assert.equal(parseStarColor('Red'), null);
+  assert.equal(parseStarColor(''), null);
+  assert.equal(parseStarColor(null), null);
+  assert.equal(parseStarColor(3), null);
 });

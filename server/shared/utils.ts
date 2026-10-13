@@ -1358,14 +1358,27 @@ export function readProcessStartTime(pid: number): string | null {
 }
 
 /**
- * Project star colors, Gmail style. The order is both the click-to-cycle order
- * and the sidebar sort rank; the frontend mirrors it in sidebar/utils/starColors.
+ * Project star colors in rising priority: each click on a star moves it up
+ * this list. The frontend mirrors it in sidebar/utils/starColors.
  */
-export const STAR_COLORS: readonly StarColor[] = ['yellow', 'orange', 'red', 'green', 'blue', 'purple'];
+export const STAR_COLORS: readonly StarColor[] = ['green', 'yellow', 'orange', 'red'];
 
-/** Narrows a stored or submitted value to a known project star color, or null. */
+/**
+ * Retired colors and the color they now read as. Blue and purple were removed,
+ * so an old cached browser tab that still sends them is stored as green.
+ */
+const RETIRED_STAR_COLOR_ALIASES: ReadonlyMap<string, StarColor> = new Map([
+  ['blue', 'green'],
+  ['purple', 'green'],
+]);
+
+/** Narrows a stored or submitted value to a project star color, or null. Retired colors map to their replacement. */
 export function parseStarColor(value: unknown): StarColor | null {
-  return typeof value === 'string' && (STAR_COLORS as readonly string[]).includes(value)
-    ? (value as StarColor)
-    : null;
+  if (typeof value !== 'string') {
+    return null;
+  }
+  if ((STAR_COLORS as readonly string[]).includes(value)) {
+    return value as StarColor;
+  }
+  return RETIRED_STAR_COLOR_ALIASES.get(value) ?? null;
 }

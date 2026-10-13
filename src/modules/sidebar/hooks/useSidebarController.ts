@@ -10,7 +10,7 @@ import {
   filterProjects,
   filterProjectsByStar,
   getAllSessions,
-  getStarColorsInUse,
+  starFilterOptions,
   sortProjects,
 } from '@/modules/sidebar/utils/sidebarProjectFormatting';
 import {
@@ -709,8 +709,8 @@ export function useSidebarController({
   }, [resolveProjectStarColor, t]);
 
   /**
-   * Gmail-style: an unstarred project turns yellow, a quick second click moves
-   * to the next colour, and a click after the window (or past purple) unstars.
+   * Gmail-style: an unstarred project turns green, a quick second click moves
+   * up to the next colour, and a click after the window (or past red) unstars.
    */
   const toggleStarProject = useCallback((projectId: string) => {
     const now = Date.now();
@@ -944,16 +944,16 @@ export function useSidebarController({
     }, []);
   }, [activeSessionIds, sortedProjects]);
 
-  // Star colours that exist right now, in chip order. A colour nobody has any
-  // more is shown as `all` (see normalizeStarFilter), so the chip never gets stuck.
-  const starColorsInUse = useMemo(
-    () => getStarColorsInUse(sortedProjects),
+  // The thresholds the chip can narrow to right now. One that is no longer
+  // offered is shown as `all` (see normalizeStarFilter), so the chip never gets stuck.
+  const starFilterChoices = useMemo(
+    () => starFilterOptions(sortedProjects),
     [sortedProjects],
   );
 
   const effectiveStarFilter = useMemo(
-    () => normalizeStarFilter(starFilter, starColorsInUse),
-    [starColorsInUse, starFilter],
+    () => normalizeStarFilter(starFilter, starFilterChoices),
+    [starFilterChoices, starFilter],
   );
 
   // The star chip lives in the Projects list only; Running and search stay unfiltered by it.
@@ -965,10 +965,10 @@ export function useSidebarController({
   const isStarFilterEmpty = searchMode === 'projects' && effectiveStarFilter !== 'off' && starFilteredProjects.length === 0;
 
   const cycleStarFilter = useCallback(() => {
-    const next = nextStarFilter(effectiveStarFilter, starColorsInUse);
+    const next = nextStarFilter(effectiveStarFilter, starFilterChoices);
     setStarFilter(next);
     writeProjectStarFilter(next);
-  }, [effectiveStarFilter, starColorsInUse]);
+  }, [effectiveStarFilter, starFilterChoices]);
 
   const clearStarFilter = useCallback(() => {
     setStarFilter('off');
