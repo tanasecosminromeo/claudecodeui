@@ -123,6 +123,7 @@ export function buildTitlePrompt(excerpt: string, wantTitle: boolean): string {
     '',
     `${titleRule}"status": exactly one key from this list, chosen for the session's current state:`,
     statusLines,
+    'Judge by the goal, not the current step: fixing broken behaviour is "bug" even while tests run to check the fix; "testing" is for sessions whose goal is the tests themselves.',
     '',
     'Transcript excerpt:',
     '<excerpt>',
@@ -295,7 +296,8 @@ export async function generateTitleAndStatus(
  * module goes through here, so the sidebar's push policy lives in one place.
  */
 async function announceSessionChange(sessionId: string): Promise<void> {
-  await broadcastSessionUpserted(sessionId);
+  // Only the name and status changed, so clients must not treat it as new activity.
+  await broadcastSessionUpserted(sessionId, { metadataOnly: true });
 }
 
 /** Reads the session row, or throws the 404 the routes return for an unknown id. */
