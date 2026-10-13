@@ -21,6 +21,7 @@ import { parseStarColor } from '@/shared/utils.js';
  */
 async function buildSessionUpsertedEvent(
   sessionIdOrProviderSessionId: string,
+  options: SessionUpsertOptions = {},
 ): Promise<SessionUpsertedEvent | null> {
   // Resolving by provider id first covers the watcher, which only ever sees
   // the id written in the transcript. For a row where the two ids are equal
@@ -63,9 +64,18 @@ async function buildSessionUpsertedEvent(
         groupId: project.group_id ?? null,
       }
       : null,
+    ...(options.metadataOnly ? { metadataOnly: true as const } : {}),
     timestamp: new Date().toISOString(),
   };
 }
+
+type SessionUpsertOptions = {
+  /**
+   * Only the row's own data changed (a pin, a title), not the transcript, so
+   * clients must neither reload the open chat nor flag the row as new activity.
+   */
+  metadataOnly?: boolean;
+};
 
 function sendToConnectedClients(payloads: string[]): void {
   if (payloads.length === 0) {
@@ -82,8 +92,11 @@ function sendToConnectedClients(payloads: string[]): void {
 }
 
 /** Announces one session. Used by the chat run registry when a run reports its provider-native id. */
-export async function broadcastSessionUpserted(sessionIdOrProviderSessionId: string): Promise<void> {
-  const event = await buildSessionUpsertedEvent(sessionIdOrProviderSessionId);
+export async function broadcastSessionUpserted(
+  sessionIdOrProviderSessionId: string,
+  options: SessionUpsertOptions = {},
+): Promise<void> {
+  const event = await buildSessionUpsertedEvent(sessionIdOrProviderSessionId, options);
   if (event) {
     sendToConnectedClients([JSON.stringify(event)]);
   }

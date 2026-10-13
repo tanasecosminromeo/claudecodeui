@@ -788,7 +788,7 @@ export const sessionsService = {
     }
 
     sessionsDb.setSessionPinned(sessionId, pinned);
-    await broadcastSessionUpserted(sessionId);
+    await broadcastSessionUpserted(sessionId, { metadataOnly: true });
     return { sessionId, pinned };
   },
 };

@@ -284,6 +284,8 @@ export type SessionUpsertedEvent = {
     pinned: boolean;
   };
   project: SessionUpsertedProject | null;
+  /** Set when only the row's metadata (pin, title) changed, not its transcript. */
+  metadataOnly?: true;
   timestamp: string;
 };
 

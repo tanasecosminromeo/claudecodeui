@@ -59,6 +59,22 @@ test('an upsert always carries the provider session id', async () => {
   });
 });
 
+test('a metadata-only upsert says so, and a plain one does not', async () => {
+  await withIsolatedDatabase(async () => {
+    sessionsDb.createAppSession('app-1', 'opencode', '/workspace/demo');
+
+    const connection = new FakeConnection();
+    connectedClients.add(connection as never);
+
+    await broadcastSessionUpserted('app-1', { metadataOnly: true });
+    await broadcastSessionUpserted('app-1');
+
+    assert.equal(connection.frames.length, 2);
+    assert.equal(connection.frames[0].metadataOnly, true);
+    assert.equal('metadataOnly' in connection.frames[1], false);
+  });
+});
+
 test('the watcher path resolves a provider-native id to the same canonical event', async () => {
   await withIsolatedDatabase(async () => {
     sessionsDb.createAppSession('app-2', 'opencode', '/workspace/demo');

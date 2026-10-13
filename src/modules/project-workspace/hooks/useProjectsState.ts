@@ -44,6 +44,8 @@ type SessionUpsertedEvent = ServerEvent & {
     starColor?: StarColor | null;
     groupId?: string | null;
   } | null;
+  /** Only the row's metadata (pin, title) changed; the transcript did not. */
+  metadataOnly?: boolean;
 };
 
 type FetchProjectsOptions = {
@@ -809,7 +811,9 @@ export function useProjectsState({
       // no run is active here (e.g. edited from another client or the CLI):
       // signal the chat view to reload its messages.
       const currentSelectedSession = selectedSessionRef.current;
-      if (
+      if (upsert.metadataOnly) {
+        // A pin or title change: nothing new to read, nothing to flag.
+      } else if (
         currentSelectedSession
         && upsert.sessionId === currentSelectedSession.id
         && !isSessionProcessing(upsert.sessionId)
