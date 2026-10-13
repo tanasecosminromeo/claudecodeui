@@ -170,6 +170,33 @@ export async function run({ chat, page, app, paths, expect, snapshot, log }) {
   await row(names[0]).waitFor({ timeout: 20000 });
   expect(await star(names[0]).getAttribute('data-star-color') === 'none', 'the cleared star stays cleared after a reload');
 
+  // Sort button: starred -> A-Z -> most recent -> starred. Three clicks walk the
+  // whole cycle, so the stored order ends where it started. Both e2e projects
+  // sit in the same group here: names[1] is yellow (starred), names[0] is
+  // unstarred, so in starred mode names[1] must be listed first.
+  const sortButton = page.locator('[data-testid="project-sort"]:visible');
+  const originalSortOrder = await sortButton.getAttribute('data-sort-order');
+  const nextSortOrder = { starred: 'name', name: 'date', date: 'starred' };
+  let sortOrder = originalSortOrder;
+  for (let step = 0; step < 3; step += 1) {
+    await sortButton.click();
+    const expectedOrder = nextSortOrder[sortOrder];
+    expect(await sortButton.getAttribute('data-sort-order') === expectedOrder, `the sort button moves ${sortOrder} to ${expectedOrder}`);
+    sortOrder = expectedOrder;
+    if (sortOrder === 'starred') {
+      const indexes = await sidebarIndexes();
+      expect(indexes[1] >= 0 && indexes[0] >= 0 && indexes[1] < indexes[0], 'starred mode lists the starred project before the unstarred one in the same group');
+      await snapshot('sort: starred first');
+    } else if (sortOrder === 'name') {
+      const indexes = await sidebarIndexes();
+      expect(indexes[0] < indexes[1], 'A-Z mode lists e2e-stars-a before e2e-stars-b');
+      await snapshot('sort: A-Z');
+    } else {
+      await snapshot('sort: most recent');
+    }
+  }
+  expect(await sortButton.getAttribute('data-sort-order') === originalSortOrder, 'three clicks restore the original sort order');
+
   // Clean up so later scenarios see the usual sidebar.
   const groups = await api('GET', '/api/projects/groups');
   for (const entry of groups.data?.groups ?? []) {

@@ -123,24 +123,35 @@ const getProjectLastActivity = (project: Project): Date => {
 };
 
 /**
- * Orders projects by name or by last activity. Stars never take part: a star
- * click changes colour in place, so the row stays where the user clicked it.
+ * Orders projects by one of three rules:
+ * - `starred`: every starred project (any colour) before the unstarred ones,
+ *   each block alphabetical. Colour never changes the order.
+ * - `name`: alphabetical.
+ * - `date`: most recent activity first.
  */
 export const sortProjects = (
   projects: Project[],
   projectSortOrder: ProjectSortOrder,
 ): Project[] => {
-  const byName = [...projects];
+  const sorted = [...projects];
 
-  byName.sort((projectA, projectB) => {
+  sorted.sort((projectA, projectB) => {
     if (projectSortOrder === 'date') {
       return getProjectLastActivity(projectB).getTime() - getProjectLastActivity(projectA).getTime();
+    }
+
+    if (projectSortOrder === 'starred') {
+      const starRankA = getStarColor(projectA) === null ? 1 : 0;
+      const starRankB = getStarColor(projectB) === null ? 1 : 0;
+      if (starRankA !== starRankB) {
+        return starRankA - starRankB;
+      }
     }
 
     return (projectA.displayName || projectA.projectId).localeCompare(projectB.displayName || projectB.projectId);
   });
 
-  return byName;
+  return sorted;
 };
 
 export type ProjectSection = {

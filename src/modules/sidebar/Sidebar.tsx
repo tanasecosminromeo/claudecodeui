@@ -164,6 +164,8 @@ function Sidebar({
     cycleStarFilter,
     clearStarFilter,
     isStarFilterEmpty,
+    projectSortOrder,
+    cycleProjectSortOrder,
     setPendingDeletion,
     setShowVersionModal,
   } = useSidebarController({
@@ -338,6 +340,8 @@ function Sidebar({
             onClearSearchFilter={() => setSearchFilter('')}
             starFilter={starFilter}
             onCycleStarFilter={cycleStarFilter}
+            projectSortOrder={projectSortOrder}
+            onCycleProjectSortOrder={cycleProjectSortOrder}
             searchMode={searchMode}
             onSearchModeChange={(mode) => {
               setSearchMode(mode);

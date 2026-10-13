@@ -1630,8 +1630,8 @@ export type SidebarProjectListProps = SessionRowActions & {
  */
 export type ThemeMode = 'light' | 'dark' | 'system';
 
-/** The ordering applied to the project list, either alphabetically by name or by most recent activity, persisted alongside the user's appearance settings. */
-export type ProjectSortOrder = 'name' | 'date';
+/** The ordering applied to the project list: starred projects first (any colour), alphabetically by name, or by most recent activity. Persisted as the `projectSortOrder` preference. */
+export type ProjectSortOrder = 'starred' | 'name' | 'date';
 
 /** Which list the sidebar is currently showing: projects, conversation search results, running sessions or archived items. */
 export type SidebarSearchMode = 'projects' | 'conversations' | 'running' | 'archived';

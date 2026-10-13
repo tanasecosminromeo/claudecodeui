@@ -25,6 +25,11 @@
       "top": "Showing red only. Click to show everything.",
       "empty": "No starred projects",
       "showAll": "Show all projects"
+    },
+    "sort": {
+      "starred": "Sort: starred first (click for A–Z)",
+      "name": "Sort: A–Z (click for most recent)",
+      "date": "Sort: most recent (click for starred first)"
     }
   },
   "app": {

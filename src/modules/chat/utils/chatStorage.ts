@@ -1,5 +1,10 @@
 import type { ClaudeSettings } from '@/shared/types';
-import { readUserPreference, writeUserPreference } from '@/shared/userSettings';
+import {
+  DEFAULT_PROJECT_SORT_ORDER,
+  parseProjectSortOrder,
+  readUserPreference,
+  writeUserPreference,
+} from '@/shared/userSettings';
 
 export const safeLocalStorage = {
   setItem: (key: string, value: string) => {
@@ -56,7 +61,7 @@ export function getClaudeSettings(): ClaudeSettings {
     allowedTools: Array.isArray(stored.allowedTools) ? stored.allowedTools : [],
     disallowedTools: Array.isArray(stored.disallowedTools) ? stored.disallowedTools : [],
     skipPermissions: Boolean(stored.skipPermissions),
-    projectSortOrder: readUserPreference<ClaudeSettings['projectSortOrder']>('projectSortOrder', 'name'),
+    projectSortOrder: parseProjectSortOrder(readUserPreference<unknown>('projectSortOrder', DEFAULT_PROJECT_SORT_ORDER)),
   };
 }
 
