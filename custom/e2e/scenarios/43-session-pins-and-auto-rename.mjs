@@ -119,6 +119,12 @@ export async function run({ chat, page, app, expect, snapshot, log }) {
   const apiA = await sessionById(sessionA);
   expect(apiA?.summary === autoA.title, `A: the API has the same title (${apiA?.summary})`);
   expect(apiA?.status !== null && apiA?.status !== undefined, `A: the API has a status (${apiA?.status}, source ${apiA?.statusSource})`);
+  // The open chat's header reads its own copy of the session, so it must follow too.
+  const headerA = await until(async () => {
+    const text = (await page.locator('h2.cursor-text').first().innerText().catch(() => '')).trim();
+    return { ok: text === autoA.title, text };
+  }, 10000);
+  expect(headerA.ok, `A: the open chat's header shows the new title "${autoA.title}" (got "${headerA.text}")`);
   await snap('A desktop sidebar after turn 3 (automatic title and status)');
 
   // B. A manual name is kept by the automatic checks; the status still changes.
@@ -163,19 +169,23 @@ export async function run({ chat, page, app, expect, snapshot, log }) {
   await row(sessionA).locator('[role="button"][aria-label^="Status:"], [role="button"][aria-label="Set status"]').first().click();
   const picker = page.getByRole('menu', { name: 'Set status', exact: true });
   await picker.waitFor({ timeout: 5000 });
-  await picker.getByRole('menuitemradio', { name: 'Done', exact: true }).click();
-  const doneLabel = await until(async () => {
+  // Planning, because the automatic status of this chat is never planning,
+  // so the emoji visibly changes.
+  const autoStatusA = (await sessionById(sessionA))?.status;
+  expect(autoStatusA !== 'planning', `D: the automatic status of A is not already planning (${autoStatusA})`);
+  await picker.getByRole('menuitemradio', { name: 'Planning', exact: true }).click();
+  const pickedLabel = await until(async () => {
     const label = await statusLabelOf(sessionA);
-    return { ok: label === 'Status: Done', label };
+    return { ok: label === 'Status: Planning', label };
   }, 10000);
-  expect(doneLabel.ok, `D: the status emoji of A reads "Status: Done" (got "${doneLabel.label}")`);
-  const emojiText = (await row(sessionA).locator('[aria-label="Status: Done"]').innerText()).trim();
-  expect(emojiText === '✅', `D: the Done emoji is ✅ (got "${emojiText}")`);
-  const apiDone = await sessionById(sessionA);
-  expect(apiDone?.status === 'done' && apiDone?.statusSource === 'user', `D: the API stores status 'done' from the user (${apiDone?.status}, ${apiDone?.statusSource})`);
-  await snap('D desktop sidebar: status Done set from the picker');
+  expect(pickedLabel.ok, `D: the status emoji of A reads "Status: Planning" (got "${pickedLabel.label}")`);
+  const emojiText = (await row(sessionA).locator('[aria-label="Status: Planning"]').innerText()).trim();
+  expect(emojiText === '📝', `D: the Planning emoji is 📝 (got "${emojiText}")`);
+  const apiPicked = await sessionById(sessionA);
+  expect(apiPicked?.status === 'planning' && apiPicked?.statusSource === 'user', `D: the API stores status 'planning' from the user (${apiPicked?.status}, ${apiPicked?.statusSource})`);
+  await snap('D desktop sidebar: status Planning set from the picker');
 
-  await row(sessionA).locator('[aria-label="Status: Done"]').first().click();
+  await row(sessionA).locator('[aria-label="Status: Planning"]').first().click();
   await picker.waitFor({ timeout: 5000 });
   await picker.getByRole('menuitemradio', { name: 'Auto', exact: true }).click();
   const autoAgain = await until(async () => {
@@ -183,7 +193,7 @@ export async function run({ chat, page, app, expect, snapshot, log }) {
     return { ok: api?.statusSource !== 'user', api };
   }, 10000);
   expect(autoAgain.ok, `D: after Auto the API no longer marks the status as the user's (source ${autoAgain.api?.statusSource})`);
-  expect(autoAgain.api?.status === 'done', `D: Auto keeps the status in place ("${autoAgain.api?.status}")`);
+  expect(autoAgain.api?.status === 'planning', `D: Auto keeps the status in place until the next check ("${autoAgain.api?.status}")`);
 
   // E. Pin the older session: first in its project, badged, kept over a reload, unpinned.
   const ids = [sessionA, sessionB];
