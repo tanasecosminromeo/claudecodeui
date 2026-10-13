@@ -30,7 +30,7 @@ export function procInfo(pid) {
   const f = stat.slice(close + 2).split(' '); // f[0] = state (field 3)
   const cmdline = readText(`/proc/${pid}/cmdline`) || '';
   const argv = cmdline.split('\0').filter(Boolean).join(' ') || comm;
-  return { pid, ppid: Number(f[1]), comm, startMs: bootTimeMs() + Math.round((Number(f[19]) / CLK_TCK) * 1000), argv, cmdline };
+  return { pid, ppid: Number(f[1]), comm, procStart: f[19], startMs: bootTimeMs() + Math.round((Number(f[19]) / CLK_TCK) * 1000), argv, cmdline };
 }
 
 /** The Claude CLI itself: an argv starting with a path ending in /claude that runs stream-json output. */
@@ -71,7 +71,7 @@ export function liveTree(rootPid) {
     const info = procInfo(pid);
     if (!info) continue;
     nodes.push({
-      pid, parent: pid === rootPid ? null : info.ppid, root: rootPid, argv: info.argv,
+      pid, procStart: info.procStart, parent: pid === rootPid ? null : info.ppid, root: rootPid, argv: info.argv,
       cmd: commandLabel(info.argv, info.cmdline), live: true, rssKb: rssKb(pid),
       startMs: info.startMs, endMs: null, code: null, sig: null,
     });

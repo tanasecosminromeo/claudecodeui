@@ -9,7 +9,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { maskSecrets } from './mask.mjs';
 
-const UNIT_RE = /^cloudcli-claude-(.+)-([A-Za-z0-9]{6})\.scope$/;
+export const UNIT_RE = /^cloudcli-claude-(.+)-([A-Za-z0-9]{6})\.scope$/;
 const CLK_TCK = 100;
 const KILL_GRACE_MS = 5000;
 const MAX_DEPTH = 20;
