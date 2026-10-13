@@ -13,12 +13,14 @@ type SessionSummary = {
   summary: string;
   messageCount: number;
   lastActivity: string;
+  pinned: boolean;
 };
 
 type SessionRepositoryRow = {
   provider: string;
   session_id: string;
   custom_name?: string | null;
+  pinned_at?: string | null;
   updated_at?: string | null;
   created_at?: string | null;
 };
@@ -126,6 +128,7 @@ function mapSessionRowToSummary(row: SessionRepositoryRow): SessionSummary {
     summary: row.custom_name || '',
     messageCount: 0,
     lastActivity: row.updated_at ?? row.created_at ?? new Date().toISOString(),
+    pinned: Boolean(row.pinned_at),
   };
 }
 

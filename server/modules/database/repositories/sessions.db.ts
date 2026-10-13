@@ -15,6 +15,8 @@ type SessionRow = {
   effort: string | null;
   /** The app session this one was branched from; NULL unless it is a fork. */
   forked_from_session_id: string | null;
+  /** ISO-ish timestamp the session was pinned at; NULL when not pinned. */
+  pinned_at: string | null;
   isArchived: number;
   created_at: string;
   updated_at: string;
@@ -26,7 +28,7 @@ type RecentSessionsPage = {
 };
 
 const SESSION_ROW_COLUMNS =
-  'session_id, provider, provider_session_id, project_path, jsonl_path, custom_name, model, effort, forked_from_session_id, isArchived, created_at, updated_at';
+  'session_id, provider, provider_session_id, project_path, jsonl_path, custom_name, model, effort, forked_from_session_id, pinned_at, isArchived, created_at, updated_at';
 
 const SQLITE_UTC_TIMESTAMP_REGEX = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/;
 
@@ -439,6 +441,19 @@ export const sessionsDb = {
     ).run(effort, sessionId);
   },
 
+  /**
+   * Pins a session to the top of its project list, or clears the pin.
+   * Stores the pin time so pinned sessions keep a stable order among themselves.
+   */
+  setSessionPinned(sessionId: string, pinned: boolean): void {
+    const db = getConnection();
+    db.prepare(
+      `UPDATE sessions
+       SET pinned_at = ?
+       WHERE session_id = ?`
+    ).run(pinned ? new Date().toISOString() : null, sessionId);
+  },
+
   updateSessionCustomName(sessionId: string, customName: string): void {
     const db = getConnection();
     db.prepare(
@@ -635,7 +650,7 @@ export const sessionsDb = {
          FROM sessions
          WHERE project_path = ?
            AND isArchived = 0
-         ORDER BY datetime(COALESCE(updated_at, created_at)) DESC, session_id DESC
+         ORDER BY (pinned_at IS NOT NULL) DESC, datetime(COALESCE(updated_at, created_at)) DESC, session_id DESC
          LIMIT ? OFFSET ?`
       )
       .all(normalizedProjectPath, limit, offset) as SessionRow[];

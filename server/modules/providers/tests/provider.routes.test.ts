@@ -471,3 +471,38 @@ test('the workflow agent route reads an agent\'s timeline and status from its ru
     assert.equal(missing.error.code, 'WORKFLOW_AGENT_NOT_FOUND');
   });
 });
+
+test('session pin route sets and clears pinned_at and rejects bad input', async () => {
+  await withProviderServer(async (baseUrl) => {
+    sessionsDb.createSession('session-pin-target', 'claude', '/workspace/demo-project', 'Pin me');
+    const pinUrl = `${baseUrl}/api/providers/sessions/session-pin-target/pin`;
+    const putPin = (body: unknown) => fetch(pinUrl, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+
+    const pinResponse = await putPin({ pinned: true });
+    const pinPayload = await pinResponse.json() as { data: { sessionId: string; pinned: boolean } };
+    assert.equal(pinResponse.status, 200);
+    assert.deepEqual(pinPayload.data, { sessionId: 'session-pin-target', pinned: true });
+    assert.ok(sessionsDb.getSessionById('session-pin-target')?.pinned_at);
+
+    const unpinResponse = await putPin({ pinned: false });
+    assert.equal(unpinResponse.status, 200);
+    assert.equal(sessionsDb.getSessionById('session-pin-target')?.pinned_at, null);
+
+    const invalidResponse = await putPin({ pinned: 'yes' });
+    assert.equal(invalidResponse.status, 400);
+
+    const missingFieldResponse = await putPin({});
+    assert.equal(missingFieldResponse.status, 400);
+
+    const unknownResponse = await fetch(`${baseUrl}/api/providers/sessions/no-such-session/pin`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ pinned: true }),
+    });
+    assert.equal(unknownResponse.status, 404);
+  });
+});

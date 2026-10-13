@@ -377,6 +377,25 @@ const parseSessionRenameSummary = (payload: unknown): string => {
   return summary;
 };
 
+const parseSessionPinnedPayload = (payload: unknown): boolean => {
+  if (!payload || typeof payload !== 'object') {
+    throw new AppError('Request body must be an object.', {
+      code: 'INVALID_REQUEST_BODY',
+      statusCode: 400,
+    });
+  }
+
+  const pinned = (payload as Record<string, unknown>).pinned;
+  if (typeof pinned !== 'boolean') {
+    throw new AppError('Field "pinned" must be a boolean.', {
+      code: 'INVALID_SESSION_PINNED',
+      statusCode: 400,
+    });
+  }
+
+  return pinned;
+};
+
 const parseSessionSearchQuery = (value: unknown): string => {
   const query = readOptionalQueryString(value) ?? '';
   if (query.length < 2) {
@@ -942,6 +961,16 @@ router.put(
     const sessionId = parseSessionId(req.params.sessionId);
     const summary = parseSessionRenameSummary(req.body);
     const result = sessionsService.renameSessionById(sessionId, summary);
+    res.json(createApiSuccessResponse(result));
+  }),
+);
+
+router.put(
+  '/sessions/:sessionId/pin',
+  asyncHandler(async (req: Request, res: Response) => {
+    const sessionId = parseSessionId(req.params.sessionId);
+    const pinned = parseSessionPinnedPayload(req.body);
+    const result = await sessionsService.setSessionPinnedById(sessionId, pinned);
     res.json(createApiSuccessResponse(result));
   }),
 );

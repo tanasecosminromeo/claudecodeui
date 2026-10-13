@@ -281,6 +281,7 @@ export type SessionUpsertedEvent = {
     summary: string;
     messageCount: number;
     lastActivity: string;
+    pinned: boolean;
   };
   project: SessionUpsertedProject | null;
   timestamp: string;

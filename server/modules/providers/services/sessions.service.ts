@@ -769,4 +769,22 @@ export const sessionsService = {
     sessionsDb.updateSessionCustomName(sessionId, summary);
     return { sessionId, summary };
   },
+
+  /**
+   * Pins or unpins one session and announces the change, so every open sidebar
+   * moves the row to (or out of) the top of its project without a refetch.
+   */
+  async setSessionPinnedById(sessionId: string, pinned: boolean): Promise<{ sessionId: string; pinned: boolean }> {
+    const session = sessionsDb.getSessionById(sessionId);
+    if (!session) {
+      throw new AppError(`Session "${sessionId}" was not found.`, {
+        code: 'SESSION_NOT_FOUND',
+        statusCode: 404,
+      });
+    }
+
+    sessionsDb.setSessionPinned(sessionId, pinned);
+    await broadcastSessionUpserted(sessionId);
+    return { sessionId, pinned };
+  },
 };
