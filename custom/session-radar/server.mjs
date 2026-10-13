@@ -12,6 +12,24 @@ import {
 import { killLeftovers, leftoversFor } from './leftovers.mjs';
 import { ExecLog } from './proctree.mjs';
 import { otherAgentRows, treeFor } from './tree-route.mjs';
+import { acquireLock, lockPath, startOrphanGuard } from './orphan-guard.mjs';
+
+// Server mode runs only as CloudCLI's plugin (the plugin host sets PLUGIN_NAME) and only once per
+// CloudCLI instance. --dump is a read-only print and works anywhere.
+const DUMP = process.argv.includes('--dump');
+if (!DUMP) {
+  if (process.env.PLUGIN_NAME !== 'session-radar') {
+    console.error('session-radar: start it through CloudCLI, or use --dump');
+    process.exit(1);
+  }
+  const lock = acquireLock({ file: lockPath() });
+  if (!lock.ok) {
+    console.error(`session-radar: already running for this CloudCLI (pid ${lock.holder}), exiting`);
+    process.exit(0);
+  }
+  process.on('exit', lock.release);
+  for (const sig of ['SIGINT', 'SIGTERM']) process.once(sig, () => process.exit(0));
+}
 
 const HOME = process.env.HOME || os.homedir();
 const SESSIONS_DIR = path.join(HOME, '.claude', 'sessions');
@@ -256,7 +274,8 @@ const server = http.createServer((req, res) => {
 
 server.listen(0, '127.0.0.1', () => {
   console.log(JSON.stringify({ ready: true, port: server.address().port }));
-  if (!process.argv.includes('--dump')) {
+  if (!DUMP) {
+    startOrphanGuard(); // exits when CloudCLI (our parent) goes away
     const safeTick = () => { try { watchTick(); } catch (err) { console.error('session-radar watcher:', err.message); } };
     safeTick();
     setInterval(safeTick, 3000).unref();

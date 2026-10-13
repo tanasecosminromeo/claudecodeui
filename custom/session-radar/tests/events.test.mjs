@@ -119,7 +119,7 @@ test('watcher lists the sessions waiting right now', () => {
 test('GET /events serves the log', async () => {
   const { spawn: sp } = await import('node:child_process');
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'radar-home-'));
-  const child = sp('node', [new URL('../server.mjs', import.meta.url).pathname], { env: { ...process.env, HOME: home }, stdio: ['ignore', 'pipe', 'inherit'] });
+  const child = sp('node', [new URL('../server.mjs', import.meta.url).pathname], { env: { ...process.env, HOME: home, PLUGIN_NAME: 'session-radar' }, stdio: ['ignore', 'pipe', 'inherit'] });
   const port = await new Promise((resolve) => child.stdout.once('data', (b) => resolve(JSON.parse(String(b).split('\n')[0]).port)));
   const res = await fetch(`http://127.0.0.1:${port}/events?after=0`);
   expect(res.status).toBe(200);
