@@ -203,3 +203,81 @@ body.pwa-mode { --header-base-padding: 0px; } /* extra gap under the notch in ho
 }
 [data-uic-wait-banner] .uic-wait-hint { margin-top: 2px; opacity: 0.85; }
 .dark [data-uic-wait-banner] { color: #fcd34d; border-color: rgba(245, 158, 11, 0.4); }
+
+/* ---- Leftover processes: modal, and the entry in the Running view ----
+   Colours come from the app's theme variables, so light and dark follow it. Touch targets are 40px. */
+.uic-lo-overlay {
+  position: fixed; inset: 0; z-index: 2147483000;
+  display: flex; align-items: center; justify-content: center;
+  padding: 8px; background: rgba(0, 0, 0, 0.45);
+}
+.uic-lo-card {
+  display: flex; flex-direction: column;
+  width: min(560px, 100%); max-height: min(85vh, 640px); max-height: min(85dvh, 640px);
+  background: hsl(var(--background)); color: hsl(var(--foreground));
+  border: 1px solid hsl(var(--border)); box-shadow: 0 16px 48px rgba(0, 0, 0, 0.3);
+  font: 13px/1.4 var(--uic-font);
+}
+.uic-lo-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 10px 14px 4px; }
+.uic-lo-title { margin: 0; font-size: 16px; font-weight: 600; }
+.uic-lo-x {
+  flex: 0 0 40px; width: 40px; height: 40px; margin: -8px -10px -8px 0;
+  border: 0; background: none; color: hsl(var(--muted-foreground));
+  font-size: 24px; line-height: 1; cursor: pointer;
+}
+.uic-lo-x:hover, .uic-lo-x:focus-visible { background: hsl(var(--accent)); color: hsl(var(--foreground)); }
+.uic-lo-intro { margin: 0; padding: 2px 14px 10px; font-size: 12px; line-height: 1.5; color: hsl(var(--muted-foreground)); }
+.uic-lo-body {
+  flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch; border-top: 1px solid hsl(var(--border));
+}
+.uic-lo-group { border-bottom: 1px solid hsl(var(--border)); }
+.uic-lo-gh { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; padding: 10px 14px 4px; font-size: 12px; }
+.uic-lo-gname { font-weight: 600; overflow-wrap: anywhere; }
+.uic-lo-gproj { color: hsl(var(--muted-foreground)); }
+.uic-lo-gage { margin-left: auto; white-space: nowrap; color: hsl(var(--muted-foreground)); font-variant-numeric: tabular-nums; }
+.uic-lo-list { list-style: none; margin: 0; padding: 0 0 6px; }
+.uic-lo-row {
+  display: flex; align-items: center; gap: 6px; min-height: 44px;
+  /* indent by tree depth; capped so deep trees still fit a 375px phone */
+  padding: 2px 6px 2px calc(14px + min(var(--depth, 0), 6) * 14px);
+}
+.uic-lo-main { flex: 1 1 auto; min-width: 0; }
+.uic-lo-cmd {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; line-height: 1.35;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.uic-lo-meta {
+  margin-top: 1px; font-size: 11px; color: hsl(var(--muted-foreground)); font-variant-numeric: tabular-nums;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.uic-lo-kill {
+  flex: 0 0 40px; width: 40px; height: 40px;
+  display: flex; align-items: center; justify-content: center;
+  border: 0; background: none; color: hsl(var(--muted-foreground)); cursor: pointer;
+}
+.uic-lo-kill:hover:not(:disabled), .uic-lo-kill:focus-visible { background: hsl(var(--muted)); color: #dc2626; }
+.uic-lo-kill:disabled { opacity: 0.45; cursor: default; }
+.uic-lo-rowerr { padding: 0 14px 6px; font-size: 11.5px; color: #dc2626; overflow-wrap: anywhere; }
+.uic-lo-rowerr[hidden] { display: none; }
+.uic-lo-empty { padding: 22px 14px; text-align: center; color: hsl(var(--muted-foreground)); }
+.uic-lo-foot {
+  display: flex; flex-direction: column; gap: 6px;
+  padding: 10px 14px 12px; border-top: 1px solid hsl(var(--border));
+}
+.uic-lo-err { font-size: 12px; color: #dc2626; overflow-wrap: anywhere; }
+.uic-lo-err:empty { display: none; }
+.uic-lo-btns { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+.uic-lo-btns button {
+  min-height: 40px; padding: 0 16px; font: inherit; font-size: 13px; cursor: pointer;
+  border: 1px solid hsl(var(--border)); background: hsl(var(--background)); color: hsl(var(--foreground));
+}
+.uic-lo-close:hover, .uic-lo-close:focus-visible { background: hsl(var(--accent)); }
+.uic-lo-cta { border-color: #dc2626 !important; background: #dc2626 !important; color: #fff !important; font-weight: 600 !important; }
+.uic-lo-cta:disabled { opacity: 0.45; cursor: default; }
+.uic-lo-entry {
+  display: block; width: 100%; padding: 8px 12px; text-align: left; cursor: pointer;
+  border: 0; border-left: 2px solid #f59e0b; background: none; color: hsl(var(--foreground));
+  font: inherit; font-size: 12px; font-weight: 600;
+}
+.uic-lo-entry:hover, .uic-lo-entry:focus-visible { background: hsl(var(--accent)); }
