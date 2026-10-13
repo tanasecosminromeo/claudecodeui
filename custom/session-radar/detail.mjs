@@ -8,6 +8,25 @@ import { maskSecrets } from './mask.mjs';
 
 const TAIL_BYTES = 256 * 1024;
 const AGENT_TOOLS = new Set(['Agent', 'Task']);
+const DESCRIPTION_MAX = 160;
+
+// Background work the transcript shows: sub agents (Agent/Task) and tasks (Monitor, Bash run in
+// the background). A background item ends only with its <task-notification>; a foreground agent
+// ends with its result.
+function workOf(c) {
+  const i = c.input || {};
+  if (AGENT_TOOLS.has(c.name)) return { kind: 'agent', background: Boolean(i.run_in_background) };
+  if (c.name === 'Monitor') return { kind: 'task', background: true };
+  if (c.name === 'Bash' && i.run_in_background) return { kind: 'task', background: true };
+  return null;
+}
+
+/** The short label a background item is shown by: its description, else its command, else the tool name. */
+function workDescription(c) {
+  const i = c.input || {};
+  const raw = i.description || (c.name === 'Bash' ? i.command : '') || c.name;
+  return String(raw).replace(/\s+/g, ' ').trim().slice(0, DESCRIPTION_MAX);
+}
 const tailCache = new Map(); // file -> { key, value }
 
 function readText(file) { try { return fs.readFileSync(file, 'utf8'); } catch { return null; } }
@@ -37,7 +56,7 @@ export function processTree(pid, limit = 200) {
 
 // A Bash-tool command (foreground, background task or Monitor) is a shell that
 // sources a ~/.claude/shell-snapshots file; show what it is running.
-export function shellCommand(cmdline) {
+export function shellCommand(cmdline, max = 80) {
   if (!cmdline.includes('.claude/shell-snapshots/')) return null;
   const args = cmdline.split('\0');
   const i = args.indexOf('-c');
@@ -45,21 +64,26 @@ export function shellCommand(cmdline) {
   const eva = script.match(/eval '?"?(.*)$/s);
   // The wrapper quotes the command (eval '...'); drop the closing quote that is left after the cut.
   const cmd = (eva ? eva[1] : script).split('\n')[0].replace(/\s+/g, ' ').replace(/< \/dev\/null.*$/, '').trim().replace(/['"]$/, '');
-  return cmd.slice(0, 80);
+  return cmd.slice(0, max);
 }
 
+/** A Bash-tool shell in a tree: its pid and the command it runs (raw; mask before sending). */
 export function processDetail(pid) {
   const tree = processTree(pid);
   let kb = 0;
   const commands = [];
+  const shells = [];
   for (const p of tree) {
     kb += rssKb(p);
     if (p === pid) continue;
     const cmd = readText(`/proc/${p}/cmdline`);
-    const sh = cmd && shellCommand(cmd);
-    if (sh) commands.push(maskSecrets(sh));
+    const sh = cmd && shellCommand(cmd, 400);
+    if (sh) {
+      commands.push(maskSecrets(sh).slice(0, 80));
+      shells.push({ pid: p, cmd: sh });
+    }
   }
-  return { rssKb: kb, procs: tree.length, commands };
+  return { rssKb: kb, procs: tree.length, commands, shells };
 }
 
 const SUMMARY_MAX = 120;
@@ -78,7 +102,7 @@ export function pendingSummary(name, input) {
 /** Parse transcript JSONL lines (the tail of a file) into session facts. */
 export function parseTranscriptTail(text) {
   const lines = text.split('\n');
-  const toolUses = new Map(); // id -> { name, background }
+  const toolUses = new Map(); // id -> { kind, background, description, startedAt }
   const done = new Set();
   const asked = new Map(); // main-thread tool_use id -> { tool, summary }, until its result
   let model = null; let usage = null; let branch = null; let mode = null;
@@ -90,6 +114,7 @@ export function parseTranscriptTail(text) {
     let j;
     try { j = JSON.parse(line); } catch { continue; }
     if (j.gitBranch) branch = j.gitBranch;
+    const at = Date.parse(j.timestamp) || null;
     if (j.type === 'mode' && j.mode) mode = j.mode;
     if (j.permissionMode) mode = j.permissionMode;
     const content = j.message && Array.isArray(j.message.content) ? j.message.content : [];
@@ -101,9 +126,8 @@ export function parseTranscriptTail(text) {
           asked.delete(c.id);
           asked.set(c.id, { tool: c.name, summary: pendingSummary(c.name, c.input) });
         }
-        if (c.type === 'tool_use' && AGENT_TOOLS.has(c.name)) {
-          toolUses.set(c.id, { background: Boolean(c.input && c.input.run_in_background) });
-        }
+        const work = c.type === 'tool_use' ? workOf(c) : null;
+        if (work) toolUses.set(c.id, { ...work, description: workDescription(c), startedAt: at });
       }
     } else if (j.type === 'user') {
       for (const c of content) {
@@ -114,14 +138,17 @@ export function parseTranscriptTail(text) {
       }
     }
   }
-  let agents = 0;
-  for (const id of toolUses.keys()) if (!done.has(id)) agents += 1;
+  const running = [];
+  for (const [id, w] of toolUses) {
+    if (!done.has(id)) running.push({ id, kind: w.kind, description: w.description, startedAt: w.startedAt });
+  }
+  const agents = running.filter((r) => r.kind === 'agent').length;
   const context = usage
     ? (usage.input_tokens || 0) + (usage.cache_read_input_tokens || 0) + (usage.cache_creation_input_tokens || 0)
     : null;
   // The most recent request still without a result: what a waiting session is asking about.
   const pending = asked.size > 0 ? [...asked.values()].pop() : null;
-  return { model, branch, mode, contextTokens: context, agents, pending };
+  return { model, branch, mode, contextTokens: context, agents, running, pending };
 }
 
 export function transcriptDetail(file) {

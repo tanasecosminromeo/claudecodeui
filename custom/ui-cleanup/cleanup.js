@@ -106,6 +106,15 @@
     return body;
   }
 
+  // One live process for the process modal (GET /process). 404 = it ended or its pid was reused.
+  async function fetchProcess(pid, procStart) {
+    const q = `pid=${encodeURIComponent(pid)}&procStart=${encodeURIComponent(procStart)}`;
+    const r = await fetch(`/api/plugins/${RADAR_PLUGIN}/rpc/process?${q}`, { headers: authHeaders() });
+    const body = await r.json().catch(() => ({}));
+    if (!r.ok) throw Object.assign(new Error(body.error || `HTTP ${r.status}`), { status: r.status });
+    return body;
+  }
+
   // ---- Leftover processes (session-radar GET /leftovers, POST /leftovers/kill) ----
   // Processes still running after the Claude session that started them ended. The list opens by
   // itself once per CloudCLI restart (the plugin server restarts with it) until the user closes it;
@@ -809,7 +818,11 @@
   // plugin panel is pressed, and the panel is mounted in its place.
   const PANELS = [
     { attr: 'data-uic-radar', icon: 'lucide-activity', plugin: RADAR_PLUGIN, name: 'Sessions',
-      render: (mod, el) => mod.renderRadar(el, { fetchData: fetchSessions, stopSession, fetchTree }) },
+      render: (mod, el) => mod.renderRadar(el, {
+        fetchData: fetchSessions, stopSession, fetchTree, fetchProcess,
+        // A kill from the process modal goes through the leftovers route; re-check the list after it.
+        killLeftover: (payload) => killLeftoverRpc(payload).then((res) => { checkLeftovers(); return res; }),
+      }) },
     { attr: 'data-uic-artefacts', icon: 'lucide-message-square', plugin: ARTEFACTS_PLUGIN, name: 'Artefacts',
       render: (mod, el) => mod.renderArtefacts(el, {
         fetchData: () => artefactsRpc('GET', 'artefacts'),
