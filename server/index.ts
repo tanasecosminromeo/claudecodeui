@@ -14,6 +14,7 @@ import {
     closeSessionsWatcher,
     findOtherLiveClaudeProcesses,
     initializeSessionsWatcher,
+    initializeSessionTitleAutomation,
     markDetachedClaudeShutdown,
     providerRuntimeService,
 } from '@/modules/providers/index.js';
@@ -406,6 +407,8 @@ async function startServer() {
 
             // Start watching the projects folder for changes
             await initializeSessionsWatcher();
+            // Auto-titles and status emoji after each finished run.
+            initializeSessionTitleAutomation();
             // Sends anything that came due while the server was not running,
             // then keeps polling.
             initializeScheduledMessageDispatcher(providerRuntimeService);

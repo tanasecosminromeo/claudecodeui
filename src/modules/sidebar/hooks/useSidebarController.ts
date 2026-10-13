@@ -4,7 +4,7 @@ import type { TFunction } from 'i18next';
 import { api } from '@/shared/api';
 import { DEFAULT_PROJECT_SORT_ORDER, PROJECT_SORT_ORDERS, subscribeToUserPreferences } from '@/shared/userSettings';
 import { usePaletteOps } from '@/modules/command-palette';
-import type { ArchivedProjectListItem, ArchivedSessionListItem, ConversationProjectResult, ConversationSearchResults, LLMProvider, Project, ProjectGroup, ProjectSession, StarColor, StarFilter, ProjectSortOrder, RecentConversationListItem, SearchProgress, ActiveSidebarRename, PendingSidebarDeletion, SessionTitleSearchResult, SessionWithProvider, SidebarSearchMode, SidebarSessionSelection } from '@/shared/types';
+import type { ArchivedProjectListItem, ArchivedSessionListItem, ConversationProjectResult, ConversationSearchResults, LLMProvider, Project, ProjectGroup, ProjectSession, SessionMetaPatch, StarColor, StarFilter, ProjectSortOrder, RecentConversationListItem, SearchProgress, ActiveSidebarRename, PendingSidebarDeletion, SessionTitleSearchResult, SessionWithProvider, SidebarSearchMode, SidebarSessionSelection } from '@/shared/types';
 import { useQuickArchive } from '@/modules/sidebar/hooks/useQuickArchive';
 import {
   filterProjects,
@@ -94,6 +94,8 @@ type UseSidebarControllerArgs = {
   onProjectSelect: (project: Project) => void;
   onSessionSelect: (session: ProjectSession) => void;
   onSessionDelete?: (sessionId: string) => void;
+  /** Writes an automatic rename or status change onto the open session and the loaded project rows. */
+  onSessionUpdated?: (sessionId: string, patch: SessionMetaPatch) => void;
   onLoadMoreSessions?: (projectId: string) => Promise<void> | void;
   // `projectId` is the DB-assigned identifier; callbacks use that post-migration.
   onProjectDelete?: (projectId: string) => void;
@@ -116,6 +118,7 @@ export function useSidebarController({
   onProjectSelect,
   onSessionSelect,
   onSessionDelete,
+  onSessionUpdated,
   onLoadMoreSessions,
   onProjectDelete,
   setCurrentProject,
@@ -395,33 +398,38 @@ export function useSidebarController({
     }
 
     // Trimmed, because that is how the server derives a row's `sessionTitle`.
-    const summaryBySessionId = new Map<string, string>();
-    const pinnedBySessionId = new Map<string, boolean>();
+    // The status and pin travel with the title: each can change on its own.
+    const metaBySessionId = new Map<string, { summary: string; status: string | null; statusSource: 'user' | 'auto' | null; pinned: boolean }>();
     for (const project of projects) {
       for (const session of project.sessions ?? []) {
         const summary = typeof session.summary === 'string' ? session.summary.trim() : '';
-        if (summary) {
-          summaryBySessionId.set(session.id, summary);
-        }
-        pinnedBySessionId.set(session.id, Boolean(session.pinned));
+        metaBySessionId.set(session.id, {
+          summary,
+          status: session.status ?? null,
+          statusSource: session.statusSource ?? null,
+          pinned: Boolean(session.pinned),
+        });
       }
     }
 
     let changed = false;
     const next = recentConversations.map((conversation) => {
-      const summary = summaryBySessionId.get(conversation.sessionId);
-      const pinned = pinnedBySessionId.get(conversation.sessionId);
-      const titleChanged = summary !== undefined && summary !== conversation.sessionTitle;
-      const pinChanged = pinned !== undefined && pinned !== Boolean(conversation.pinned);
-      if (!titleChanged && !pinChanged) {
+      const meta = metaBySessionId.get(conversation.sessionId);
+      if (meta === undefined) {
+        return conversation;
+      }
+      // An empty summary never replaces the title the server derived.
+      const sessionTitle = meta.summary || conversation.sessionTitle;
+      if (
+        sessionTitle === conversation.sessionTitle
+        && meta.status === (conversation.status ?? null)
+        && meta.statusSource === (conversation.statusSource ?? null)
+        && meta.pinned === Boolean(conversation.pinned)
+      ) {
         return conversation;
       }
       changed = true;
-      return {
-        ...conversation,
-        sessionTitle: titleChanged ? summary : conversation.sessionTitle,
-        pinned: pinned ?? conversation.pinned,
-      };
+      return { ...conversation, sessionTitle, status: meta.status, statusSource: meta.statusSource, pinned: meta.pinned };
     });
     return changed ? next : recentConversations;
   }, [projects, recentConversations]);
@@ -1539,6 +1547,83 @@ export function useSidebarController({
   }, [onSetSessionPinned, t]);
 
   /**
+   * Writes an automatic rename or status change onto every copy the sidebar
+   * holds: the recents rows and, through `onSessionUpdated`, the project rows and
+   * the open session. Same paths as a manual rename, without a refetch.
+   */
+  const applySessionMeta = useCallback((sessionId: string, patch: SessionMetaPatch) => {
+    setRecentConversations((previous) => previous.map((conversation) => {
+      if (conversation.sessionId !== sessionId) {
+        return conversation;
+      }
+      return {
+        ...conversation,
+        ...(patch.summary !== undefined ? { sessionTitle: patch.summary } : {}),
+        ...(patch.status !== undefined ? { status: patch.status } : {}),
+        ...(patch.statusSource !== undefined ? { statusSource: patch.statusSource } : {}),
+      };
+    }));
+    onSessionUpdated?.(sessionId, patch);
+  }, [onSessionUpdated]);
+
+  // Sessions with an auto rename already running: a second click is ignored.
+  const autoRenamesInFlightRef = useRef(new Set<string>());
+
+  const autoRenameSession = useCallback(async (session: SessionWithProvider) => {
+    const sessionId = session.id;
+    if (autoRenamesInFlightRef.current.has(sessionId)) {
+      return;
+    }
+    autoRenamesInFlightRef.current.add(sessionId);
+    try {
+      const response = await api.autoRenameSession(sessionId);
+      if (!response.ok) {
+        console.error('[Sidebar] Failed to auto-rename session:', response.status);
+        alert(t('messages.autoRenameFailed'));
+        return;
+      }
+      const payload = (await response.json()) as { data?: { summary?: string; status?: string | null } };
+      const summary = payload.data?.summary?.trim();
+      if (!summary) {
+        alert(t('messages.autoRenameFailed'));
+        return;
+      }
+      applySessionMeta(sessionId, {
+        summary,
+        status: payload.data?.status ?? null,
+        // The server keeps a status the user pinned; otherwise the auto run set it.
+        statusSource: session.statusSource === 'user' ? 'user' : 'auto',
+        nameSource: 'auto',
+      });
+    } catch (error) {
+      console.error('[Sidebar] Error auto-renaming session:', error);
+      alert(t('messages.autoRenameFailed'));
+    } finally {
+      autoRenamesInFlightRef.current.delete(sessionId);
+    }
+  }, [applySessionMeta, t]);
+
+  /** Pins a status the user picked, or hands it back to automatic checks with null. */
+  const setSessionStatus = useCallback(async (session: SessionWithProvider, status: string | null) => {
+    try {
+      const response = await api.setSessionStatus(session.id, status);
+      if (!response.ok) {
+        console.error('[Sidebar] Failed to set session status:', response.status);
+        alert(t('messages.statusFailed'));
+        return;
+      }
+      const payload = (await response.json()) as { data?: { status?: string | null; statusSource?: 'user' | 'auto' | null } };
+      applySessionMeta(session.id, {
+        status: payload.data?.status ?? null,
+        statusSource: payload.data?.statusSource ?? null,
+      });
+    } catch (error) {
+      console.error('[Sidebar] Error setting session status:', error);
+      alert(t('messages.statusFailed'));
+    }
+  }, [applySessionMeta, t]);
+
+  /**
    * Branches a session and opens the copy.
    *
    * The new row arrives over the websocket as a `session_upserted`, so nothing
@@ -1655,6 +1740,8 @@ export function useSidebarController({
     dismissQuickArchiveNotice,
     updateSessionSummary,
     togglePinSession,
+    autoRenameSession,
+    setSessionStatus,
     collapseSidebar,
     expandSidebar,
     setShowNewProject,

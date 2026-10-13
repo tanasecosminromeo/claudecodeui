@@ -9,6 +9,12 @@ import { providerTokenUsageService } from '@/modules/providers/services/provider
 import { providerSkillsService } from '@/modules/providers/services/skills.service.js';
 import { sessionConversationsSearchService } from '@/modules/providers/services/session-conversations-search.service.js';
 import { sessionsService } from '@/modules/providers/services/sessions.service.js';
+import {
+  autoRenameSession,
+  SESSION_STATUS_KEYS,
+  setSessionStatus,
+  type SessionStatusKey,
+} from '@/modules/providers/services/session-title.service.js';
 import type {
   CustomProviderModelEffort,
   CustomProviderModelInput,
@@ -348,6 +354,28 @@ const parseSessionForkPayload = (payload: unknown): { upToAnchorId?: string; tit
     ...(upToAnchorId ? { upToAnchorId } : {}),
     ...(title ? { title } : {}),
   };
+};
+
+/** Reads `{ status }` for the status picker: a known key, or null for "Auto". */
+const parseSessionStatusPayload = (payload: unknown): SessionStatusKey | null => {
+  if (!payload || typeof payload !== 'object') {
+    throw new AppError('Request body must be an object.', {
+      code: 'INVALID_REQUEST_BODY',
+      statusCode: 400,
+    });
+  }
+
+  const status = (payload as Record<string, unknown>).status;
+  if (status === null) {
+    return null;
+  }
+  if (typeof status !== 'string' || !(SESSION_STATUS_KEYS as string[]).includes(status)) {
+    throw new AppError('Status must be one of the known status keys or null.', {
+      code: 'INVALID_SESSION_STATUS',
+      statusCode: 400,
+    });
+  }
+  return status as SessionStatusKey;
 };
 
 const parseSessionRenameSummary = (payload: unknown): string => {
@@ -971,6 +999,25 @@ router.put(
     const sessionId = parseSessionId(req.params.sessionId);
     const pinned = parseSessionPinnedPayload(req.body);
     const result = await sessionsService.setSessionPinnedById(sessionId, pinned);
+    res.json(createApiSuccessResponse(result));
+  }),
+);
+
+router.post(
+  '/sessions/:sessionId/auto-rename',
+  asyncHandler(async (req: Request, res: Response) => {
+    const sessionId = parseSessionId(req.params.sessionId);
+    const result = await autoRenameSession(sessionId);
+    res.json(createApiSuccessResponse(result));
+  }),
+);
+
+router.put(
+  '/sessions/:sessionId/status',
+  asyncHandler(async (req: Request, res: Response) => {
+    const sessionId = parseSessionId(req.params.sessionId);
+    const status = parseSessionStatusPayload(req.body);
+    const result = await setSessionStatus(sessionId, status);
     res.json(createApiSuccessResponse(result));
   }),
 );

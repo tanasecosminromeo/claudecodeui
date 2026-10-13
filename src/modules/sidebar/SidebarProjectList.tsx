@@ -56,6 +56,8 @@ export default function SidebarProjectList({
   onForkSession,
   onArchiveSession,
   onTogglePinSession,
+  onAutoRenameSession,
+  onSetSessionStatus,
   onNewSession,
   onStartEditingSession,
   onCancelEditingSession,
@@ -159,6 +161,8 @@ export default function SidebarProjectList({
                 onForkSession={onForkSession}
                 onArchiveSession={onArchiveSession}
                 onTogglePinSession={onTogglePinSession}
+                onAutoRenameSession={onAutoRenameSession}
+                onSetSessionStatus={onSetSessionStatus}
                 onLoadMoreSessions={onLoadMoreSessions}
                 activeSessions={activeSessions}
                 backgroundSessionIds={backgroundSessionIds}

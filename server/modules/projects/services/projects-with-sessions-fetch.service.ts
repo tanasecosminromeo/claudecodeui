@@ -14,6 +14,9 @@ type SessionSummary = {
   messageCount: number;
   lastActivity: string;
   pinned: boolean;
+  status: string | null;
+  statusSource: 'user' | 'auto' | null;
+  nameSource: 'user' | 'auto' | null;
 };
 
 type SessionRepositoryRow = {
@@ -23,6 +26,9 @@ type SessionRepositoryRow = {
   pinned_at?: string | null;
   updated_at?: string | null;
   created_at?: string | null;
+  status?: string | null;
+  status_source?: 'user' | 'auto' | null;
+  name_source?: 'user' | 'auto' | null;
 };
 
 export type ProjectListItem = {
@@ -129,6 +135,9 @@ function mapSessionRowToSummary(row: SessionRepositoryRow): SessionSummary {
     messageCount: 0,
     lastActivity: row.updated_at ?? row.created_at ?? new Date().toISOString(),
     pinned: Boolean(row.pinned_at),
+    status: row.status ?? null,
+    statusSource: row.status_source ?? null,
+    nameSource: row.name_source ?? null,
   };
 }
 

@@ -17,10 +17,21 @@ type SessionRow = {
   forked_from_session_id: string | null;
   /** ISO-ish timestamp the session was pinned at; NULL when not pinned. */
   pinned_at: string | null;
+  /** Who last set custom_name: 'user' (manual rename, CLI /rename) or 'auto'; NULL = derived. */
+  name_source: SessionNameSource | null;
+  /** Session status key (see SESSION_STATUS_KEYS); NULL until one is set. */
+  status: string | null;
+  /** Who last set status: 'user' pins it, 'auto' or NULL means automatic checks may change it. */
+  status_source: SessionStatusSource | null;
+  /** User-turn count at the last automatic title/status run; NULL = never ran. */
+  auto_turns: number | null;
   isArchived: number;
   created_at: string;
   updated_at: string;
 };
+
+export type SessionNameSource = 'user' | 'auto';
+export type SessionStatusSource = 'user' | 'auto';
 
 type RecentSessionsPage = {
   sessions: SessionRow[];
@@ -28,7 +39,7 @@ type RecentSessionsPage = {
 };
 
 const SESSION_ROW_COLUMNS =
-  'session_id, provider, provider_session_id, project_path, jsonl_path, custom_name, model, effort, forked_from_session_id, pinned_at, isArchived, created_at, updated_at';
+  'session_id, provider, provider_session_id, project_path, jsonl_path, custom_name, model, effort, forked_from_session_id, pinned_at, name_source, status, status_source, auto_turns, isArchived, created_at, updated_at';
 
 const SQLITE_UTC_TIMESTAMP_REGEX = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/;
 
@@ -454,13 +465,54 @@ export const sessionsDb = {
     ).run(pinned ? new Date().toISOString() : null, sessionId);
   },
 
-  updateSessionCustomName(sessionId: string, customName: string): void {
+  /**
+   * Replaces the session name and records who set it, so synchronizers and
+   * automatic runs know whether to leave it alone.
+   */
+  updateSessionCustomName(sessionId: string, customName: string, nameSource: SessionNameSource | null): void {
     const db = getConnection();
     db.prepare(
       `UPDATE sessions
-       SET custom_name = ?
+       SET custom_name = ?, name_source = ?
        WHERE session_id = ?`
-    ).run(customName, sessionId);
+    ).run(customName, nameSource, sessionId);
+  },
+
+  /**
+   * Marks a name the transcript's own `custom-title` (a CLI `/rename`) provided
+   * as user-set. Only fills an unset source, so an app auto-rename is not
+   * reclassified by a later transcript scan.
+   */
+  markNameSourceUserIfUnset(sessionId: string): void {
+    const db = getConnection();
+    db.prepare(
+      `UPDATE sessions
+       SET name_source = 'user'
+       WHERE session_id = ? AND name_source IS NULL`
+    ).run(sessionId);
+  },
+
+  /**
+   * Sets the status emoji of one session. `null` clears the status, and
+   * `statusSource` NULL hands it back to automatic checks ("Auto").
+   */
+  updateSessionStatus(sessionId: string, status: string | null, statusSource: SessionStatusSource | null): void {
+    const db = getConnection();
+    db.prepare(
+      `UPDATE sessions
+       SET status = ?, status_source = ?
+       WHERE session_id = ?`
+    ).run(status, statusSource, sessionId);
+  },
+
+  /** Records the user-turn count an automatic title/status run happened at. */
+  setSessionAutoTurns(sessionId: string, autoTurns: number): void {
+    const db = getConnection();
+    db.prepare(
+      `UPDATE sessions
+       SET auto_turns = ?
+       WHERE session_id = ?`
+    ).run(autoTurns, sessionId);
   },
 
   getSessionById(sessionId: string): SessionRow | null {

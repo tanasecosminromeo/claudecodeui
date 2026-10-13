@@ -71,6 +71,8 @@ type RecentSessionListItem = Pick<
 > & {
   /** Shown as a badge on the row; the feed order itself ignores pins. */
   pinned: boolean;
+  status: string | null;
+  statusSource: 'user' | 'auto' | null;
 };
 
 type RecentSessionsPage = {
@@ -246,6 +248,8 @@ export const sessionsService = {
         sessionTitle: session.custom_name?.trim() || session.session_id,
         lastActivity: session.updated_at ?? session.created_at ?? null,
         pinned: Boolean(session.pinned_at),
+        status: session.status ?? null,
+        statusSource: session.status_source ?? null,
       };
     });
 
@@ -770,7 +774,7 @@ export const sessionsService = {
       });
     }
 
-    sessionsDb.updateSessionCustomName(sessionId, summary);
+    sessionsDb.updateSessionCustomName(sessionId, summary, 'user');
     return { sessionId, summary };
   },
 

@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { Archive, Check, Edit2, GitBranch, MoreHorizontal, Pin, PinOff, Trash2, X } from 'lucide-react';
+import { Archive, Check, Edit2, GitBranch, MoreHorizontal, Pin, PinOff, Sparkles, Tag, Trash2, X } from 'lucide-react';
 import type { TFunction } from 'i18next';
 
 import { ActionMenu } from '@/shared/ui';
@@ -37,6 +37,12 @@ type SessionOptionsProps = {
   onTogglePin?: () => void;
   /** Withheld where the row has nowhere to send a delete. */
   canDelete?: boolean;
+  /** Generates a title and status now. Omitted where the row cannot run it. */
+  onAutoRename?: () => void;
+  /** True while an auto rename runs; the item shows a spinner and cannot be picked again. */
+  isAutoRenaming?: boolean;
+  /** Opens the status picker of the row. Omitted where the row has none. */
+  onOpenStatusPicker?: () => void;
   className?: string;
   t: TFunction;
 };
@@ -68,6 +74,9 @@ export default function SessionOptions({
   isPinned = false,
   onTogglePin,
   canDelete = true,
+  onAutoRename,
+  isAutoRenaming = false,
+  onOpenStatusPicker,
   className,
   t,
 }: SessionOptionsProps) {
@@ -199,6 +208,20 @@ export default function SessionOptions({
               label: isPinned ? 'Unpin' : 'Pin to top',
               icon: isPinned ? PinOff : Pin,
               onSelect: onTogglePin,
+            }] : []),
+            ...(onAutoRename ? [{
+              key: 'auto-rename',
+              label: t('sessionStatus.autoRename', 'Auto rename'),
+              description: t('sessionStatus.autoRenameDescription', 'Name it from the conversation.'),
+              icon: Sparkles,
+              loading: isAutoRenaming,
+              onSelect: onAutoRename,
+            }] : []),
+            ...(onOpenStatusPicker ? [{
+              key: 'set-status',
+              label: t('sessionStatus.setStatus', 'Set status'),
+              icon: Tag,
+              onSelect: onOpenStatusPicker,
             }] : []),
             {
               key: 'copy',

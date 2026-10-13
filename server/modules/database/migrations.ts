@@ -469,6 +469,23 @@ const addSessionEffortColumn = (db: Database): void => {
 };
 
 /**
+ * Adds the columns behind auto-rename and session status emoji.
+ *
+ * `name_source` and `status_source` record who last set the value ('user' or
+ * 'auto'), so automatic runs never overwrite a choice the user made. `auto_turns`
+ * is the user-turn count at the last automatic run (NULL = never ran). All
+ * columns stay NULL for existing rows: they read as "derived / no status yet".
+ */
+const addSessionAutoRenameColumns = (db: Database): void => {
+  const columnNames = getTableInfo(db, 'sessions').map((column) => column.name);
+
+  addColumnToTableIfNotExists(db, 'sessions', columnNames, 'name_source', 'TEXT');
+  addColumnToTableIfNotExists(db, 'sessions', columnNames, 'status', 'TEXT');
+  addColumnToTableIfNotExists(db, 'sessions', columnNames, 'status_source', 'TEXT');
+  addColumnToTableIfNotExists(db, 'sessions', columnNames, 'auto_turns', 'INTEGER');
+};
+
+/**
  * Adds Gmail-style star colors and sidebar groups to projects.
  *
  * Runs after the legacy table rebuild, which does not know these columns.
@@ -573,6 +590,7 @@ export const runMigrations = (db: Database) => {
     addSessionEffortColumn(db);
     addForkedFromSessionIdColumn(db);
     addSessionPinnedAtColumn(db);
+    addSessionAutoRenameColumns(db);
     ensureProjectsForSessionPaths(db);
     db.exec(SCHEDULED_MESSAGES_TABLE_SCHEMA_SQL);
     db.exec(SIDE_QUESTIONS_TABLE_SCHEMA_SQL);
