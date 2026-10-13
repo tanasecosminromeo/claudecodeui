@@ -183,7 +183,7 @@ export function SessionStatusEmoji({ status, t, onActivate }: SessionStatusEmoji
       )}
     >
       {/* No text when unset: an icon keeps the row's text (its title) first. */}
-      {emoji ?? <CircleDashed className="h-3 w-3" aria-hidden="true" />}
+      {emoji ?? <CircleDashed className="!size-3" aria-hidden="true" />}
     </span>
   );
 }
