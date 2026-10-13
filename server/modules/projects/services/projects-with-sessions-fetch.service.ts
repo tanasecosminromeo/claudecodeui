@@ -13,6 +13,9 @@ type SessionSummary = {
   summary: string;
   messageCount: number;
   lastActivity: string;
+  status: string | null;
+  statusSource: 'user' | 'auto' | null;
+  nameSource: 'user' | 'auto' | null;
 };
 
 type SessionRepositoryRow = {
@@ -21,6 +24,9 @@ type SessionRepositoryRow = {
   custom_name?: string | null;
   updated_at?: string | null;
   created_at?: string | null;
+  status?: string | null;
+  status_source?: 'user' | 'auto' | null;
+  name_source?: 'user' | 'auto' | null;
 };
 
 export type ProjectListItem = {
@@ -126,6 +132,9 @@ function mapSessionRowToSummary(row: SessionRepositoryRow): SessionSummary {
     summary: row.custom_name || '',
     messageCount: 0,
     lastActivity: row.updated_at ?? row.created_at ?? new Date().toISOString(),
+    status: row.status ?? null,
+    statusSource: row.status_source ?? null,
+    nameSource: row.name_source ?? null,
   };
 }
 

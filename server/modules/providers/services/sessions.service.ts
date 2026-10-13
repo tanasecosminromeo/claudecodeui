@@ -766,7 +766,7 @@ export const sessionsService = {
       });
     }
 
-    sessionsDb.updateSessionCustomName(sessionId, summary);
+    sessionsDb.updateSessionCustomName(sessionId, summary, 'user');
     return { sessionId, summary };
   },
 };

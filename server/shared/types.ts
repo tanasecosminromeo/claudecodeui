@@ -281,6 +281,10 @@ export type SessionUpsertedEvent = {
     summary: string;
     messageCount: number;
     lastActivity: string;
+    /** Status key shown before the title, or null. */
+    status: string | null;
+    statusSource: 'user' | 'auto' | null;
+    nameSource: 'user' | 'auto' | null;
   };
   project: SessionUpsertedProject | null;
   timestamp: string;

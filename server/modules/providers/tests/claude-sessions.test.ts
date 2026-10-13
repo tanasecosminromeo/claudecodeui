@@ -1928,6 +1928,8 @@ test('synchronizeFile uses ai-title from JSONL when no DB custom_name exists', {
       assert.ok(result, 'synchronizeFile should return a session id');
       const session = sessionsDb.getSessionById(result!);
       assert.equal(session?.custom_name, 'AI generated title');
+      // An ai-title is derived, not user-set, so it stays open to automatic renames.
+      assert.equal(session?.name_source, null);
     });
   } finally {
     restoreHomeDir();
@@ -1967,6 +1969,8 @@ test('synchronizeFile uses custom-title from JSONL when no DB custom_name and no
       assert.ok(result);
       const session = sessionsDb.getSessionById(result!);
       assert.equal(session?.custom_name, 'Renamed via cli');
+      // A CLI /rename is a user-set name, so automatic renames must leave it alone.
+      assert.equal(session?.name_source, 'user');
     });
   } finally {
     restoreHomeDir();
