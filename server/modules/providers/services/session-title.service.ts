@@ -27,9 +27,8 @@ export type SessionStatusKey = keyof typeof SESSION_STATUS_DEFINITIONS;
 
 export const SESSION_STATUS_KEYS = Object.keys(SESSION_STATUS_DEFINITIONS) as SessionStatusKey[];
 
-/** Automatic status and title checks: first run at this many user turns, then every N turns. */
+/** Automatic status and title checks: first run at this many user turns, then a status check after every new user turn. */
 const AUTO_FIRST_RUN_TURNS = 3;
-const AUTO_STATUS_TURN_INTERVAL = 5;
 
 const EXCERPT_FIRST_USER_MESSAGES = 3;
 const EXCERPT_LATEST_PER_ROLE = 2;
@@ -68,9 +67,16 @@ export function countUserTurns(messages: NormalizedMessage[]): number {
   return messages.filter(isUserPrompt).length;
 }
 
+/** Keeps the start of the text. */
 function truncate(text: string, maxChars: number): string {
   const trimmed = text.trim();
   return trimmed.length <= maxChars ? trimmed : `${trimmed.slice(0, maxChars - 1)}…`;
+}
+
+/** Keeps the end of the text, so a question or hand-off at the bottom survives. */
+function truncateKeepingEnd(text: string, maxChars: number): string {
+  const trimmed = text.trim();
+  return trimmed.length <= maxChars ? trimmed : `…${trimmed.slice(-(maxChars - 1))}`;
 }
 
 /**
@@ -89,11 +95,14 @@ export function buildTitleExcerpt(messages: NormalizedMessage[]): string {
     ...assistantTexts.slice(-EXCERPT_LATEST_PER_ROLE),
   ]);
 
+  // The latest assistant reply is cut from its end: that is where it asks the user for a decision.
+  const latestAssistant = assistantTexts[assistantTexts.length - 1];
   const lines = messages
     .filter((message) => picked.has(message))
     .map((message) => {
       const label = message.role === 'user' ? 'User' : 'Assistant';
-      return `${label}: ${truncate(message.content ?? '', EXCERPT_MESSAGE_CHARS)}`;
+      const cut = message === latestAssistant ? truncateKeepingEnd : truncate;
+      return `${label}: ${cut(message.content ?? '', EXCERPT_MESSAGE_CHARS)}`;
     });
 
   const excerpt = lines.join('\n\n');
@@ -123,7 +132,8 @@ export function buildTitlePrompt(excerpt: string, wantTitle: boolean): string {
     '',
     `${titleRule}"status": exactly one key from this list, chosen for the session's current state:`,
     statusLines,
-    'Judge by the goal, not the current step: fixing broken behaviour is "bug" even while tests run to check the fix; "testing" is for sessions whose goal is the tests themselves.',
+    'Check "blocked" first: the status is "blocked", whatever the goal, when the last message is from the assistant and it ends by asking the user a question, asking them to choose, approve or confirm, or handing them a step only they can do (for example a command to push or deploy). An offer of optional extra work ("I can also…") alone is not blocked.',
+    'Otherwise, judge by the goal, not the current step: fixing broken behaviour is "bug" even while tests run to check the fix; "testing" is for sessions whose goal is the tests themselves.',
     '',
     'Transcript excerpt:',
     '<excerpt>',
@@ -352,8 +362,9 @@ export async function setSessionStatus(sessionId: string, status: SessionStatusK
 /**
  * Decides whether a session needs an automatic check now, and whether that
  * check may write a title. Pure, so the rules are tested without a database.
- * - First check at 3 user turns, if it has not run yet.
- * - Then a status-only check every 5 user turns, unless the user pinned a status.
+ * - First check at 3 user turns, if it has not run yet. Only this run may write a title.
+ * - Then a status-only check after every finished turn that adds a user turn,
+ *   unless the user pinned a status.
  */
 export function planAutomaticCheck(
   session: { auto_turns: number | null; name_source: string | null; status_source: string | null },
@@ -368,7 +379,7 @@ export function planAutomaticCheck(
     return wantTitle || wantStatus ? { wantTitle } : null;
   }
 
-  if (turns >= session.auto_turns + AUTO_STATUS_TURN_INTERVAL && session.status_source !== 'user') {
+  if (turns > session.auto_turns && session.status_source !== 'user') {
     return { wantTitle: false };
   }
   return null;

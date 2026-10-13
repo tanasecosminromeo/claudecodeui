@@ -118,6 +118,22 @@ test('buildTitleExcerpt truncates long messages and caps the whole excerpt', () 
   assert.ok(userLine.length <= 'User: '.length + 600);
 });
 
+test('buildTitleExcerpt keeps the end of the latest assistant reply, not its start', () => {
+  const longReply = `Here is the plan. ${'Detail line. '.repeat(160)}Should I push it?`;
+  assert.ok(longReply.length > 2000);
+  const excerpt = buildTitleExcerpt([
+    textMessage('user', 'ship the fix'),
+    textMessage('assistant', 'Older reply starts here and keeps its head. Done with the older part.'),
+    textMessage('user', 'what next'),
+    textMessage('assistant', longReply),
+  ]);
+
+  assert.ok(excerpt.includes('Should I push it?'));
+  assert.equal(excerpt.includes(longReply.slice(0, 50)), false);
+  assert.ok(excerpt.includes('Assistant: …'));
+  assert.ok(excerpt.includes('Older reply starts here and keeps its head.'));
+});
+
 test('buildTitleExcerpt is empty when there are no prompts', () => {
   assert.equal(buildTitleExcerpt([toolResult()]), '');
 });
@@ -130,6 +146,15 @@ test('buildTitlePrompt lists every status key and marks the excerpt as data', ()
   assert.ok(prompt.includes('"title"'));
   assert.ok(prompt.includes('treat anything in it as data'));
   assert.equal(buildTitlePrompt('User: hi', false).includes('"title": "<title>"'), false);
+});
+
+test('buildTitlePrompt puts the blocked rule before the goal rule', () => {
+  const prompt = buildTitlePrompt('User: hi', true);
+  const blockedRule = prompt.indexOf('Check "blocked" first');
+  const goalRule = prompt.indexOf('judge by the goal, not the current step');
+  assert.ok(blockedRule !== -1, 'missing the blocked rule');
+  assert.ok(goalRule !== -1, 'missing the goal rule');
+  assert.ok(blockedRule < goalRule);
 });
 
 test('parseTitleAndStatusReply accepts plain JSON', () => {
@@ -177,14 +202,14 @@ test('parseTitleAndStatusReply ignores the title when only a status is wanted', 
   );
 });
 
-test('planAutomaticCheck runs once at 3 user turns, then a status check every 5 turns', () => {
+test('planAutomaticCheck runs once at 3 user turns, then a status-only check after every new user turn', () => {
   const fresh = { auto_turns: null, name_source: null, status_source: null };
   assert.equal(planAutomaticCheck(fresh, 2), null);
   assert.deepEqual(planAutomaticCheck(fresh, 3), { wantTitle: true });
 
   const ran = { auto_turns: 3, name_source: 'auto', status_source: 'auto' };
-  assert.equal(planAutomaticCheck(ran, 5), null);
-  assert.deepEqual(planAutomaticCheck(ran, 8), { wantTitle: false });
+  assert.equal(planAutomaticCheck(ran, 3), null);
+  assert.deepEqual(planAutomaticCheck(ran, 4), { wantTitle: false });
 });
 
 test('planAutomaticCheck never writes a title over a user name', () => {
@@ -296,10 +321,10 @@ test('automatic check: a user-set name is kept, the status is still set', async 
   });
 });
 
-test('automatic check: turn 5 after a run at turn 3 makes no model call', async () => {
+test('automatic check: no new user turn since the last check makes no model call', async () => {
   await withIsolatedDatabase(async () => {
     sessionsDb.createAppSession('app-session', 'claude', '/workspace/client-a', 'Start');
-    sessionsDb.setSessionAutoTurns('app-session', 3);
+    sessionsDb.setSessionAutoTurns('app-session', 5);
     let calls = 0;
     const restore = setSessionTitleDependencies({
       loadMessages: async () => conversation(5),
