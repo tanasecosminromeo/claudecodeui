@@ -120,6 +120,7 @@
   // itself once per CloudCLI restart (the plugin server restarts with it) until the user closes it;
   // the Running view keeps a "Leftover processes (N)" entry while N > 0.
   const LEFTOVER_SEEN_KEY = 'uic-leftovers-seen'; // serverStartedAt the user last closed the list at
+  const LEFTOVER_NO_AUTO_KEY = 'uic-leftovers-no-auto'; // '1': never open by itself (set by the e2e harness)
   const LEFTOVER_POLL_MS = 15000;
   const LEFTOVER_ENTRY = 'uic-leftover-entry';
   let leftovers = { serverStartedAt: null, groups: [] };
@@ -180,6 +181,7 @@
   function maybeAutoOpen(data) {
     if (loModal || leftoverCount(data.groups) === 0) return;
     if (String(data.serverStartedAt) === seenStamp()) return;
+    try { if (localStorage.getItem(LEFTOVER_NO_AUTO_KEY) === '1') return; } catch { /* storage blocked */ }
     openLeftovers(data);
   }
 
