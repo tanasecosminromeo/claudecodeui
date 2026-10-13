@@ -109,6 +109,20 @@ describe('useScreenWakeLock', () => {
     expect(late.release).toHaveBeenCalledTimes(1);
   });
 
+  it('retries on the next tap after a refused request, and not while a lock is held', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    request.mockRejectedValueOnce(new DOMException('not allowed', 'NotAllowedError'));
+    renderHook(() => useScreenWakeLock(true));
+    await flush();
+
+    act(() => { document.dispatchEvent(new Event('pointerdown')); });
+    await flush();
+    act(() => { document.dispatchEvent(new Event('pointerdown')); });
+    await flush();
+
+    expect(request).toHaveBeenCalledTimes(2);
+  });
+
   it('is a no-op when the Wake Lock API is missing', () => {
     delete (navigator as unknown as Record<string, unknown>).wakeLock;
     expect(() => renderHook(() => useScreenWakeLock(true))).not.toThrow();

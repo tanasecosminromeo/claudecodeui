@@ -5,8 +5,10 @@ import { isWakeLockSupported } from '@/shared/keepScreenAwake';
 /**
  * Holds a screen wake lock while `enabled` is true and the page is visible.
  * Browsers release the lock whenever the page is hidden, so it is requested
- * again on the way back to visible. Failures (for example NotAllowedError) are
- * logged and never thrown, because a missing lock must not break the app.
+ * again on the way back to visible, and on the next tap if there is still no
+ * lock (a request refused without a user gesture, or a lock dropped silently).
+ * Failures (for example NotAllowedError) are logged and never thrown, because a
+ * missing lock must not break the app.
  */
 export function useScreenWakeLock(enabled: boolean): void {
   useEffect(() => {
@@ -55,12 +57,18 @@ export function useScreenWakeLock(enabled: boolean): void {
       }
     };
 
+    const handlePointerDown = () => {
+      void request();
+    };
+
     document.addEventListener('visibilitychange', handleVisibilityChange);
+    document.addEventListener('pointerdown', handlePointerDown, { passive: true });
     void request();
 
     return () => {
       active = false;
       document.removeEventListener('visibilitychange', handleVisibilityChange);
+      document.removeEventListener('pointerdown', handlePointerDown);
       release();
     };
   }, [enabled]);
