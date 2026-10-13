@@ -68,7 +68,10 @@ type ArchivedSessionListItem = {
 type RecentSessionListItem = Pick<
   ArchivedSessionListItem,
   'sessionId' | 'provider' | 'projectId' | 'projectDisplayName' | 'sessionTitle' | 'lastActivity'
->;
+> & {
+  status: string | null;
+  statusSource: 'user' | 'auto' | null;
+};
 
 type RecentSessionsPage = {
   conversations: RecentSessionListItem[];
@@ -242,6 +245,8 @@ export const sessionsService = {
         projectDisplayName: resolveProjectDisplayName(projectPath, project?.custom_project_name),
         sessionTitle: session.custom_name?.trim() || session.session_id,
         lastActivity: session.updated_at ?? session.created_at ?? null,
+        status: session.status ?? null,
+        statusSource: session.status_source ?? null,
       };
     });
 

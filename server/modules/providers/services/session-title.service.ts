@@ -290,6 +290,14 @@ export async function generateTitleAndStatus(
   }
 }
 
+/**
+ * Announces a title or status change to connected clients. Every write in this
+ * module goes through here, so the sidebar's push policy lives in one place.
+ */
+async function announceSessionChange(sessionId: string): Promise<void> {
+  await broadcastSessionUpserted(sessionId);
+}
+
 /** Reads the session row, or throws the 404 the routes return for an unknown id. */
 function requireSession(sessionId: string) {
   const session = sessionsDb.getSessionById(sessionId);
@@ -317,7 +325,7 @@ export async function autoRenameSession(sessionId: string): Promise<{ sessionId:
     sessionsDb.updateSessionStatus(sessionId, result.status, 'auto');
   }
 
-  await broadcastSessionUpserted(sessionId);
+  await announceSessionChange(sessionId);
   const status = requireSession(sessionId).status;
   return { sessionId, summary: title, status };
 }
@@ -334,7 +342,7 @@ export async function setSessionStatus(sessionId: string, status: SessionStatusK
     sessionsDb.updateSessionStatus(sessionId, status, 'user');
   }
 
-  await broadcastSessionUpserted(sessionId);
+  await announceSessionChange(sessionId);
   const updated = requireSession(sessionId);
   return { sessionId, status: updated.status, statusSource: updated.status_source === 'user' ? 'user' : null };
 }
@@ -402,7 +410,7 @@ export async function runAutomaticSessionCheck(sessionId: string): Promise<void>
     }
     sessionsDb.setSessionAutoTurns(sessionId, turns);
 
-    await broadcastSessionUpserted(sessionId);
+    await announceSessionChange(sessionId);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     console.error('[SessionTitle] Automatic title check failed', { sessionId, error: message });
