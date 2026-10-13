@@ -21,4 +21,5 @@ export { findOtherLiveClaudeProcesses } from './list/claude/claude-live-processe
 export { markDetachedClaudeShutdown } from './list/claude/claude-detached-process.js';
 
 export { initializeSessionsWatcher } from './services/sessions-watcher.service.js';
+export { initializeSessionTitleAutomation } from './services/session-title.service.js';
 export { closeSessionsWatcher } from './services/sessions-watcher.service.js';
