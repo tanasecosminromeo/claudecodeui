@@ -16,13 +16,17 @@ export const writeProjectSortOrder = (order: ProjectSortOrder) => {
   writeUserPreference('projectSortOrder', order);
 };
 
-/** The starred-filter chip, kept on the user's account like the sort order. Unknown values read as off. */
+/**
+ * The Projects chip's filter, kept on the user's account like the sort order.
+ * Values from before the Focus state (a colour threshold) read as `all`; any
+ * other unknown value reads as off.
+ */
 export const readProjectStarFilter = (): StarFilter => {
   const stored = readUserPreference<unknown>('projectStarFilter', 'off');
-  if (stored === 'off' || stored === 'all' || isStarColor(stored)) {
+  if (stored === 'off' || stored === 'focus' || stored === 'all') {
     return stored;
   }
-  return 'off';
+  return isStarColor(stored) ? 'all' : 'off';
 };
 
 export const writeProjectStarFilter = (filter: StarFilter) => {

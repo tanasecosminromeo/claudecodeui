@@ -138,8 +138,8 @@ export type Project = {
 /** Project star colors in rising priority (green, yellow, orange, red); the order lives in the sidebar's `STAR_COLORS`. */
 export type StarColor = 'green' | 'yellow' | 'orange' | 'red';
 
-/** The Projects list's star chip: `off` shows all, `all` only starred projects, a colour that colour and hotter. */
-export type StarFilter = 'off' | 'all' | StarColor;
+/** The chip's list filter: every project, only projects active in the last 24 h (`focus`), or only starred ones of any colour. */
+export type StarFilter = 'off' | 'focus' | 'all';
 
 /** A named, collapsible sidebar folder that projects can be filed under. */
 export type ProjectGroup = {

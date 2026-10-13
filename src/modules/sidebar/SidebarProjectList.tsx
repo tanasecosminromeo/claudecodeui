@@ -32,6 +32,7 @@ export default function SidebarProjectList({
   backgroundSessionIds,
   attentionSessionIds,
   getProjectStarColor,
+  starFilter,
   isStarFilterEmpty,
   onClearStarFilter,
   projectGroups,
@@ -84,7 +85,9 @@ export default function SidebarProjectList({
 
   const starFilterState = (
     <div className="px-4 py-12 text-center md:py-8" data-testid="starred-filter-empty">
-      <p className="text-sm text-muted-foreground">{t('projects.starFilter.empty')}</p>
+      <p className="text-sm text-muted-foreground">
+        {starFilter === 'focus' ? t('projects.starFilter.focusEmpty') : t('projects.starFilter.empty')}
+      </p>
       <Button variant="ghost" size="sm" className="mt-2" onClick={onClearStarFilter} data-testid="starred-filter-clear">
         {t('projects.starFilter.showAll')}
       </Button>

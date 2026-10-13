@@ -110,27 +110,10 @@ export const starAfterClick = (current: StarColor | null, msSinceLastClick: numb
 
 export type { StarFilter } from '@/shared/types';
 
-/**
- * A threshold filter nobody can pick any more reads as `all`, so the list is
- * never stuck on a colour that is no longer offered.
- */
-export const normalizeStarFilter = (filter: StarFilter, options: readonly StarColor[]): StarFilter => (
-  filter !== 'off' && filter !== 'all' && !options.includes(filter) ? 'all' : filter
-);
-
-/**
- * Chip click order: off → all → each offered threshold (hotter each time) → off.
- * `options` comes from `starFilterOptions`, already in narrowing order.
- */
-export const nextStarFilter = (current: StarFilter, options: readonly StarColor[]): StarFilter => {
-  const normalized = normalizeStarFilter(current, options);
-
-  if (normalized === 'off') {
-    return 'all';
+/** Chip click order: off → focus (active in the last 24 h) → starred → off. */
+export const nextStarFilter = (current: StarFilter): StarFilter => {
+  if (current === 'off') {
+    return 'focus';
   }
-  if (normalized === 'all') {
-    return options[0] ?? 'off';
-  }
-  const index = options.indexOf(normalized);
-  return index === options.length - 1 ? 'off' : options[index + 1];
+  return current === 'focus' ? 'all' : 'off';
 };

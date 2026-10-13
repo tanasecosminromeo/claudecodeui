@@ -8,9 +8,9 @@ import type { ArchivedProjectListItem, ArchivedSessionListItem, ConversationProj
 import { useQuickArchive } from '@/modules/sidebar/hooks/useQuickArchive';
 import {
   filterProjects,
-  filterProjectsByStar,
+  filterProjectsToFocus,
+  filterStarredProjects,
   getAllSessions,
-  starFilterOptions,
   sortProjects,
 } from '@/modules/sidebar/utils/sidebarProjectFormatting';
 import {
@@ -26,7 +26,6 @@ import {
 import {
   getStarColor,
   nextStarFilter,
-  normalizeStarFilter,
   starAfterClick,
 } from '@/modules/sidebar/utils/starColors';
 
@@ -179,6 +178,9 @@ export function useSidebarController({
   const isSidebarCollapsed = !isMobile && !sidebarVisible;
   const activeSessionIds = activeSessions;
   const runningSessionsCount = activeSessionIds.size;
+  // The star chip's Focus state. It opens every project and group in the Projects list
+  // and leaves the saved open/closed state alone, so turning it off restores that state.
+  const isFocusActive = searchMode === 'projects' && starFilter === 'focus';
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -618,6 +620,11 @@ export function useSidebarController({
   // `projectId` as their identifier after the migration.
   const toggleProject = useCallback(
     (projectId: string) => {
+      // Focus opens every project, so a click has nothing to change.
+      if (isFocusActive) {
+        return;
+      }
+
       // Collapsing or expanding takes the ticked rows off screen, so the
       // selection they belong to is dropped with them.
       setSessionSelection(null);
@@ -641,15 +648,19 @@ export function useSidebarController({
         return next;
       });
     },
-    [searchMode],
+    [isFocusActive, searchMode],
   );
 
   const isProjectExpanded = useCallback(
-    (projectId: string) =>
-      searchMode === 'running'
+    (projectId: string) => {
+      if (isFocusActive) {
+        return true;
+      }
+      return searchMode === 'running'
         ? !collapsedRunningProjects.has(projectId)
-        : expandedProjects.has(projectId),
-    [collapsedRunningProjects, expandedProjects, searchMode],
+        : expandedProjects.has(projectId);
+    },
+    [collapsedRunningProjects, expandedProjects, isFocusActive, searchMode],
   );
 
   const handleSessionClick = useCallback(
@@ -833,6 +844,10 @@ export function useSidebarController({
   }, [t]);
 
   const toggleProjectGroup = useCallback((groupId: string) => {
+    // Focus shows every group open, so a click does nothing and the saved set stays as it was.
+    if (isFocusActive) {
+      return;
+    }
     setCollapsedGroupIds((previous) => {
       const next = new Set(previous);
       if (!next.delete(groupId)) {
@@ -841,12 +856,12 @@ export function useSidebarController({
       writeCollapsedProjectGroupIds(next);
       return next;
     });
-  }, []);
+  }, [isFocusActive]);
 
-  // A search shows every match, so it opens collapsed groups for its duration.
+  // A search shows every match, and Focus shows every group, so both open collapsed groups.
   const isProjectGroupCollapsed = useCallback(
-    (groupId: string) => debouncedSearchQuery.length === 0 && collapsedGroupIds.has(groupId),
-    [collapsedGroupIds, debouncedSearchQuery],
+    (groupId: string) => debouncedSearchQuery.length === 0 && !isFocusActive && collapsedGroupIds.has(groupId),
+    [collapsedGroupIds, debouncedSearchQuery, isFocusActive],
   );
 
   const getProjectSessions = useCallback((project: Project) => getAllSessions(project), []);
@@ -945,31 +960,29 @@ export function useSidebarController({
     }, []);
   }, [activeSessionIds, sortedProjects]);
 
-  // The thresholds the chip can narrow to right now. One that is no longer
-  // offered is shown as `all` (see normalizeStarFilter), so the chip never gets stuck.
-  const starFilterChoices = useMemo(
-    () => starFilterOptions(sortedProjects),
-    [sortedProjects],
-  );
+  // The star chip's list filter, Projects mode only. Focus keeps the projects
+  // with a session active in the last 24 h (or processing now), and `all` keeps
+  // starred projects of any colour. Running and search stay unfiltered by it.
+  const starFilteredProjects = useMemo(() => {
+    if (searchMode !== 'projects') {
+      return sortedProjects;
+    }
+    if (starFilter === 'focus') {
+      return filterProjectsToFocus(sortedProjects, activeSessionIds, currentTime);
+    }
+    if (starFilter === 'all') {
+      return filterStarredProjects(sortedProjects);
+    }
+    return sortedProjects;
+  }, [activeSessionIds, currentTime, searchMode, sortedProjects, starFilter]);
 
-  const effectiveStarFilter = useMemo(
-    () => normalizeStarFilter(starFilter, starFilterChoices),
-    [starFilterChoices, starFilter],
-  );
-
-  // The star chip lives in the Projects list only; Running and search stay unfiltered by it.
-  const starFilteredProjects = useMemo(
-    () => (searchMode === 'projects' ? filterProjectsByStar(sortedProjects, effectiveStarFilter) : sortedProjects),
-    [effectiveStarFilter, searchMode, sortedProjects],
-  );
-
-  const isStarFilterEmpty = searchMode === 'projects' && effectiveStarFilter !== 'off' && starFilteredProjects.length === 0;
+  const isStarFilterEmpty = searchMode === 'projects' && starFilter !== 'off' && starFilteredProjects.length === 0;
 
   const cycleStarFilter = useCallback(() => {
-    const next = nextStarFilter(effectiveStarFilter, starFilterChoices);
+    const next = nextStarFilter(starFilter);
     setStarFilter(next);
     writeProjectStarFilter(next);
-  }, [effectiveStarFilter, starFilterChoices]);
+  }, [starFilter]);
 
   // One click moves starred -> A-Z -> most recent -> starred. The write
   // notifies the preference store, so Settings and other tabs follow.
@@ -1646,7 +1659,7 @@ export function useSidebarController({
       setConversationResults(null);
     }, []),
     setSearchFilter,
-    starFilter: effectiveStarFilter,
+    starFilter,
     cycleStarFilter,
     clearStarFilter,
     isStarFilterEmpty,
