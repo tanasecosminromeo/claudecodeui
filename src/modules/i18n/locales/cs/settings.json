@@ -78,6 +78,7 @@
     "sendByCtrlEnter": "Odesílat pomocí Ctrl+Enter",
     "voiceEnabled": "Hlas (mikrofon + předčítání)",
     "sendByCtrlEnterDescription": "Po zapnutí se zpráva odesílá klávesami Ctrl+Enter místo samotného Enter. Hodí se uživatelům IME, aby zprávy neodesílali omylem.",
+    "keepScreenAwake": "Nevypínat obrazovku",
     "dragHandle": {
       "dragging": "Přetahování úchytu",
       "closePanel": "Zavřít panel nastavení",

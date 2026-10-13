@@ -78,6 +78,7 @@
     "sendByCtrlEnter": "שליחה ב-Ctrl+Enter",
     "voiceEnabled": "קול (מיקרופון + הקראה)",
     "sendByCtrlEnterDescription": "כשהאפשרות מופעלת, הודעה נשלחת ב-Ctrl+Enter במקום ב-Enter בלבד. שימושי למשתמשי IME כדי למנוע שליחה בטעות.",
+    "keepScreenAwake": "השאר את המסך פעיל",
     "dragHandle": {
       "dragging": "גרירת הידית",
       "closePanel": "סגירת לוח ההגדרות",

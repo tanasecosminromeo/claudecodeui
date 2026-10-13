@@ -61,6 +61,7 @@
     "showThinking": "顯示思考過程",
     "sendByCtrlEnter": "使用 Ctrl+Enter 傳送",
     "sendByCtrlEnterDescription": "啟用後，按 Ctrl+Enter 傳送訊息，而不是僅按 Enter。這對於使用輸入法的使用者可以避免意外傳送。",
+    "keepScreenAwake": "保持螢幕亮著",
     "dragHandle": {
       "dragging": "正在拖曳手柄",
       "closePanel": "關閉設定面板",

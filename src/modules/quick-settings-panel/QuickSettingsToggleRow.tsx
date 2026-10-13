@@ -13,6 +13,7 @@ type QuickSettingsToggleRowProps = {
   icon: LucideIcon;
   checked: boolean;
   onCheckedChange: (checked: boolean) => void;
+  testId?: string;
 };
 
 /** Rendered by QuickSettingsContent as one labelled checkbox row for a boolean preference. */
@@ -21,6 +22,7 @@ function QuickSettingsToggleRow({
   icon: Icon,
   checked,
   onCheckedChange,
+  testId,
 }: QuickSettingsToggleRowProps) {
   return (
     <label className={TOGGLE_ROW_CLASS}>
@@ -33,6 +35,7 @@ function QuickSettingsToggleRow({
         checked={checked}
         onChange={(event) => onCheckedChange(event.target.checked)}
         className={CHECKBOX_CLASS}
+        data-testid={testId}
       />
     </label>
   );
