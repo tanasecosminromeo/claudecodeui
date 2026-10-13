@@ -9,6 +9,7 @@ import { machineStats, processDetail, stopSession, transcriptDetail } from './de
 import {
   EventLog, STATE_RANK, aggregateStates, createStatusWatcher, findTranscript, lastAssistantEntry, readStatusRecords,
 } from './events.mjs';
+import { killLeftovers, leftoversFor } from './leftovers.mjs';
 import { ExecLog } from './proctree.mjs';
 import { otherAgentRows, treeFor } from './tree-route.mjs';
 
@@ -18,6 +19,8 @@ const PROJECTS_DIR = path.join(HOME, '.claude', 'projects');
 const DB_PATH = path.join(HOME, '.cloudcli', 'auth.db');
 const RECENT_MS = 24 * 60 * 60 * 1000;
 const execLog = new ExecLog(); // the exec tracer's log for this user (custom/exec-tracer), if installed
+// A CloudCLI restart restarts this server, so the UI shows leftover processes once per restart.
+const SERVER_STARTED_AT = Date.now();
 // Status changes CloudCLI turns into push notifications (it polls GET /events).
 const eventLog = new EventLog();
 const watchTick = createStatusWatcher({
@@ -208,6 +211,27 @@ const server = http.createServer((req, res) => {
     catch (err) { r = { status: 500, body: { error: String(err) } }; }
     res.writeHead(r.status, { 'content-type': 'application/json', 'cache-control': 'no-store' });
     res.end(JSON.stringify(r.body));
+    return;
+  }
+  if (req.method === 'GET' && url.pathname === '/leftovers') {
+    let body;
+    try { body = JSON.stringify(leftoversFor({ serverStartedAt: SERVER_STARTED_AT, labelFor: titlesFor })); }
+    catch (err) { res.writeHead(500, { 'content-type': 'application/json' }); res.end(JSON.stringify({ error: String(err) })); return; }
+    res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' });
+    res.end(body);
+    return;
+  }
+  if (req.method === 'POST' && url.pathname === '/leftovers/kill') {
+    let raw = '';
+    req.on('data', (c) => { raw += c; if (raw.length > 4096) req.destroy(); });
+    req.on('end', () => {
+      const send = (code, obj) => { res.writeHead(code, { 'content-type': 'application/json' }); res.end(JSON.stringify(obj)); };
+      let parsed = null;
+      try { parsed = JSON.parse(raw); } catch { /* bad body: refused below */ }
+      // This server's own pid and its parent (CloudCLI) are never signalled.
+      killLeftovers(parsed, { avoid: [process.pid, process.ppid] })
+        .then((r) => send(r.status, r.body), (err) => send(500, { error: String(err) }));
+    });
     return;
   }
   if (req.method === 'POST' && url.pathname === '/stop') {
