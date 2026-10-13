@@ -68,7 +68,10 @@ type ArchivedSessionListItem = {
 type RecentSessionListItem = Pick<
   ArchivedSessionListItem,
   'sessionId' | 'provider' | 'projectId' | 'projectDisplayName' | 'sessionTitle' | 'lastActivity'
->;
+> & {
+  /** Shown as a badge on the row; the feed order itself ignores pins. */
+  pinned: boolean;
+};
 
 type RecentSessionsPage = {
   conversations: RecentSessionListItem[];
@@ -242,6 +245,7 @@ export const sessionsService = {
         projectDisplayName: resolveProjectDisplayName(projectPath, project?.custom_project_name),
         sessionTitle: session.custom_name?.trim() || session.session_id,
         lastActivity: session.updated_at ?? session.created_at ?? null,
+        pinned: Boolean(session.pinned_at),
       };
     });
 
