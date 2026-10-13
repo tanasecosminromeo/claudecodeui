@@ -106,8 +106,9 @@ const settle = () => new Promise((resolve) => { setTimeout(resolve, 25); });
 
 // A fixed settle can be too short on a loaded machine; the supersede tests
 // wait for the run to have actually processed its turn instead.
-async function waitFor(condition: () => boolean): Promise<void> {
-  for (let attempt = 0; attempt < 200 && !condition(); attempt += 1) {
+async function waitFor(condition: () => boolean, timeoutMs = 5000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (!condition() && Date.now() < deadline) {
     await settle();
   }
   assert.ok(condition(), 'condition never became true');
@@ -153,8 +154,44 @@ test('stopping the last outstanding task releases the held process', async () =>
     await settle();
 
     assert.deepEqual(listClaudeSDKBackgroundWork(), []);
-    assert.equal(script.released(), true, 'the process is let go once nothing is outstanding');
+    // No follow-up turn comes for a stop, so the hold ends after the grace
+    // window (10 s by default) rather than at once. Checked before and after.
+    assert.equal(script.released(), false, 'not released at the notification: the grace window is still open');
+    await settle();
+    assert.equal(script.released(), false, 'still held a moment later, before the grace window ends');
+    await waitFor(() => script.released(), 15000);
     void done;
+  });
+});
+
+test('a Monitor that expires and relays its expiry in a follow-up turn keeps stdin open until that turn ends', async () => {
+  await withRun(async ({ script }) => {
+    script.emit(init());
+    script.emit(toolUse('toolu_mon', 'Monitor', { command: 'tail -f x', description: 'watch', timeout_ms: 1000 }));
+    script.emit(taskStarted('m1', 'toolu_mon', 'local_bash'));
+    script.emit(ack('toolu_mon', 'Monitor started', { taskId: 'm1' }));
+    script.emit(result());
+    await settle();
+    assert.equal(script.released(), false);
+
+    // The 30-minute watch expires: the CLI reports it killed and stopped, then
+    // starts a new turn to tell the user about the expiry.
+    script.emit({ type: 'system', subtype: 'task_updated', session_id: NATIVE_ID, task_id: 'm1', patch: { status: 'killed' } });
+    script.emit(taskNotification('m1', 'toolu_mon', 'stopped'));
+    await settle();
+    assert.deepEqual(listClaudeSDKBackgroundWork(), []);
+    assert.equal(script.released(), false, 'not released at the stopped notification: a follow-up turn is expected');
+
+    script.emit({
+      type: 'assistant', session_id: NATIVE_ID, parent_tool_use_id: null,
+      message: { role: 'assistant', content: [{ type: 'text', text: 'The watch expired.' }] },
+    });
+    await settle();
+    assert.equal(script.released(), false, 'the follow-up turn is running, so stdin stays open');
+
+    script.emit(result());
+    await settle();
+    assert.equal(script.released(), true, 'released once the follow-up turn\'s result has landed');
   });
 });
 
