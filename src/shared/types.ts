@@ -91,6 +91,14 @@ export type ProjectSession = {
   updated_at?: string;
   lastActivity?: string;
   messageCount?: number;
+  /** Pinned sessions are listed above the rest of their project. */
+  pinned?: boolean;
+  /** Status key shown before the title, or null. */
+  status?: string | null;
+  /** 'user' pins the status; 'auto' or null lets automatic checks change it. */
+  statusSource?: 'user' | 'auto' | null;
+  /** 'user' for a name the user set; 'auto' for an AI-generated one; null when derived. */
+  nameSource?: 'user' | 'auto' | null;
   provider?: LLMProvider;
   __provider?: LLMProvider;
   // Tags the session with the owning project's DB `projectId` so UI handlers
@@ -1560,6 +1568,12 @@ export type SessionRowActions = {
   onForkSession?: (session: SessionWithProvider) => void;
   /** Archives a session in one click, with Undo offered afterwards. Rows hide it while the session is processing. */
   onArchiveSession?: (session: SessionWithProvider) => void;
+  /** Pins or unpins a session to the top of its project. Rows hide the menu item when absent. */
+  onTogglePinSession?: (session: SessionWithProvider) => void;
+  /** Generates a title and status for a session now. Rows show a spinner while it runs. */
+  onAutoRenameSession?: (session: SessionWithProvider) => Promise<void> | void;
+  /** Sets the status a user picked, or null to hand it back to automatic checks. */
+  onSetSessionStatus?: (session: SessionWithProvider, status: string | null) => Promise<void> | void;
 };
 
 export type SidebarProjectListProps = SessionRowActions & {
@@ -1666,11 +1680,27 @@ export type ArchivedSessionListItem = {
   isProjectArchived: boolean;
 };
 
+/**
+ * The session fields an automatic rename or a status change writes. Applied in
+ * place to the loaded project rows and to the open session, instead of a refetch.
+ */
+export type SessionMetaPatch = {
+  summary?: string;
+  status?: string | null;
+  statusSource?: 'user' | 'auto' | null;
+  nameSource?: 'user' | 'auto' | null;
+};
+
 /** The subset of archived-session fields needed to render a recent-conversations row and reopen the session it points at. */
 export type RecentConversationListItem = Pick<
   ArchivedSessionListItem,
   'sessionId' | 'provider' | 'projectId' | 'projectDisplayName' | 'sessionTitle' | 'lastActivity'
->;
+> & {
+  /** Pinned in its project; drives the badge only, never the order. */
+  pinned?: boolean;
+  status?: string | null;
+  statusSource?: 'user' | 'auto' | null;
+};
 
 /**
  * The rename the sidebar currently has open, if any.

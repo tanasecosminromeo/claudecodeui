@@ -85,7 +85,10 @@ let retainCompletedRun: (appSessionId: string) => boolean = () => false;
  * from here. Deferred, so a listener that starts a new run never does so from
  * inside the finishing run's own event handling.
  */
-const runCompletedListeners = new Set<(appSessionId: string) => void>();
+/** How a run ended: `success` is false for a failed run, `aborted` when the user stopped it. */
+export type RunCompletedOutcome = { success: boolean; aborted: boolean };
+
+const runCompletedListeners = new Set<(appSessionId: string, outcome: RunCompletedOutcome) => void>();
 
 /**
  * Schedules one run's eviction. The timer is bound to the run it was armed
@@ -143,8 +146,9 @@ function decorateAndRecordEvent(run: ChatRun, message: NormalizedMessage): Norma
     run.status = 'completed';
     run.completedAt = Date.now();
     evictRunLater(run);
+    const outcome: RunCompletedOutcome = { success: message.success === true, aborted: message.aborted === true };
     for (const listener of runCompletedListeners) {
-      setImmediate(() => listener(run.appSessionId));
+      setImmediate(() => listener(run.appSessionId, outcome));
     }
   }
 
@@ -214,7 +218,7 @@ export const chatRunRegistry = {
   },
 
   /** Registers a listener for every run's end (see `runCompletedListeners`). Returns the unsubscribe. */
-  onRunCompleted(listener: (appSessionId: string) => void): () => void {
+  onRunCompleted(listener: (appSessionId: string, outcome: RunCompletedOutcome) => void): () => void {
     runCompletedListeners.add(listener);
     return () => { runCompletedListeners.delete(listener); };
   },

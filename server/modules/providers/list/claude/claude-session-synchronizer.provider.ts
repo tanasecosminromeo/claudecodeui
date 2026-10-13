@@ -17,6 +17,8 @@ type ParsedSession = {
   sessionId: string;
   projectPath: string;
   sessionName?: string;
+  /** True when the name is the transcript's `custom-title` (a CLI `/rename`), i.e. user-set. */
+  nameFromCustomTitle?: boolean;
 };
 
 /**
@@ -66,7 +68,7 @@ export class ClaudeSessionSynchronizer implements IProviderSessionSynchronizer {
       }
 
       const timestamps = await this.readSessionTimestamps(filePath);
-      sessionsDb.createSession(
+      const sessionId = sessionsDb.createSession(
         parsed.sessionId,
         this.provider,
         parsed.projectPath,
@@ -75,6 +77,9 @@ export class ClaudeSessionSynchronizer implements IProviderSessionSynchronizer {
         timestamps.updatedAt,
         filePath
       );
+      if (parsed.nameFromCustomTitle) {
+        sessionsDb.markNameSourceUserIfUnset(sessionId);
+      }
       processed += 1;
     }
 
@@ -99,7 +104,7 @@ export class ClaudeSessionSynchronizer implements IProviderSessionSynchronizer {
     }
 
     const timestamps = await this.readSessionTimestamps(filePath);
-    return sessionsDb.createSession(
+    const sessionId = sessionsDb.createSession(
       parsed.sessionId,
       this.provider,
       parsed.projectPath,
@@ -108,6 +113,10 @@ export class ClaudeSessionSynchronizer implements IProviderSessionSynchronizer {
       timestamps.updatedAt,
       filePath
     );
+    if (parsed.nameFromCustomTitle) {
+      sessionsDb.markNameSourceUserIfUnset(sessionId);
+    }
+    return sessionId;
   }
 
   /**
@@ -160,7 +169,8 @@ export class ClaudeSessionSynchronizer implements IProviderSessionSynchronizer {
       };
     }
 
-    let sessionName = await this.extractSessionTitle(filePath, parsed.sessionId);
+    const transcriptTitle = await this.extractSessionTitle(filePath, parsed.sessionId);
+    let sessionName = transcriptTitle?.title;
     if (!sessionName) {
       sessionName = nameMap.get(parsed.sessionId);
     }
@@ -168,6 +178,7 @@ export class ClaudeSessionSynchronizer implements IProviderSessionSynchronizer {
     return {
       ...parsed,
       sessionName: normalizeSessionName(sessionName, 'Untitled Claude Session'),
+      nameFromCustomTitle: transcriptTitle?.fromCustomTitle === true,
     };
   }
 
@@ -184,7 +195,7 @@ export class ClaudeSessionSynchronizer implements IProviderSessionSynchronizer {
   private async extractSessionTitle(
     filePath: string,
     sessionId: string
-  ): Promise<string | undefined> {
+  ): Promise<{ title: string; fromCustomTitle: boolean } | undefined> {
     try {
       const content = await readFile(filePath, 'utf8');
       const lines = content.split(/\r?\n/);
@@ -232,7 +243,11 @@ export class ClaudeSessionSynchronizer implements IProviderSessionSynchronizer {
         }
       }
 
-      return foundCustomTitle || foundAiTitle || foundLastPrompt;
+      if (foundCustomTitle) {
+        return { title: foundCustomTitle, fromCustomTitle: true };
+      }
+      const title = foundAiTitle || foundLastPrompt;
+      return title ? { title, fromCustomTitle: false } : undefined;
     } catch {
       // Ignore missing/unreadable files so sync can continue.
     }

@@ -126,6 +126,7 @@
     "deleteSessionFailed": "Failed to delete session. Please try again.",
     "deleteSessionError": "Error deleting session. Please try again.",
     "renameSessionFailed": "Failed to rename session. Please try again.",
+    "pinSessionFailed": "Could not update the pin. Please try again.",
     "renameSessionError": "Error renaming session. Please try again.",
     "deleteProjectFailed": "Failed to remove project. Please try again.",
     "deleteProjectError": "Error removing project. Please try again.",
@@ -139,7 +140,9 @@
     "restoreSessionError": "Error restoring session. Please try again.",
     "forkSessionError": "Could not fork this session. Please try again.",
     "deleteSessionsPartialFailure_one": "{{count}} session out of {{total}} could not be deleted. Please try again.",
-    "deleteSessionsPartialFailure_other": "{{count}} of {{total}} sessions could not be deleted. Please try again."
+    "deleteSessionsPartialFailure_other": "{{count}} of {{total}} sessions could not be deleted. Please try again.",
+    "autoRenameFailed": "Could not auto-rename this session. Please try again.",
+    "statusFailed": "Could not change the session status. Please try again."
   },
   "version": {
     "updateAvailable": "Update available",
@@ -220,5 +223,23 @@
     "projectCount_one": "{{count}} project",
     "projectCount_other": "{{count}} projects",
     "saveError": "Could not update groups. Please try again."
+  },
+  "sessionStatus": {
+    "bug": "Bug",
+    "investigation": "Investigation",
+    "testing": "Testing",
+    "planning": "Planning",
+    "building": "Building",
+    "refactor": "Refactor",
+    "release": "Release",
+    "question": "Question",
+    "done": "Done",
+    "blocked": "Blocked, waiting on you",
+    "auto": "Auto",
+    "setStatus": "Set status",
+    "autoRename": "Auto rename",
+    "autoRenaming": "Renaming...",
+    "statusLabel": "Status: {{label}}",
+    "noStatus": "No status"
   }
 }

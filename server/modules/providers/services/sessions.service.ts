@@ -68,7 +68,12 @@ type ArchivedSessionListItem = {
 type RecentSessionListItem = Pick<
   ArchivedSessionListItem,
   'sessionId' | 'provider' | 'projectId' | 'projectDisplayName' | 'sessionTitle' | 'lastActivity'
->;
+> & {
+  /** Shown as a badge on the row; the feed order itself ignores pins. */
+  pinned: boolean;
+  status: string | null;
+  statusSource: 'user' | 'auto' | null;
+};
 
 type RecentSessionsPage = {
   conversations: RecentSessionListItem[];
@@ -242,6 +247,9 @@ export const sessionsService = {
         projectDisplayName: resolveProjectDisplayName(projectPath, project?.custom_project_name),
         sessionTitle: session.custom_name?.trim() || session.session_id,
         lastActivity: session.updated_at ?? session.created_at ?? null,
+        pinned: Boolean(session.pinned_at),
+        status: session.status ?? null,
+        statusSource: session.status_source ?? null,
       };
     });
 
@@ -766,7 +774,25 @@ export const sessionsService = {
       });
     }
 
-    sessionsDb.updateSessionCustomName(sessionId, summary);
+    sessionsDb.updateSessionCustomName(sessionId, summary, 'user');
     return { sessionId, summary };
+  },
+
+  /**
+   * Pins or unpins one session and announces the change, so every open sidebar
+   * moves the row to (or out of) the top of its project without a refetch.
+   */
+  async setSessionPinnedById(sessionId: string, pinned: boolean): Promise<{ sessionId: string; pinned: boolean }> {
+    const session = sessionsDb.getSessionById(sessionId);
+    if (!session) {
+      throw new AppError(`Session "${sessionId}" was not found.`, {
+        code: 'SESSION_NOT_FOUND',
+        statusCode: 404,
+      });
+    }
+
+    sessionsDb.setSessionPinned(sessionId, pinned);
+    await broadcastSessionUpserted(sessionId, { metadataOnly: true });
+    return { sessionId, pinned };
   },
 };
