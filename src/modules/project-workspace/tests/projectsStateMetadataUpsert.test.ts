@@ -134,3 +134,20 @@ test('a transcript upsert still flags another row and reloads the viewed chat', 
   expect(result.current.sidebarSharedProps.attentionSessionIds.has('other')).toBe(true);
   expect(result.current.externalMessageUpdate).toBe(reloadsBefore + 1);
 });
+
+test('an upsert for the open session updates its header title and pin', async () => {
+  const { result } = await renderProjectsState();
+  await waitFor(() => {
+    expect(result.current.projects[0]?.sessions?.length).toBe(2);
+  });
+  act(() => {
+    result.current.handleSessionSelect({ id: 'viewed', summary: 'viewed' } as ProjectSession);
+  });
+
+  await act(async () => {
+    emit(buildUpsert('viewed', true));
+  });
+
+  expect(result.current.selectedSession?.summary).toBe('title viewed');
+  expect(result.current.selectedSession?.pinned).toBe(true);
+});

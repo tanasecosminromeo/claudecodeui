@@ -891,6 +891,29 @@ export function useProjectsState({
         return mergeProjectSelectionMetadata(previousProject, upsert.project);
       });
 
+      // The open session's header reads `selectedSession`, not the sidebar row,
+      // so a title, status or pin the server set (an automatic rename) is
+      // copied onto it too. An empty summary never blanks a title we have.
+      if (currentSelectedSession?.id === upsert.sessionId) {
+        const incomingSummary = upsert.session.summary?.trim();
+        const fields = sessionFieldsFromPatch({
+          ...(incomingSummary ? { summary: upsert.session.summary } : {}),
+          ...(upsert.session.status !== undefined ? { status: upsert.session.status } : {}),
+          ...(upsert.session.statusSource !== undefined ? { statusSource: upsert.session.statusSource } : {}),
+          ...(upsert.session.nameSource !== undefined ? { nameSource: upsert.session.nameSource } : {}),
+        });
+        if (upsert.session.pinned !== undefined) {
+          fields.pinned = upsert.session.pinned;
+        }
+        setSelectedSession((previousSession) => {
+          if (previousSession?.id !== upsert.sessionId) {
+            return previousSession;
+          }
+          const unchanged = Object.entries(fields).every(([key, value]) => previousSession[key] === value);
+          return unchanged ? previousSession : { ...previousSession, ...fields };
+        });
+      }
+
       const aliasedSelectedSessionId =
         typeof upsert.providerSessionId === 'string' && upsert.providerSessionId !== upsert.sessionId
           ? upsert.providerSessionId
