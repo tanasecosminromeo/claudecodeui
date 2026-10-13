@@ -9,6 +9,8 @@ import { WebSocketProvider } from '@/shared/context/WebSocketContext';
 import { PluginsProvider } from '@/modules/plugins';
 import { ProjectWorkspaceRoute } from '@/modules/project-workspace';
 import { i18n } from '@/modules/i18n';
+import { useKeepScreenAwakeSetting } from '@/shared/keepScreenAwake';
+import { useScreenWakeLock } from '@/shared/hooks/useScreenWakeLock';
 
 const DEPLOYMENT_ASSET_DIRECTORIES = new Set(['assets', 'static', 'icons', 'images']);
 
@@ -105,6 +107,13 @@ function detectRouterBasename() {
   return detectedBasename;
 }
 
+/** Renders nothing; keeps the screen awake app-wide while the per-device switch is on. */
+function ScreenWakeLockKeeper() {
+  const [enabled] = useKeepScreenAwakeSetting();
+  useScreenWakeLock(enabled);
+  return null;
+}
+
 /** Rendered by main.tsx; mounts the shared providers, the auth gate and the project workspace routes. */
 export default function App() {
   const routerBasename = detectRouterBasename();
@@ -119,6 +128,7 @@ export default function App() {
               <TasksSettingsProvider>
                 <TaskMasterProvider>
                 <ProtectedRoute>
+                  <ScreenWakeLockKeeper />
                   <Router basename={routerBasename}>
                     <Routes>
                       <Route path="/" element={<ProjectWorkspaceRoute />} />

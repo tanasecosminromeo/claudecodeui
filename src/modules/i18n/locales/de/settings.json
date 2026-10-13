@@ -61,6 +61,7 @@
     "showThinking": "Denken anzeigen",
     "sendByCtrlEnter": "Mit Strg+Enter senden",
     "sendByCtrlEnterDescription": "Wenn aktiviert, sendet Strg+Enter die Nachricht anstelle von Enter. Dies ist nützlich für IME-Benutzer:innen, um versehentliches Senden zu vermeiden.",
+    "keepScreenAwake": "Bildschirm wach halten",
     "dragHandle": {
       "dragging": "Handle wird gezogen",
       "closePanel": "Einstellungspanel schließen",

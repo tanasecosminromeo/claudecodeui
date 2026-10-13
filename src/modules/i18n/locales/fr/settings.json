@@ -61,6 +61,7 @@
     "showThinking": "Afficher la réflexion",
     "sendByCtrlEnter": "Envoyer avec Ctrl+Entrée",
     "sendByCtrlEnterDescription": "Lorsqu'activé, appuyer sur Ctrl+Entrée envoie le message au lieu de simplement Entrée. Utile pour les utilisateurs IME pour éviter les envois accidentels.",
+    "keepScreenAwake": "Garder l’écran allumé",
     "dragHandle": {
       "dragging": "Glissement en cours",
       "closePanel": "Fermer le panneau de paramètres",

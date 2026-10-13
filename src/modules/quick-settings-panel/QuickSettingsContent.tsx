@@ -3,6 +3,7 @@ import {
   Eye,
   Languages,
   Mic,
+  MonitorSmartphone,
   Moon,
   Sun,
   type LucideIcon,
@@ -10,6 +11,7 @@ import {
 import { useTranslation } from 'react-i18next';
 
 import { DarkModeToggle } from '@/shared/ui';
+import { isWakeLockSupported, useKeepScreenAwakeSetting } from '@/shared/keepScreenAwake';
 import { LanguageSelector } from '@/modules/i18n';
 import { SETTING_ROW_CLASS } from '@/shared/constants';
 import type { PreferenceToggleKey, QuickSettingsPreferences } from '@/shared/types';
@@ -62,6 +64,7 @@ export default function QuickSettingsContent({
   onPreferenceChange,
 }: QuickSettingsContentProps) {
   const { t } = useTranslation('settings');
+  const [keepScreenAwake, setKeepScreenAwake] = useKeepScreenAwakeSetting();
   const inputSettingToggles = preferences.voiceEnabled
     ? INPUT_SETTING_TOGGLES
     : INPUT_SETTING_TOGGLES.filter(({ key }) => key !== 'voiceEnabled');
@@ -104,6 +107,15 @@ export default function QuickSettingsContent({
         <p className="ml-3 text-xs text-muted-foreground">
           {t('quickSettings.sendByCtrlEnterDescription')}
         </p>
+        {isWakeLockSupported() && (
+          <QuickSettingsToggleRow
+            label={t('quickSettings.keepScreenAwake')}
+            icon={MonitorSmartphone}
+            checked={keepScreenAwake}
+            onCheckedChange={setKeepScreenAwake}
+            testId="keep-screen-awake-toggle"
+          />
+        )}
       </QuickSettingsSection>
     </div>
   );

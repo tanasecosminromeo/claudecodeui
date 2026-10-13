@@ -78,6 +78,7 @@
     "sendByCtrlEnter": "Enviar con Ctrl+Enter",
     "voiceEnabled": "Voz (micro + lectura en voz alta)",
     "sendByCtrlEnterDescription": "Si está activado, Ctrl+Enter envía el mensaje en lugar de solo Enter. Útil para usuarios de IME y evitar envíos accidentales.",
+    "keepScreenAwake": "Mantener la pantalla activa",
     "dragHandle": {
       "dragging": "Arrastrando el control",
       "closePanel": "Cerrar panel de ajustes",
