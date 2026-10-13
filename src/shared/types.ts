@@ -135,10 +135,10 @@ export type Project = {
   [key: string]: unknown;
 };
 
-/** Gmail-style project star colors; the order lives in the sidebar's `STAR_COLORS`. */
-export type StarColor = 'yellow' | 'orange' | 'red' | 'green' | 'blue' | 'purple';
+/** Project star colors in rising priority (green, yellow, orange, red); the order lives in the sidebar's `STAR_COLORS`. */
+export type StarColor = 'green' | 'yellow' | 'orange' | 'red';
 
-/** The Projects list's star chip: `off` shows all, `all` only starred projects, a colour only that colour. */
+/** The Projects list's star chip: `off` shows all, `all` only starred projects, a colour that colour and hotter. */
 export type StarFilter = 'off' | 'all' | StarColor;
 
 /** A named, collapsible sidebar folder that projects can be filed under. */
@@ -1630,8 +1630,8 @@ export type SidebarProjectListProps = SessionRowActions & {
  */
 export type ThemeMode = 'light' | 'dark' | 'system';
 
-/** The ordering applied to the project list, either alphabetically by name or by most recent activity, persisted alongside the user's appearance settings. */
-export type ProjectSortOrder = 'name' | 'date';
+/** The ordering applied to the project list: starred projects first (any colour), alphabetically by name, or by most recent activity. Persisted as the `projectSortOrder` preference. */
+export type ProjectSortOrder = 'starred' | 'name' | 'date';
 
 /** Which list the sidebar is currently showing: projects, conversation search results, running sessions or archived items. */
 export type SidebarSearchMode = 'projects' | 'conversations' | 'running' | 'archived';

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { TFunction } from 'i18next';
 
 import { api } from '@/shared/api';
-import { subscribeToUserPreferences } from '@/shared/userSettings';
+import { DEFAULT_PROJECT_SORT_ORDER, PROJECT_SORT_ORDERS, subscribeToUserPreferences } from '@/shared/userSettings';
 import { usePaletteOps } from '@/modules/command-palette';
 import type { ArchivedProjectListItem, ArchivedSessionListItem, ConversationProjectResult, ConversationSearchResults, LLMProvider, Project, ProjectGroup, ProjectSession, StarColor, StarFilter, ProjectSortOrder, RecentConversationListItem, SearchProgress, ActiveSidebarRename, PendingSidebarDeletion, SessionTitleSearchResult, SessionWithProvider, SidebarSearchMode, SidebarSessionSelection } from '@/shared/types';
 import { useQuickArchive } from '@/modules/sidebar/hooks/useQuickArchive';
@@ -10,7 +10,7 @@ import {
   filterProjects,
   filterProjectsByStar,
   getAllSessions,
-  getStarColorsInUse,
+  starFilterOptions,
   sortProjects,
 } from '@/modules/sidebar/utils/sidebarProjectFormatting';
 import {
@@ -20,6 +20,7 @@ import {
   readProjectSortOrder,
   readProjectStarFilter,
   writeCollapsedProjectGroupIds,
+  writeProjectSortOrder,
   writeProjectStarFilter,
 } from '@/modules/sidebar/utils/sidebarStoredPreferences';
 import {
@@ -128,7 +129,7 @@ export function useSidebarController({
   const [showNewProject, setShowNewProject] = useState(false);
   const [initialSessionsLoaded, setInitialSessionsLoaded] = useState<Set<string>>(new Set());
   const [currentTime, setCurrentTime] = useState(new Date());
-  const [projectSortOrder, setProjectSortOrder] = useState<ProjectSortOrder>('name');
+  const [projectSortOrder, setProjectSortOrder] = useState<ProjectSortOrder>(DEFAULT_PROJECT_SORT_ORDER);
   const [starFilter, setStarFilter] = useState<StarFilter>(() => readProjectStarFilter());
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [searchFilter, setSearchFilter] = useState('');
@@ -709,8 +710,8 @@ export function useSidebarController({
   }, [resolveProjectStarColor, t]);
 
   /**
-   * Gmail-style: an unstarred project turns yellow, a quick second click moves
-   * to the next colour, and a click after the window (or past purple) unstars.
+   * Gmail-style: an unstarred project turns green, a quick second click moves
+   * up to the next colour, and a click after the window (or past red) unstars.
    */
   const toggleStarProject = useCallback((projectId: string) => {
     const now = Date.now();
@@ -944,16 +945,16 @@ export function useSidebarController({
     }, []);
   }, [activeSessionIds, sortedProjects]);
 
-  // Star colours that exist right now, in chip order. A colour nobody has any
-  // more is shown as `all` (see normalizeStarFilter), so the chip never gets stuck.
-  const starColorsInUse = useMemo(
-    () => getStarColorsInUse(sortedProjects),
+  // The thresholds the chip can narrow to right now. One that is no longer
+  // offered is shown as `all` (see normalizeStarFilter), so the chip never gets stuck.
+  const starFilterChoices = useMemo(
+    () => starFilterOptions(sortedProjects),
     [sortedProjects],
   );
 
   const effectiveStarFilter = useMemo(
-    () => normalizeStarFilter(starFilter, starColorsInUse),
-    [starColorsInUse, starFilter],
+    () => normalizeStarFilter(starFilter, starFilterChoices),
+    [starFilterChoices, starFilter],
   );
 
   // The star chip lives in the Projects list only; Running and search stay unfiltered by it.
@@ -965,10 +966,19 @@ export function useSidebarController({
   const isStarFilterEmpty = searchMode === 'projects' && effectiveStarFilter !== 'off' && starFilteredProjects.length === 0;
 
   const cycleStarFilter = useCallback(() => {
-    const next = nextStarFilter(effectiveStarFilter, starColorsInUse);
+    const next = nextStarFilter(effectiveStarFilter, starFilterChoices);
     setStarFilter(next);
     writeProjectStarFilter(next);
-  }, [effectiveStarFilter, starColorsInUse]);
+  }, [effectiveStarFilter, starFilterChoices]);
+
+  // One click moves starred -> A-Z -> most recent -> starred. The write
+  // notifies the preference store, so Settings and other tabs follow.
+  const cycleProjectSortOrder = useCallback(() => {
+    const index = PROJECT_SORT_ORDERS.indexOf(projectSortOrder);
+    const next = PROJECT_SORT_ORDERS[(index + 1) % PROJECT_SORT_ORDERS.length] ?? DEFAULT_PROJECT_SORT_ORDER;
+    setProjectSortOrder(next);
+    writeProjectSortOrder(next);
+  }, [projectSortOrder]);
 
   const clearStarFilter = useCallback(() => {
     setStarFilter('off');
@@ -1640,6 +1650,8 @@ export function useSidebarController({
     cycleStarFilter,
     clearStarFilter,
     isStarFilterEmpty,
+    projectSortOrder,
+    cycleProjectSortOrder,
     setPendingDeletion,
     setShowVersionModal,
   };

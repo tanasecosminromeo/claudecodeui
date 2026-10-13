@@ -183,6 +183,7 @@
     "projectSorting": {
       "label": "Project Sorting",
       "description": "How projects are ordered in the sidebar",
+      "starred": "Starred first",
       "alphabetical": "Alphabetical",
       "recentActivity": "Recent Activity"
     },

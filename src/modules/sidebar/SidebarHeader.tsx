@@ -1,10 +1,10 @@
-import { FolderPlus, Plus, RefreshCw, Search, Star, X, PanelLeftClose } from 'lucide-react';
+import { ArrowDownAZ, Clock, FolderPlus, ListStart, Plus, RefreshCw, Search, Star, X, PanelLeftClose } from 'lucide-react';
 import type { TFunction } from 'i18next';
 
 import { Button, Input } from '@/shared/ui';
 import { CLOUDCLI_WORDMARK_FONT_FAMILY } from '@/shared/constants';
 import { cn, IS_PLATFORM } from '@/shared/utils';
-import type { SidebarSearchMode, StarFilter } from '@/shared/types';
+import type { ProjectSortOrder, SidebarSearchMode, StarFilter } from '@/shared/types';
 import GitHubStarBadge from '@/modules/sidebar/GitHubStarBadge';
 import SidebarModeTabs from '@/modules/sidebar/SidebarModeTabs';
 import { STAR_COLOR_CLASSES } from '@/modules/sidebar/utils/starColors';
@@ -25,6 +25,8 @@ type SidebarHeaderProps = {
   onClearSearchFilter: () => void;
   starFilter: StarFilter;
   onCycleStarFilter: () => void;
+  projectSortOrder: ProjectSortOrder;
+  onCycleProjectSortOrder: () => void;
   searchMode: SidebarSearchMode;
   onSearchModeChange: (mode: SidebarSearchMode) => void;
   onRefresh: () => void;
@@ -55,7 +57,7 @@ function LogoBlock({ t }: { t: TFunction }) {
 
 /**
  * The Projects list's star filter, beside the search box. Click cycles
- * off → all starred → each colour in use → off.
+ * off → all starred → each narrowing threshold → off.
  */
 function StarFilterChip({
   starFilter,
@@ -76,7 +78,9 @@ function StarFilterChip({
     ? t('projects.starFilter.off')
     : starFilter === 'all'
       ? t('projects.starFilter.all')
-      : t('projects.starFilter.color', { color: t(`starColors.${starFilter}`) });
+      : starFilter === 'red'
+        ? t('projects.starFilter.top')
+        : t('projects.starFilter.color', { color: t(`starColors.${starFilter}`) });
 
   return (
     <button
@@ -97,6 +101,43 @@ function StarFilterChip({
   );
 }
 
+const PROJECT_SORT_ICONS: Record<ProjectSortOrder, typeof Clock> = {
+  starred: ListStart,
+  name: ArrowDownAZ,
+  date: Clock,
+};
+
+/**
+ * Cycles the project sort order: starred -> A-Z -> most recent -> starred.
+ * The icon shows the current order; the tooltip says what the next click does.
+ */
+function ProjectSortButton({
+  projectSortOrder,
+  onCycleProjectSortOrder,
+  t,
+}: {
+  projectSortOrder: ProjectSortOrder;
+  onCycleProjectSortOrder: () => void;
+  t: TFunction;
+}) {
+  const Icon = PROJECT_SORT_ICONS[projectSortOrder];
+  const title = t(`projects.sort.${projectSortOrder}`);
+
+  return (
+    <button
+      type="button"
+      data-testid="project-sort"
+      data-sort-order={projectSortOrder}
+      aria-label={title}
+      title={title}
+      onClick={onCycleProjectSortOrder}
+      className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl text-muted-foreground transition-colors hover:bg-accent/80 hover:text-foreground"
+    >
+      <Icon className="h-4 w-4" />
+    </button>
+  );
+}
+
 /** Rendered by SidebarContent at the top of the panel for the search box, search-mode tabs, refresh and new-project actions. */
 export default function SidebarHeader({
   isPWA,
@@ -111,6 +152,8 @@ export default function SidebarHeader({
   onClearSearchFilter,
   starFilter,
   onCycleStarFilter,
+  projectSortOrder,
+  onCycleProjectSortOrder,
   searchMode,
   onSearchModeChange,
   onRefresh,
@@ -204,6 +247,7 @@ export default function SidebarHeader({
                   placeholder={searchPlaceholder}
                   value={searchFilter}
                   onChange={(event) => onSearchFilterChange(event.target.value)}
+                  title={searchMode === 'projects' ? `${t('tooltips.openCommandPalette')} (${MOD_KEY}+K)` : undefined}
                   className="nav-search-input h-9 rounded-xl border-0 pl-9 pr-14 text-sm transition-all duration-200 placeholder:text-muted-foreground/40 focus-visible:ring-0 focus-visible:ring-offset-0"
                 />
                 {searchFilter ? (
@@ -214,7 +258,9 @@ export default function SidebarHeader({
                   >
                     <X className="h-3 w-3 text-muted-foreground" />
                   </button>
-                ) : (
+                ) : searchMode === 'projects' ? null : (
+                  // The star and sort buttons leave the Projects box too narrow
+                  // for this hint; the box's tooltip names the shortcut instead.
                   <kbd
                     aria-hidden
                     title={t('tooltips.openCommandPalette')}
@@ -227,6 +273,9 @@ export default function SidebarHeader({
             </div>
             {searchMode === 'projects' && (
               <StarFilterChip starFilter={starFilter} onCycleStarFilter={onCycleStarFilter} t={t} />
+            )}
+            {searchMode === 'projects' && (
+              <ProjectSortButton projectSortOrder={projectSortOrder} onCycleProjectSortOrder={onCycleProjectSortOrder} t={t} />
             )}
             </div>
           </div>
@@ -302,6 +351,9 @@ export default function SidebarHeader({
             </div>
             {searchMode === 'projects' && (
               <StarFilterChip starFilter={starFilter} onCycleStarFilter={onCycleStarFilter} t={t} />
+            )}
+            {searchMode === 'projects' && (
+              <ProjectSortButton projectSortOrder={projectSortOrder} onCycleProjectSortOrder={onCycleProjectSortOrder} t={t} />
             )}
             </div>
           </div>

@@ -70,6 +70,7 @@ export default function AppearanceSettingsTab({
               onChange={(event) => onProjectSortOrderChange(event.target.value as ProjectSortOrder)}
               className="w-full touch-manipulation rounded-lg border border-input bg-card p-2.5 text-sm text-foreground focus:border-primary focus:ring-1 focus:ring-primary sm:w-36"
             >
+              <option value="starred">{t('appearanceSettings.projectSorting.starred')}</option>
               <option value="name">{t('appearanceSettings.projectSorting.alphabetical')}</option>
               <option value="date">{t('appearanceSettings.projectSorting.recentActivity')}</option>
             </select>

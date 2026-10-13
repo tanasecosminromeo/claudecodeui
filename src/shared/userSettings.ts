@@ -1,5 +1,6 @@
 import { api } from '@/shared/api';
 import { CODE_EDITOR_STORAGE_KEYS } from '@/shared/constants';
+import type { ProjectSortOrder } from '@/shared/types';
 
 /**
  * The one reader and writer for the settings that used to live in browser
@@ -20,7 +21,7 @@ export type UserPreferences = {
   theme: 'light' | 'dark';
   userLanguage: string;
   tasksEnabled: boolean;
-  projectSortOrder: 'name' | 'date';
+  projectSortOrder: ProjectSortOrder;
   projectStarFilter: string;
   claudePermissions: unknown;
   cursorPermissions: unknown;
@@ -32,6 +33,17 @@ export type UserPreferences = {
 };
 
 export type UserPreferenceKey = keyof UserPreferences;
+
+/** Every project sort order, in the order the sort button cycles through them. */
+export const PROJECT_SORT_ORDERS: readonly ProjectSortOrder[] = ['starred', 'name', 'date'];
+
+/** The default ordering, used when nothing is stored and for any unknown stored value. */
+export const DEFAULT_PROJECT_SORT_ORDER: ProjectSortOrder = 'starred';
+
+/** Turns any stored value into a valid sort order. Unknown values read as the default. */
+export const parseProjectSortOrder = (value: unknown): ProjectSortOrder => (
+  PROJECT_SORT_ORDERS.includes(value as ProjectSortOrder) ? (value as ProjectSortOrder) : DEFAULT_PROJECT_SORT_ORDER
+);
 
 /** Fired after any preference changes, from a local write or from a hydrate. */
 export const USER_PREFERENCES_CHANGED_EVENT = 'user-preferences:changed';

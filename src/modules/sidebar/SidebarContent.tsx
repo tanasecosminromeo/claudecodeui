@@ -3,7 +3,7 @@ import { Activity, Archive, Folder, MessageSquare, RotateCcw, Search, Trash2 } f
 import type { TFunction } from 'i18next';
 
 import { LLMProviderLogo, ScrollArea } from '@/shared/ui';
-import type { ArchivedProjectListItem, ArchivedSessionListItem, ConversationSearchResults, Project, RecentConversationListItem, ReleaseInfo, SearchProgress, SidebarProjectListProps, SidebarSearchMode, StarFilter } from '@/shared/types';
+import type { ArchivedProjectListItem, ArchivedSessionListItem, ConversationSearchResults, Project, RecentConversationListItem, ReleaseInfo, SearchProgress, SidebarProjectListProps, ProjectSortOrder, SidebarSearchMode, StarFilter } from '@/shared/types';
 import { formatCompactAge, getAllSessions } from '@/modules/sidebar/utils/sidebarProjectFormatting';
 import SidebarFooter from '@/modules/sidebar/SidebarFooter';
 import SidebarHeader from '@/modules/sidebar/SidebarHeader';
@@ -102,6 +102,8 @@ type SidebarContentProps = {
   onClearSearchFilter: () => void;
   starFilter: StarFilter;
   onCycleStarFilter: () => void;
+  projectSortOrder: ProjectSortOrder;
+  onCycleProjectSortOrder: () => void;
   searchMode: SidebarSearchMode;
   onSearchModeChange: (mode: SidebarSearchMode) => void;
   conversationResults: ConversationSearchResults | null;
@@ -153,6 +155,8 @@ export default function SidebarContent({
   onClearSearchFilter,
   starFilter,
   onCycleStarFilter,
+  projectSortOrder,
+  onCycleProjectSortOrder,
   searchMode,
   onSearchModeChange,
   conversationResults,
@@ -206,6 +210,8 @@ export default function SidebarContent({
         onClearSearchFilter={onClearSearchFilter}
         starFilter={starFilter}
         onCycleStarFilter={onCycleStarFilter}
+        projectSortOrder={projectSortOrder}
+        onCycleProjectSortOrder={onCycleProjectSortOrder}
         searchMode={searchMode}
         onSearchModeChange={onSearchModeChange}
         onRefresh={onRefresh}

@@ -8,6 +8,8 @@ import {
   writeCodeEditorSettings,
 } from '@/shared/codeEditorSettings';
 import {
+  DEFAULT_PROJECT_SORT_ORDER,
+  parseProjectSortOrder,
   readUserPreference,
   writeUserPreferences,
 } from '@/shared/userSettings';
@@ -125,7 +127,7 @@ export function useSettingsController({ isOpen, initialTab }: UseSettingsControl
 
   const [activeTab, setActiveTab] = useState<SettingsMainTab>(() => normalizeMainTab(initialTab));
   const [saveStatus, setSaveStatus] = useState<'success' | 'error' | null>(null);
-  const [projectSortOrder, setProjectSortOrder] = useState<ProjectSortOrder>('name');
+  const [projectSortOrder, setProjectSortOrder] = useState<ProjectSortOrder>(DEFAULT_PROJECT_SORT_ORDER);
   const [codeEditorSettings, setCodeEditorSettings] = useState<CodeEditorSettingsState>(() => (
     readCodeEditorSettings()
   ));
@@ -157,7 +159,7 @@ export function useSettingsController({ isOpen, initialTab }: UseSettingsControl
         disallowedTools: savedClaudeSettings.disallowedTools || [],
         skipPermissions: Boolean(savedClaudeSettings.skipPermissions),
       });
-      setProjectSortOrder(readUserPreference<ProjectSortOrder>('projectSortOrder', 'name') === 'date' ? 'date' : 'name');
+      setProjectSortOrder(parseProjectSortOrder(readUserPreference<unknown>('projectSortOrder', DEFAULT_PROJECT_SORT_ORDER)));
 
       const savedCursorSettings = readUserPreference<CursorSettingsStorage>('cursorPermissions', {});
       setCursorPermissions({
@@ -191,7 +193,7 @@ export function useSettingsController({ isOpen, initialTab }: UseSettingsControl
       setCursorPermissions(createEmptyCursorPermissions());
       setNotificationPreferences(createDefaultNotificationPreferences());
       setCodexPermissionMode('default');
-      setProjectSortOrder('name');
+      setProjectSortOrder(DEFAULT_PROJECT_SORT_ORDER);
     }
   }, []);
 

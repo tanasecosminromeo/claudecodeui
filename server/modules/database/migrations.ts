@@ -478,6 +478,14 @@ const addProjectStarColorAndGroupColumns = (db: Database): void => {
 };
 
 /**
+ * Folds the retired blue and purple star colors into green. Idempotent: once
+ * no row carries them, later starts change nothing.
+ */
+const migrateRetiredStarColorsToGreen = (db: Database): void => {
+  db.exec("UPDATE projects SET star_color = 'green' WHERE star_color IN ('blue', 'purple')");
+};
+
+/**
  * Adds the reasoning-effort metadata columns to the custom-model library.
  *
  * Existing rows stay NULL on purpose: no effort levels were ever declared for
@@ -548,6 +556,7 @@ export const runMigrations = (db: Database) => {
 
     migrateLegacyWorkspaceTableIntoProjects(db);
     addProjectStarColorAndGroupColumns(db);
+    migrateRetiredStarColorsToGreen(db);
     rebuildSessionsTableWithProjectSchema(db);
     migrateLegacySessionNames(db);
     addProviderSessionIdMapping(db);

@@ -1,10 +1,20 @@
 import type { ProjectSortOrder, StarFilter } from '@/shared/types';
-import { readUserPreference, writeUserPreference } from '@/shared/userSettings';
+import {
+  DEFAULT_PROJECT_SORT_ORDER,
+  parseProjectSortOrder,
+  readUserPreference,
+  writeUserPreference,
+} from '@/shared/userSettings';
 import { isStarColor } from '@/modules/sidebar/utils/starColors';
 
+/** Unknown or missing values read as the default, 'starred'. */
 export const readProjectSortOrder = (): ProjectSortOrder => (
-  readUserPreference<ProjectSortOrder>('projectSortOrder', 'name') === 'date' ? 'date' : 'name'
+  parseProjectSortOrder(readUserPreference<unknown>('projectSortOrder', DEFAULT_PROJECT_SORT_ORDER))
 );
+
+export const writeProjectSortOrder = (order: ProjectSortOrder) => {
+  writeUserPreference('projectSortOrder', order);
+};
 
 /** The starred-filter chip, kept on the user's account like the sort order. Unknown values read as off. */
 export const readProjectStarFilter = (): StarFilter => {

@@ -67,26 +67,30 @@ export async function run({ chat, page, app, paths, expect, snapshot, log }) {
     return names.map((name) => labels.findIndex((label) => label.includes(name)));
   };
 
-  // Quick clicks: none → yellow → orange, and the row does not move.
+  // Quick clicks: none → green → yellow. In the default starred-first sort,
+  // starring may lift the row into the starred block; recolouring never moves it.
   expect(await star(names[0]).getAttribute('data-star-color') === 'none', 'a new project is not starred');
-  const indexesBefore = await sidebarIndexes();
-  expect(indexesBefore.every((index) => index >= 0), 'both e2e projects are in the sidebar list');
+  const indexesUnstarred = await sidebarIndexes();
+  expect(indexesUnstarred.every((index) => index >= 0), 'both e2e projects are in the sidebar list');
   await star(names[0]).click();
-  expect(await star(names[0]).getAttribute('data-star-color') === 'yellow', 'one click makes the star yellow');
+  expect(await star(names[0]).getAttribute('data-star-color') === 'green', 'one click makes the star green');
+  const indexesStarred = await sidebarIndexes();
+  expect(indexesStarred[0] <= indexesUnstarred[0], 'starring never moves a project down');
   await star(names[0]).click();
-  expect(await star(names[0]).getAttribute('data-star-color') === 'orange', 'a quick second click makes the star orange');
-  expect(JSON.stringify(await sidebarIndexes()) === JSON.stringify(indexesBefore), 'recolouring a star does not move the project in the list');
-  await waitForServer(names[0], (project) => project.starColor === 'orange', 'the server stored orange');
+  expect(await star(names[0]).getAttribute('data-star-color') === 'yellow', 'a quick second click makes the star yellow');
+  expect(JSON.stringify(await sidebarIndexes()) === JSON.stringify(indexesStarred), 'recolouring a star does not move the project in the list');
+  await waitForServer(names[0], (project) => project.starColor === 'yellow', 'the server stored yellow');
 
   // Right-click palette jumps straight to a color.
   await star(names[0]).click({ button: 'right' });
   const palette = page.locator('[data-testid="star-color-palette"]');
   await palette.waitFor({ timeout: 5000 });
   await snapshot('star color palette');
-  await palette.locator('[data-star-color="blue"]').click();
+  expect(await palette.locator('[data-star-color]').count() === 5, 'the palette offers four colours and none');
+  await palette.locator('[data-star-color="red"]').click();
   expect(await palette.count() === 0, 'picking a color closes the palette');
-  expect(await star(names[0]).getAttribute('data-star-color') === 'blue', 'the palette set the star to blue');
-  await waitForServer(names[0], (project) => project.starColor === 'blue' && project.isStarred === true, 'the server stored blue');
+  expect(await star(names[0]).getAttribute('data-star-color') === 'red', 'the palette set the star to red');
+  await waitForServer(names[0], (project) => project.starColor === 'red' && project.isStarred === true, 'the server stored red');
 
   // New group from the row menu (answers the name prompt).
   chat.onDialog = (dialog) => (dialog.type === 'prompt' ? GROUP_NAME : false);
@@ -110,7 +114,9 @@ export async function run({ chat, page, app, paths, expect, snapshot, log }) {
   await waitForServer(names[1], (project) => Boolean(project.groupId), 'the server stored the membership');
   await snapshot('group with two projects');
 
-  // Starred-filter chip, with one blue project (names[0]) and one yellow (names[1]).
+  // Starred-filter chip: names[0] is red and names[1] yellow. The only
+  // threshold that narrows the list is red (yellow would show both), so the
+  // chip goes off → all → red → off.
   const chip = page.locator('[data-testid="starred-filter"]:visible');
   const visibleProjectNames = async () => {
     const found = [];
@@ -120,7 +126,9 @@ export async function run({ chat, page, app, paths, expect, snapshot, log }) {
     return found;
   };
   await star(names[1]).click();
-  expect(await star(names[1]).getAttribute('data-star-color') === 'yellow', 'a fresh project takes yellow on its first click');
+  expect(await star(names[1]).getAttribute('data-star-color') === 'green', 'a fresh project takes green on its first click');
+  await star(names[1]).click();
+  expect(await star(names[1]).getAttribute('data-star-color') === 'yellow', 'a quick second click takes it to yellow');
   expect(await chip.getAttribute('data-star-filter') === 'off', 'the starred filter starts off');
   await chip.click();
   expect(await chip.getAttribute('data-star-filter') === 'all', 'the first chip click shows all starred');
@@ -128,14 +136,11 @@ export async function run({ chat, page, app, paths, expect, snapshot, log }) {
   expect(JSON.stringify(await visibleProjectNames()) === JSON.stringify(names), 'starred filter keeps both starred e2e projects');
   await snapshot('starred filter: all starred');
   await chip.click();
-  expect(await chip.getAttribute('data-star-filter') === 'yellow', 'the next chip click picks the yellow colour');
-  expect(JSON.stringify(await visibleProjectNames()) === JSON.stringify([names[1]]), 'yellow filter shows only the yellow project');
-  await snapshot('starred filter: yellow only');
+  expect(await chip.getAttribute('data-star-filter') === 'red', 'the next chip click picks red, the only narrowing threshold');
+  expect(JSON.stringify(await visibleProjectNames()) === JSON.stringify([names[0]]), 'red filter shows red and hotter, so only the red project');
+  await snapshot('starred filter: red and hotter');
   await chip.click();
-  expect(await chip.getAttribute('data-star-filter') === 'blue', 'the next chip click picks the blue colour');
-  expect(JSON.stringify(await visibleProjectNames()) === JSON.stringify([names[0]]), 'blue filter shows only the blue project');
-  await chip.click();
-  expect(await chip.getAttribute('data-star-filter') === 'off', 'after the last colour the chip is off');
+  expect(await chip.getAttribute('data-star-filter') === 'off', 'after red the chip is off');
   expect(JSON.stringify(await visibleProjectNames()) === JSON.stringify(names), 'off shows the e2e projects again');
   await snapshot('starred filter off');
 
@@ -148,17 +153,18 @@ export async function run({ chat, page, app, paths, expect, snapshot, log }) {
   await group.locator('[data-testid="project-group-toggle"]').click();
   await group.getByRole('button', { name: new RegExp(`^${names[0]}`) }).waitFor({ timeout: 5000 });
   expect(await group.getByRole('button', { name: new RegExp(`^${names[1]}`) }).count() === 1, 'both projects are still in the group after a reload');
-  expect(await star(names[0]).getAttribute('data-star-color') === 'blue', 'the blue star survived the reload');
+  expect(await star(names[0]).getAttribute('data-star-color') === 'red', 'the red star survived the reload');
   await snapshot('after reload');
 
   // Gmail timing on a fresh page: the first click on a starred project unstars
-  // it, a click stars it again, and a quick one recolours; after 3 s it unstars.
+  // it, a click stars it green again, and a quick one moves it to yellow; after
+  // 3 s it unstars.
   await star(names[0]).click();
   expect(await star(names[0]).getAttribute('data-star-color') === 'none', 'the first click after a reload removes the star');
   await star(names[0]).click();
-  expect(await star(names[0]).getAttribute('data-star-color') === 'yellow', 'clicking an unstarred project stars it yellow');
+  expect(await star(names[0]).getAttribute('data-star-color') === 'green', 'clicking an unstarred project stars it green');
   await star(names[0]).click();
-  expect(await star(names[0]).getAttribute('data-star-color') === 'orange', 'a quick click recolours it');
+  expect(await star(names[0]).getAttribute('data-star-color') === 'yellow', 'a quick click moves it up to yellow');
   await page.waitForTimeout(3200);
   await star(names[0]).click();
   expect(await star(names[0]).getAttribute('data-star-color') === 'none', 'a click more than 3 s later removes the star');
@@ -166,6 +172,33 @@ export async function run({ chat, page, app, paths, expect, snapshot, log }) {
   await page.reload();
   await row(names[0]).waitFor({ timeout: 20000 });
   expect(await star(names[0]).getAttribute('data-star-color') === 'none', 'the cleared star stays cleared after a reload');
+
+  // Sort button: starred -> A-Z -> most recent -> starred. Three clicks walk the
+  // whole cycle, so the stored order ends where it started. Both e2e projects
+  // sit in the same group here: names[1] is yellow (starred), names[0] is
+  // unstarred, so in starred mode names[1] must be listed first.
+  const sortButton = page.locator('[data-testid="project-sort"]:visible');
+  const originalSortOrder = await sortButton.getAttribute('data-sort-order');
+  const nextSortOrder = { starred: 'name', name: 'date', date: 'starred' };
+  let sortOrder = originalSortOrder;
+  for (let step = 0; step < 3; step += 1) {
+    await sortButton.click();
+    const expectedOrder = nextSortOrder[sortOrder];
+    expect(await sortButton.getAttribute('data-sort-order') === expectedOrder, `the sort button moves ${sortOrder} to ${expectedOrder}`);
+    sortOrder = expectedOrder;
+    if (sortOrder === 'starred') {
+      const indexes = await sidebarIndexes();
+      expect(indexes[1] >= 0 && indexes[0] >= 0 && indexes[1] < indexes[0], 'starred mode lists the starred project before the unstarred one in the same group');
+      await snapshot('sort: starred first');
+    } else if (sortOrder === 'name') {
+      const indexes = await sidebarIndexes();
+      expect(indexes[0] < indexes[1], 'A-Z mode lists e2e-stars-a before e2e-stars-b');
+      await snapshot('sort: A-Z');
+    } else {
+      await snapshot('sort: most recent');
+    }
+  }
+  expect(await sortButton.getAttribute('data-sort-order') === originalSortOrder, 'three clicks restore the original sort order');
 
   // Clean up so later scenarios see the usual sidebar.
   const groups = await api('GET', '/api/projects/groups');

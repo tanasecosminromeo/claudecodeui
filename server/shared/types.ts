@@ -1049,8 +1049,8 @@ export type ProjectRepositoryRow = {
   group_id: string | null;
 };
 
-/** Star colors a project can carry, Gmail style. The ordered list is `STAR_COLORS` in shared/utils. */
-export type StarColor = 'yellow' | 'orange' | 'red' | 'green' | 'blue' | 'purple';
+/** Star colors a project can carry, in rising priority. The ordered list is `STAR_COLORS` in shared/utils. */
+export type StarColor = 'green' | 'yellow' | 'orange' | 'red';
 
 /** A named sidebar folder that projects can be filed under. */
 export type ProjectGroupRow = {

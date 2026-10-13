@@ -21,9 +21,15 @@
     "starFilter": {
       "off": "Show all projects. Click to show starred projects only.",
       "all": "Showing starred projects. Click to filter by colour.",
-      "color": "Showing {{color}} stars. Click for the next filter.",
+      "color": "Showing {{color}} and hotter. Click to narrow.",
+      "top": "Showing red only. Click to show everything.",
       "empty": "No starred projects",
       "showAll": "Show all projects"
+    },
+    "sort": {
+      "starred": "Sort: starred first (click for A–Z)",
+      "name": "Sort: A–Z (click for most recent)",
+      "date": "Sort: most recent (click for starred first)"
     }
   },
   "app": {
@@ -199,9 +205,7 @@
     "yellow": "Yellow",
     "orange": "Orange",
     "red": "Red",
-    "green": "Green",
-    "blue": "Blue",
-    "purple": "Purple"
+    "green": "Green"
   },
   "groups": {
     "moveToGroup": "Move to group",

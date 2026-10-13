@@ -56,9 +56,9 @@ test('setProjectStarColor stores the color and keeps isStarred mirrored', async 
   await withIsolatedDatabase(() => {
     const projectId = createProject('/workspace/colored');
 
-    assert.deepEqual(setProjectStarColor(projectId, 'blue'), { starColor: 'blue' });
+    assert.deepEqual(setProjectStarColor(projectId, 'red'), { starColor: 'red' });
     let row = projectsDb.getProjectById(projectId);
-    assert.equal(row?.star_color, 'blue');
+    assert.equal(row?.star_color, 'red');
     assert.equal(row?.isStarred, 1);
 
     assert.deepEqual(setProjectStarColor(projectId, null), { starColor: null });
@@ -68,10 +68,22 @@ test('setProjectStarColor stores the color and keeps isStarred mirrored', async 
   });
 });
 
+test('setProjectStarColor stores a retired blue or purple as green, so an old tab is not rejected', async () => {
+  await withIsolatedDatabase(() => {
+    const projectId = createProject('/workspace/retired-color');
+
+    assert.deepEqual(setProjectStarColor(projectId, 'blue'), { starColor: 'green' });
+    assert.equal(projectsDb.getProjectById(projectId)?.star_color, 'green');
+    assert.deepEqual(setProjectStarColor(projectId, 'purple'), { starColor: 'green' });
+    assert.equal(projectsDb.getProjectById(projectId)?.star_color, 'green');
+  });
+});
+
 test('setProjectStarColor rejects unknown colors', async () => {
   await withIsolatedDatabase(() => {
     const projectId = createProject('/workspace/bad-color');
     assert.throws(() => setProjectStarColor(projectId, 'pink'), hasErrorCode('INVALID_STAR_COLOR', 400));
+    assert.throws(() => setProjectStarColor(projectId, 'Red'), hasErrorCode('INVALID_STAR_COLOR', 400));
     assert.throws(() => setProjectStarColor('missing', 'red'), hasErrorCode('PROJECT_NOT_FOUND', 404));
   });
 });
@@ -83,7 +95,7 @@ test('the legacy toggle-star keeps an existing color and clears it on unstar', a
     toggleProjectStar(projectId);
     assert.equal(projectsDb.getProjectById(projectId)?.star_color, 'yellow');
 
-    setProjectStarColor(projectId, 'green');
+    setProjectStarColor(projectId, 'orange');
     toggleProjectStar(projectId);
     assert.equal(projectsDb.getProjectById(projectId)?.star_color, null);
   });
@@ -148,6 +160,35 @@ test('migration turns projects starred before colors existed into yellow', async
         );
         INSERT INTO projects (project_id, project_path, isStarred) VALUES ('legacy-starred', '/workspace/a', 1);
         INSERT INTO projects (project_id, project_path, isStarred) VALUES ('legacy-plain', '/workspace/b', 0);
+      `);
+      db.close();
+    },
+  );
+});
+
+test('migration folds stored blue and purple into green and leaves other colors alone', async () => {
+  await withIsolatedDatabase(
+    () => {
+      assert.equal(projectsDb.getProjectById('retired-blue')?.star_color, 'green');
+      assert.equal(projectsDb.getProjectById('retired-purple')?.star_color, 'green');
+      assert.equal(projectsDb.getProjectById('kept-red')?.star_color, 'red');
+      assert.equal(projectsDb.getProjectById('kept-green')?.star_color, 'green');
+    },
+    (databasePath) => {
+      const db = new Database(databasePath);
+      db.exec(`
+        CREATE TABLE projects (
+          project_id TEXT PRIMARY KEY NOT NULL,
+          project_path TEXT NOT NULL UNIQUE,
+          custom_project_name TEXT DEFAULT NULL,
+          isStarred BOOLEAN DEFAULT 0,
+          isArchived BOOLEAN DEFAULT 0,
+          star_color TEXT DEFAULT NULL
+        );
+        INSERT INTO projects (project_id, project_path, isStarred, star_color) VALUES ('retired-blue', '/workspace/c', 1, 'blue');
+        INSERT INTO projects (project_id, project_path, isStarred, star_color) VALUES ('retired-purple', '/workspace/d', 1, 'purple');
+        INSERT INTO projects (project_id, project_path, isStarred, star_color) VALUES ('kept-red', '/workspace/e', 1, 'red');
+        INSERT INTO projects (project_id, project_path, isStarred, star_color) VALUES ('kept-green', '/workspace/f', 1, 'green');
       `);
       db.close();
     },
