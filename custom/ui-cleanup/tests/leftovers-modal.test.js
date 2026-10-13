@@ -115,6 +115,27 @@ describe('leftover processes modal', () => {
     expect(cta().disabled).toBe(true);
   });
 
+  it('Kill all sends one request for a double tap and locks the row X buttons while it is in flight', async () => {
+    let finish;
+    const pending = new Promise((resolve) => { finish = resolve; });
+    const fetchMock = vi.fn()
+      .mockReturnValueOnce(pending)
+      .mockResolvedValueOnce(resp(200, payload([], 1001)));
+    vi.stubGlobal('fetch', fetchMock);
+    uic.openLeftovers(payload([group()]));
+    cta().click();
+    cta().click();
+    expect(cta().disabled).toBe(true);
+    expect(btn('Kill sh (pid 700)').disabled).toBe(true);
+    expect(btn('Kill node (pid 701)').disabled).toBe(true);
+    btn('Kill node (pid 701)').click();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    finish(resp(200, { term: [700, 701], kill: [] }));
+    await vi.waitFor(() => expect(document.querySelector('.uic-lo-empty')).not.toBeNull());
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({ all: true });
+  });
+
   it('Close stores the restart stamp and removes the modal', () => {
     uic.openLeftovers(payload([group()], 1234));
     document.querySelector('.uic-lo-close').click();

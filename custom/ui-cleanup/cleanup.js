@@ -117,6 +117,7 @@
   let leftoverTimer = null;
   let leftoverInFlight = false;
   let loModal = null; // { el, body, cta, err, onKey } while the modal is open
+  let loBusy = false; // a Kill all request is in flight: Kill all and the row X buttons stay disabled
 
   async function fetchLeftovers() {
     const r = await fetch(`/api/plugins/${RADAR_PLUGIN}/rpc/leftovers`, { headers: authHeaders() });
@@ -195,7 +196,7 @@
     if (!m) return;
     const n = leftoverCount(leftovers.groups);
     m.cta.textContent = `Kill all (${n})`;
-    m.cta.disabled = n === 0;
+    m.cta.disabled = n === 0 || loBusy;
     if (n === 0 && !m.body.querySelector('.uic-lo-empty')) m.body.replaceChildren(mk('div', 'uic-lo-empty', 'No leftover processes.'));
   }
 
@@ -210,6 +211,7 @@
     const label = `Kill ${p.name} (pid ${p.pid})`;
     const btn = mk('button', 'uic-lo-kill');
     btn.type = 'button';
+    btn.disabled = loBusy;
     btn.title = label;
     btn.setAttribute('aria-label', label);
     btn.append(xIcon());
@@ -219,6 +221,7 @@
     row.append(main, btn);
     li.append(row, err);
     btn.addEventListener('click', async () => {
+      if (loBusy) return;
       btn.disabled = true;
       err.hidden = true;
       try {
@@ -265,12 +268,16 @@
 
   async function killAllLeftovers() {
     const m = loModal;
-    if (!m || leftoverCount(leftovers.groups) === 0) return;
-    m.cta.disabled = true;
+    if (!m || loBusy || leftoverCount(leftovers.groups) === 0) return;
+    // Busy until the answer is in: a second tap must not send a second kill request.
+    loBusy = true;
+    m.body.querySelectorAll('.uic-lo-kill').forEach((b) => { b.disabled = true; });
+    updateLoFoot();
     m.err.textContent = '';
     try {
       await killLeftoverRpc({ all: true });
     } catch (e) {
+      loBusy = false;
       m.err.textContent = `Kill all failed: ${e.message}`;
       updateLoFoot();
       return;
@@ -280,6 +287,7 @@
     } catch {
       m.err.textContent = 'Killed, but the list could not be refreshed.';
     }
+    loBusy = false;
     renderLeftoverBody();
     syncLeftoverEntry();
   }
