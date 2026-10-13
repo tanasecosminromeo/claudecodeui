@@ -88,6 +88,48 @@ test('credentials in a URL keep the user and host', () => {
   );
 });
 
+test('a key in a URL query string or fragment is not masked', () => {
+  // Credential-shaped values are built at runtime so no key-shaped literal is committed.
+  const plain = 'abc123' + 'def456';
+  const tokenish = 'a1b2c3' + 'd4e5';
+  const links = [
+    `open http://example-claude-companion.srv:53996/?key=${plain} now`,
+    `open http://h/?a=1&token=${tokenish} now`,
+    'open https://h/?api_key=' + 'Zq9xW2' + 'vB7nR4tY8u now',
+    `open https://h/page#token=${tokenish} now`,
+    `[link](http://h/?key=${plain})`,
+    `**http://h/?key=${plain}**`,
+  ];
+  for (const line of links) {
+    assert.equal(maskSecrets(line), line, line);
+  }
+});
+
+test('a known token shape inside a URL is masked and the rest of the URL is kept', () => {
+  const googleKey = 'AIza' + 'E'.repeat(35);
+  const openaiKey = 'sk-' + 'b'.repeat(24);
+  const githubKey = fakeGithub('ghp_');
+  assert.equal(maskSecrets(`https://h/?key=${googleKey}&x=1`), `https://h/?key=${MASK}&x=1`);
+  assert.equal(maskSecrets(`https://h/?token=${openaiKey}`), `https://h/?token=${MASK}`);
+  assert.equal(maskSecrets(`https://h/?access_token=${FAKE_JWT}`), `https://h/?access_token=${MASK}`);
+  assert.equal(maskSecrets(`https://h/?t=${githubKey}`), `https://h/?t=${MASK}`);
+});
+
+test('a URL password is hidden and assignments outside the URL are still masked', () => {
+  assert.equal(
+    maskSecrets('git clone https://octocat:FAKE_TEST_VALUE@example.com/repo.git API_KEY=' + 'abc123' + 'def456'),
+    `git clone https://octocat:${MASK}@example.com/repo.git API_KEY=${MASK}`,
+  );
+});
+
+test('masking a URL with a key in its query string twice changes nothing more', () => {
+  const plain = 'abc123' + 'def456';
+  const sample = `open http://h/?key=${plain} and https://h/?token=sk-` + 'b'.repeat(24) + ' now';
+  const once = maskSecrets(sample);
+  assert.equal(once, `open http://h/?key=${plain} and https://h/?token=${MASK} now`);
+  assert.equal(maskSecrets(once), once);
+});
+
 test('ordinary text, code, hashes and identifiers stay identical', () => {
   const ordinary = [
     'const token = getToken();',
