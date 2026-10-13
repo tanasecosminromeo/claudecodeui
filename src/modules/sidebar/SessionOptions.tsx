@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { Archive, Check, Edit2, GitBranch, MoreHorizontal, Trash2, X } from 'lucide-react';
+import { Archive, Check, Edit2, GitBranch, MoreHorizontal, Pin, PinOff, Sparkles, Tag, Trash2, X } from 'lucide-react';
 import type { TFunction } from 'i18next';
 
 import { ActionMenu } from '@/shared/ui';
@@ -31,8 +31,18 @@ type SessionOptionsProps = {
   onFork?: () => void;
   /** Archives in one click, Undo offered afterwards; withheld while processing like delete. */
   onArchive?: () => void;
+  /** Whether the session is pinned, which switches the menu item between Pin and Unpin. */
+  isPinned?: boolean;
+  /** Pins or unpins the session; the item is withheld when the row cannot pin. */
+  onTogglePin?: () => void;
   /** Withheld where the row has nowhere to send a delete. */
   canDelete?: boolean;
+  /** Generates a title and status now. Omitted where the row cannot run it. */
+  onAutoRename?: () => void;
+  /** True while an auto rename runs; the item shows a spinner and cannot be picked again. */
+  isAutoRenaming?: boolean;
+  /** Opens the status picker of the row. Omitted where the row has none. */
+  onOpenStatusPicker?: () => void;
   className?: string;
   t: TFunction;
 };
@@ -61,7 +71,12 @@ export default function SessionOptions({
   onDeleteSession,
   onFork,
   onArchive,
+  isPinned = false,
+  onTogglePin,
   canDelete = true,
+  onAutoRename,
+  isAutoRenaming = false,
+  onOpenStatusPicker,
   className,
   t,
 }: SessionOptionsProps) {
@@ -187,6 +202,26 @@ export default function SessionOptions({
               label: 'Rename session',
               icon: Edit2,
               onSelect: () => onStartEditingSession(projectId, sessionId, sessionName),
+            }] : []),
+            ...(onTogglePin ? [{
+              key: 'pin',
+              label: isPinned ? 'Unpin' : 'Pin to top',
+              icon: isPinned ? PinOff : Pin,
+              onSelect: onTogglePin,
+            }] : []),
+            ...(onAutoRename ? [{
+              key: 'auto-rename',
+              label: t('sessionStatus.autoRename', 'Auto rename'),
+              description: t('sessionStatus.autoRenameDescription', 'Name it from the conversation.'),
+              icon: Sparkles,
+              loading: isAutoRenaming,
+              onSelect: onAutoRename,
+            }] : []),
+            ...(onOpenStatusPicker ? [{
+              key: 'set-status',
+              label: t('sessionStatus.setStatus', 'Set status'),
+              icon: Tag,
+              onSelect: onOpenStatusPicker,
             }] : []),
             {
               key: 'copy',

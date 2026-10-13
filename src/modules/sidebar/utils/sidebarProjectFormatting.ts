@@ -8,10 +8,8 @@ import type {
   ProjectSortOrder,
   SessionWithProvider,
   SettingsProject,
-  StarColor,
-  StarFilter,
 } from '@/shared/types';
-import { getStarColor, STAR_COLORS } from '@/modules/sidebar/utils/starColors';
+import { getStarColor } from '@/modules/sidebar/utils/starColors';
 
 // Presentation data the sidebar derives from a session before rendering its row.
 type SessionViewModel = {
@@ -103,7 +101,9 @@ export const getAllSessions = (project: Project): SessionWithProvider[] => {
     ...session,
     __provider: getSessionProvider(session),
   })).sort(
-    (a, b) => getSessionDate(b).getTime() - getSessionDate(a).getTime(),
+    // Pinned sessions first, then newest first within each group.
+    (a, b) => Number(Boolean(b.pinned)) - Number(Boolean(a.pinned))
+      || getSessionDate(b).getTime() - getSessionDate(a).getTime(),
   );
 
   sortedSessionsByProject.set(project, sessions);
@@ -206,53 +206,53 @@ export const filterProjects = (projects: Project[], searchFilter: string): Proje
   });
 };
 
+/** Keeps only starred projects, of any colour. Colour never narrows the list. */
+export const filterStarredProjects = (projects: Project[]): Project[] => (
+  projects.filter((project) => getStarColor(project) !== null)
+);
+
+/** How long after its last message a session still counts as recent in the Focus view. */
+const FOCUS_WINDOW_MS = 24 * 60 * 60 * 1000;
+
 /**
- * Keeps the projects the star filter allows: `off` keeps all, `all` starred
- * ones, and a colour that colour and every hotter one (STAR_COLORS order).
+ * A session is recent when it is processing now (a Monitor or background shell
+ * keeps it in `activeSessions` however old its last message is), or its last
+ * interaction is within the Focus window.
  */
-export const filterProjectsByStar = (projects: Project[], filter: StarFilter): Project[] => {
-  if (filter === 'off') {
-    return projects;
-  }
-  if (filter === 'all') {
-    return projects.filter((project) => getStarColor(project) !== null);
+export const isSessionRecent = (
+  session: SessionWithProvider,
+  activeSessions: ReadonlySet<string>,
+  now: Date,
+): boolean => (
+  activeSessions.has(String(session.id))
+  || now.getTime() - getSessionDate(session).getTime() <= FOCUS_WINDOW_MS
+);
+
+/**
+ * Keeps the projects with at least one recent session. Each one is a new copy
+ * listing only its recent sessions, the same trimming the Running view does.
+ */
+export const filterProjectsToFocus = (
+  projects: Project[],
+  activeSessions: ReadonlySet<string>,
+  now: Date,
+): Project[] => projects.reduce<Project[]>((acc, project) => {
+  const sessions = getAllSessions(project).filter((session) => isSessionRecent(session, activeSessions, now));
+  if (sessions.length === 0) {
+    return acc;
   }
 
-  const threshold = STAR_COLORS.indexOf(filter);
-  return projects.filter((project) => {
-    const color = getStarColor(project);
-    return color !== null && STAR_COLORS.indexOf(color) >= threshold;
+  acc.push({
+    ...project,
+    sessions,
+    sessionMeta: {
+      ...project.sessionMeta,
+      total: sessions.length,
+      hasMore: false,
+    },
   });
-};
-
-/** Colours the filter chip offers to narrow to, in click order (least to most selective). */
-const STAR_FILTER_THRESHOLDS: readonly StarColor[] = ['yellow', 'orange', 'red'];
-
-/**
- * The thresholds worth a chip click. Starts from the `all` count and only
- * offers a threshold that actually narrows the list, so every click visibly
- * narrows. When two thresholds select the same projects, the hotter colour
- * is the one offered (e.g. only yellow and red projects gives `['red']`).
- */
-export const starFilterOptions = (projects: Project[]): StarColor[] => {
-  let previousCount = filterProjectsByStar(projects, 'all').length;
-  const options: StarColor[] = [];
-
-  for (const threshold of STAR_FILTER_THRESHOLDS) {
-    const count = filterProjectsByStar(projects, threshold).length;
-    if (count === 0) {
-      continue;
-    }
-    if (count < previousCount) {
-      options.push(threshold);
-      previousCount = count;
-    } else if (count === previousCount && options.length > 0) {
-      options[options.length - 1] = threshold;
-    }
-  }
-
-  return options;
-};
+  return acc;
+}, []);
 
 export const getTaskIndicatorStatus = (
   project: Project,

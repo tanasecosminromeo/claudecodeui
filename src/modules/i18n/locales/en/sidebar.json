@@ -19,11 +19,11 @@
     "tryDifferentSearch": "Try adjusting your search term",
     "runClaudeCli": "Run Claude CLI in a project directory to get started",
     "starFilter": {
-      "off": "Show all projects. Click to show starred projects only.",
-      "all": "Showing starred projects. Click to filter by colour.",
-      "color": "Showing {{color}} and hotter. Click to narrow.",
-      "top": "Showing red only. Click to show everything.",
+      "off": "Show all projects. Click to show only projects active in the last 24h.",
+      "focus": "Showing projects active in the last 24h. Click to show starred projects.",
+      "all": "Showing starred projects. Click to show all projects.",
       "empty": "No starred projects",
+      "focusEmpty": "Nothing active in the last 24h",
       "showAll": "Show all projects"
     },
     "sort": {
@@ -126,6 +126,7 @@
     "deleteSessionFailed": "Failed to delete session. Please try again.",
     "deleteSessionError": "Error deleting session. Please try again.",
     "renameSessionFailed": "Failed to rename session. Please try again.",
+    "pinSessionFailed": "Could not update the pin. Please try again.",
     "renameSessionError": "Error renaming session. Please try again.",
     "deleteProjectFailed": "Failed to remove project. Please try again.",
     "deleteProjectError": "Error removing project. Please try again.",
@@ -139,7 +140,9 @@
     "restoreSessionError": "Error restoring session. Please try again.",
     "forkSessionError": "Could not fork this session. Please try again.",
     "deleteSessionsPartialFailure_one": "{{count}} session out of {{total}} could not be deleted. Please try again.",
-    "deleteSessionsPartialFailure_other": "{{count}} of {{total}} sessions could not be deleted. Please try again."
+    "deleteSessionsPartialFailure_other": "{{count}} of {{total}} sessions could not be deleted. Please try again.",
+    "autoRenameFailed": "Could not auto-rename this session. Please try again.",
+    "statusFailed": "Could not change the session status. Please try again."
   },
   "version": {
     "updateAvailable": "Update available",
@@ -220,5 +223,23 @@
     "projectCount_one": "{{count}} project",
     "projectCount_other": "{{count}} projects",
     "saveError": "Could not update groups. Please try again."
+  },
+  "sessionStatus": {
+    "bug": "Bug",
+    "investigation": "Investigation",
+    "testing": "Testing",
+    "planning": "Planning",
+    "building": "Building",
+    "refactor": "Refactor",
+    "release": "Release",
+    "question": "Question",
+    "done": "Done",
+    "blocked": "Blocked, waiting on you",
+    "auto": "Auto",
+    "setStatus": "Set status",
+    "autoRename": "Auto rename",
+    "autoRenaming": "Renaming...",
+    "statusLabel": "Status: {{label}}",
+    "noStatus": "No status"
   }
 }

@@ -30,7 +30,23 @@ export function procInfo(pid) {
   const f = stat.slice(close + 2).split(' '); // f[0] = state (field 3)
   const cmdline = readText(`/proc/${pid}/cmdline`) || '';
   const argv = cmdline.split('\0').filter(Boolean).join(' ') || comm;
-  return { pid, ppid: Number(f[1]), comm, startMs: bootTimeMs() + Math.round((Number(f[19]) / CLK_TCK) * 1000), argv, cmdline };
+  return { pid, ppid: Number(f[1]), comm, procStart: f[19], startMs: bootTimeMs() + Math.round((Number(f[19]) / CLK_TCK) * 1000), argv, cmdline };
+}
+
+/** The Claude CLI itself: an argv starting with a path ending in /claude that runs stream-json output. */
+export function isClaudeArgv(argv) {
+  const first = String(argv || '').split(' ')[0];
+  return /(^|\/)claude$/.test(first) && String(argv).includes('--output-format stream-json');
+}
+
+/** `claude (<model>, resume <first 8 of the --resume id>)`: the short label; the full argv goes in a tooltip. */
+export function claudeLabel(argv) {
+  const model = (argv.match(/--model\s+(\S+)/) || [])[1];
+  const resume = (argv.match(/--resume\s+(\S+)/) || [])[1];
+  const parts = [];
+  if (model) parts.push(model);
+  if (resume) parts.push(`resume ${resume.slice(0, 8)}`);
+  return parts.length ? `claude (${parts.join(', ')})` : 'claude';
 }
 
 /**
@@ -39,6 +55,7 @@ export function procInfo(pid) {
  * the wrapper's preamble.
  */
 export function commandLabel(argv, cmdline) {
+  if (isClaudeArgv(argv)) return claudeLabel(argv);
   const text = cmdline || argv;
   // The Bash tool's wrapper is `<shell> -c source …/.claude/shell-snapshots/… && … eval '<cmd>'`;
   // other shells mentioning shell-snapshots (the snapshot builder) are shown as they are.
@@ -54,7 +71,7 @@ export function liveTree(rootPid) {
     const info = procInfo(pid);
     if (!info) continue;
     nodes.push({
-      pid, parent: pid === rootPid ? null : info.ppid, root: rootPid, argv: info.argv,
+      pid, procStart: info.procStart, parent: pid === rootPid ? null : info.ppid, root: rootPid, argv: info.argv,
       cmd: commandLabel(info.argv, info.cmdline), live: true, rssKb: rssKb(pid),
       startMs: info.startMs, endMs: null, code: null, sig: null,
     });

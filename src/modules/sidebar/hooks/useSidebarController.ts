@@ -4,13 +4,13 @@ import type { TFunction } from 'i18next';
 import { api } from '@/shared/api';
 import { DEFAULT_PROJECT_SORT_ORDER, PROJECT_SORT_ORDERS, subscribeToUserPreferences } from '@/shared/userSettings';
 import { usePaletteOps } from '@/modules/command-palette';
-import type { ArchivedProjectListItem, ArchivedSessionListItem, ConversationProjectResult, ConversationSearchResults, LLMProvider, Project, ProjectGroup, ProjectSession, StarColor, StarFilter, ProjectSortOrder, RecentConversationListItem, SearchProgress, ActiveSidebarRename, PendingSidebarDeletion, SessionTitleSearchResult, SessionWithProvider, SidebarSearchMode, SidebarSessionSelection } from '@/shared/types';
+import type { ArchivedProjectListItem, ArchivedSessionListItem, ConversationProjectResult, ConversationSearchResults, LLMProvider, Project, ProjectGroup, ProjectSession, SessionMetaPatch, StarColor, StarFilter, ProjectSortOrder, RecentConversationListItem, SearchProgress, ActiveSidebarRename, PendingSidebarDeletion, SessionTitleSearchResult, SessionWithProvider, SidebarSearchMode, SidebarSessionSelection } from '@/shared/types';
 import { useQuickArchive } from '@/modules/sidebar/hooks/useQuickArchive';
 import {
   filterProjects,
-  filterProjectsByStar,
+  filterProjectsToFocus,
+  filterStarredProjects,
   getAllSessions,
-  starFilterOptions,
   sortProjects,
 } from '@/modules/sidebar/utils/sidebarProjectFormatting';
 import {
@@ -26,7 +26,6 @@ import {
 import {
   getStarColor,
   nextStarFilter,
-  normalizeStarFilter,
   starAfterClick,
 } from '@/modules/sidebar/utils/starColors';
 
@@ -89,9 +88,13 @@ type UseSidebarControllerArgs = {
   isMobile: boolean;
   t: TFunction;
   onRefresh: () => Promise<void> | void;
+  /** Persists a pin change and resolves `true` when it was saved. */
+  onSetSessionPinned?: (sessionId: string, pinned: boolean) => Promise<boolean>;
   onProjectSelect: (project: Project) => void;
   onSessionSelect: (session: ProjectSession) => void;
   onSessionDelete?: (sessionId: string) => void;
+  /** Writes an automatic rename or status change onto the open session and the loaded project rows. */
+  onSessionUpdated?: (sessionId: string, patch: SessionMetaPatch) => void;
   onLoadMoreSessions?: (projectId: string) => Promise<void> | void;
   // `projectId` is the DB-assigned identifier; callbacks use that post-migration.
   onProjectDelete?: (projectId: string) => void;
@@ -110,9 +113,11 @@ export function useSidebarController({
   isMobile,
   t,
   onRefresh,
+  onSetSessionPinned,
   onProjectSelect,
   onSessionSelect,
   onSessionDelete,
+  onSessionUpdated,
   onLoadMoreSessions,
   onProjectDelete,
   setCurrentProject,
@@ -179,6 +184,9 @@ export function useSidebarController({
   const isSidebarCollapsed = !isMobile && !sidebarVisible;
   const activeSessionIds = activeSessions;
   const runningSessionsCount = activeSessionIds.size;
+  // The star chip's Focus state. It opens every project and group in the Projects list
+  // and leaves the saved open/closed state alone, so turning it off restores that state.
+  const isFocusActive = searchMode === 'projects' && starFilter === 'focus';
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -392,24 +400,38 @@ export function useSidebarController({
     }
 
     // Trimmed, because that is how the server derives a row's `sessionTitle`.
-    const summaryBySessionId = new Map<string, string>();
+    // The status and pin travel with the title: each can change on its own.
+    const metaBySessionId = new Map<string, { summary: string; status: string | null; statusSource: 'user' | 'auto' | null; pinned: boolean }>();
     for (const project of projects) {
       for (const session of project.sessions ?? []) {
         const summary = typeof session.summary === 'string' ? session.summary.trim() : '';
-        if (summary) {
-          summaryBySessionId.set(session.id, summary);
-        }
+        metaBySessionId.set(session.id, {
+          summary,
+          status: session.status ?? null,
+          statusSource: session.statusSource ?? null,
+          pinned: Boolean(session.pinned),
+        });
       }
     }
 
     let changed = false;
     const next = recentConversations.map((conversation) => {
-      const summary = summaryBySessionId.get(conversation.sessionId);
-      if (summary === undefined || summary === conversation.sessionTitle) {
+      const meta = metaBySessionId.get(conversation.sessionId);
+      if (meta === undefined) {
+        return conversation;
+      }
+      // An empty summary never replaces the title the server derived.
+      const sessionTitle = meta.summary || conversation.sessionTitle;
+      if (
+        sessionTitle === conversation.sessionTitle
+        && meta.status === (conversation.status ?? null)
+        && meta.statusSource === (conversation.statusSource ?? null)
+        && meta.pinned === Boolean(conversation.pinned)
+      ) {
         return conversation;
       }
       changed = true;
-      return { ...conversation, sessionTitle: summary };
+      return { ...conversation, sessionTitle, status: meta.status, statusSource: meta.statusSource, pinned: meta.pinned };
     });
     return changed ? next : recentConversations;
   }, [projects, recentConversations]);
@@ -618,6 +640,11 @@ export function useSidebarController({
   // `projectId` as their identifier after the migration.
   const toggleProject = useCallback(
     (projectId: string) => {
+      // Focus opens every project, so a click has nothing to change.
+      if (isFocusActive) {
+        return;
+      }
+
       // Collapsing or expanding takes the ticked rows off screen, so the
       // selection they belong to is dropped with them.
       setSessionSelection(null);
@@ -641,15 +668,19 @@ export function useSidebarController({
         return next;
       });
     },
-    [searchMode],
+    [isFocusActive, searchMode],
   );
 
   const isProjectExpanded = useCallback(
-    (projectId: string) =>
-      searchMode === 'running'
+    (projectId: string) => {
+      if (isFocusActive) {
+        return true;
+      }
+      return searchMode === 'running'
         ? !collapsedRunningProjects.has(projectId)
-        : expandedProjects.has(projectId),
-    [collapsedRunningProjects, expandedProjects, searchMode],
+        : expandedProjects.has(projectId);
+    },
+    [collapsedRunningProjects, expandedProjects, isFocusActive, searchMode],
   );
 
   const handleSessionClick = useCallback(
@@ -833,6 +864,10 @@ export function useSidebarController({
   }, [t]);
 
   const toggleProjectGroup = useCallback((groupId: string) => {
+    // Focus shows every group open, so a click does nothing and the saved set stays as it was.
+    if (isFocusActive) {
+      return;
+    }
     setCollapsedGroupIds((previous) => {
       const next = new Set(previous);
       if (!next.delete(groupId)) {
@@ -841,12 +876,12 @@ export function useSidebarController({
       writeCollapsedProjectGroupIds(next);
       return next;
     });
-  }, []);
+  }, [isFocusActive]);
 
-  // A search shows every match, so it opens collapsed groups for its duration.
+  // A search shows every match, and Focus shows every group, so both open collapsed groups.
   const isProjectGroupCollapsed = useCallback(
-    (groupId: string) => debouncedSearchQuery.length === 0 && collapsedGroupIds.has(groupId),
-    [collapsedGroupIds, debouncedSearchQuery],
+    (groupId: string) => debouncedSearchQuery.length === 0 && !isFocusActive && collapsedGroupIds.has(groupId),
+    [collapsedGroupIds, debouncedSearchQuery, isFocusActive],
   );
 
   const getProjectSessions = useCallback((project: Project) => getAllSessions(project), []);
@@ -945,31 +980,29 @@ export function useSidebarController({
     }, []);
   }, [activeSessionIds, sortedProjects]);
 
-  // The thresholds the chip can narrow to right now. One that is no longer
-  // offered is shown as `all` (see normalizeStarFilter), so the chip never gets stuck.
-  const starFilterChoices = useMemo(
-    () => starFilterOptions(sortedProjects),
-    [sortedProjects],
-  );
+  // The star chip's list filter, Projects mode only. Focus keeps the projects
+  // with a session active in the last 24 h (or processing now), and `all` keeps
+  // starred projects of any colour. Running and search stay unfiltered by it.
+  const starFilteredProjects = useMemo(() => {
+    if (searchMode !== 'projects') {
+      return sortedProjects;
+    }
+    if (starFilter === 'focus') {
+      return filterProjectsToFocus(sortedProjects, activeSessionIds, currentTime);
+    }
+    if (starFilter === 'all') {
+      return filterStarredProjects(sortedProjects);
+    }
+    return sortedProjects;
+  }, [activeSessionIds, currentTime, searchMode, sortedProjects, starFilter]);
 
-  const effectiveStarFilter = useMemo(
-    () => normalizeStarFilter(starFilter, starFilterChoices),
-    [starFilterChoices, starFilter],
-  );
-
-  // The star chip lives in the Projects list only; Running and search stay unfiltered by it.
-  const starFilteredProjects = useMemo(
-    () => (searchMode === 'projects' ? filterProjectsByStar(sortedProjects, effectiveStarFilter) : sortedProjects),
-    [effectiveStarFilter, searchMode, sortedProjects],
-  );
-
-  const isStarFilterEmpty = searchMode === 'projects' && effectiveStarFilter !== 'off' && starFilteredProjects.length === 0;
+  const isStarFilterEmpty = searchMode === 'projects' && starFilter !== 'off' && starFilteredProjects.length === 0;
 
   const cycleStarFilter = useCallback(() => {
-    const next = nextStarFilter(effectiveStarFilter, starFilterChoices);
+    const next = nextStarFilter(starFilter);
     setStarFilter(next);
     writeProjectStarFilter(next);
-  }, [effectiveStarFilter, starFilterChoices]);
+  }, [starFilter]);
 
   // One click moves starred -> A-Z -> most recent -> starred. The write
   // notifies the preference store, so Settings and other tabs follow.
@@ -1512,6 +1545,98 @@ export function useSidebarController({
   );
 
   /**
+   * Pins or unpins a session. The project state is patched optimistically by
+   * the caller, and the Conversations rows fold the pin in from `projects`, so
+   * both lists move the row at once. A refused change is announced here.
+   */
+  const togglePinSession = useCallback(async (session: SessionWithProvider) => {
+    if (!onSetSessionPinned) {
+      return;
+    }
+    const saved = await onSetSessionPinned(session.id, !session.pinned);
+    if (!saved) {
+      alert(t('messages.pinSessionFailed'));
+    }
+  }, [onSetSessionPinned, t]);
+
+  /**
+   * Writes an automatic rename or status change onto every copy the sidebar
+   * holds: the recents rows and, through `onSessionUpdated`, the project rows and
+   * the open session. Same paths as a manual rename, without a refetch.
+   */
+  const applySessionMeta = useCallback((sessionId: string, patch: SessionMetaPatch) => {
+    setRecentConversations((previous) => previous.map((conversation) => {
+      if (conversation.sessionId !== sessionId) {
+        return conversation;
+      }
+      return {
+        ...conversation,
+        ...(patch.summary !== undefined ? { sessionTitle: patch.summary } : {}),
+        ...(patch.status !== undefined ? { status: patch.status } : {}),
+        ...(patch.statusSource !== undefined ? { statusSource: patch.statusSource } : {}),
+      };
+    }));
+    onSessionUpdated?.(sessionId, patch);
+  }, [onSessionUpdated]);
+
+  // Sessions with an auto rename already running: a second click is ignored.
+  const autoRenamesInFlightRef = useRef(new Set<string>());
+
+  const autoRenameSession = useCallback(async (session: SessionWithProvider) => {
+    const sessionId = session.id;
+    if (autoRenamesInFlightRef.current.has(sessionId)) {
+      return;
+    }
+    autoRenamesInFlightRef.current.add(sessionId);
+    try {
+      const response = await api.autoRenameSession(sessionId);
+      if (!response.ok) {
+        console.error('[Sidebar] Failed to auto-rename session:', response.status);
+        alert(t('messages.autoRenameFailed'));
+        return;
+      }
+      const payload = (await response.json()) as { data?: { summary?: string; status?: string | null } };
+      const summary = payload.data?.summary?.trim();
+      if (!summary) {
+        alert(t('messages.autoRenameFailed'));
+        return;
+      }
+      applySessionMeta(sessionId, {
+        summary,
+        status: payload.data?.status ?? null,
+        // The server keeps a status the user pinned; otherwise the auto run set it.
+        statusSource: session.statusSource === 'user' ? 'user' : 'auto',
+        nameSource: 'auto',
+      });
+    } catch (error) {
+      console.error('[Sidebar] Error auto-renaming session:', error);
+      alert(t('messages.autoRenameFailed'));
+    } finally {
+      autoRenamesInFlightRef.current.delete(sessionId);
+    }
+  }, [applySessionMeta, t]);
+
+  /** Pins a status the user picked, or hands it back to automatic checks with null. */
+  const setSessionStatus = useCallback(async (session: SessionWithProvider, status: string | null) => {
+    try {
+      const response = await api.setSessionStatus(session.id, status);
+      if (!response.ok) {
+        console.error('[Sidebar] Failed to set session status:', response.status);
+        alert(t('messages.statusFailed'));
+        return;
+      }
+      const payload = (await response.json()) as { data?: { status?: string | null; statusSource?: 'user' | 'auto' | null } };
+      applySessionMeta(session.id, {
+        status: payload.data?.status ?? null,
+        statusSource: payload.data?.statusSource ?? null,
+      });
+    } catch (error) {
+      console.error('[Sidebar] Error setting session status:', error);
+      alert(t('messages.statusFailed'));
+    }
+  }, [applySessionMeta, t]);
+
+  /**
    * Branches a session and opens the copy.
    *
    * The new row arrives over the websocket as a `session_upserted`, so nothing
@@ -1627,6 +1752,9 @@ export function useSidebarController({
     undoQuickArchive,
     dismissQuickArchiveNotice,
     updateSessionSummary,
+    togglePinSession,
+    autoRenameSession,
+    setSessionStatus,
     collapseSidebar,
     expandSidebar,
     setShowNewProject,
@@ -1646,7 +1774,7 @@ export function useSidebarController({
       setConversationResults(null);
     }, []),
     setSearchFilter,
-    starFilter: effectiveStarFilter,
+    starFilter,
     cycleStarFilter,
     clearStarFilter,
     isStarFilterEmpty,

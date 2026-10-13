@@ -1,8 +1,9 @@
 // Gmail-style star colors and project groups in the sidebar. A quick second
 // click on a project's star moves it to the next color and the project stays
 // where it is in the list; a click more than 3 s after the last one unstars it.
-// A right-click opens a palette to pick a color; the starred-filter chip shows
-// only starred projects, or only one color. "Move to group" files projects under
+// A right-click opens a palette to pick a color; the starred-filter chip cycles
+// all projects, then only projects active in the last 24 h, then only starred
+// projects of any colour. "Move to group" files projects under
 // a named, collapsible folder. Colors, membership and the collapsed state all
 // survive a reload.
 import fs from 'node:fs';
@@ -114,9 +115,8 @@ export async function run({ chat, page, app, paths, expect, snapshot, log }) {
   await waitForServer(names[1], (project) => Boolean(project.groupId), 'the server stored the membership');
   await snapshot('group with two projects');
 
-  // Starred-filter chip: names[0] is red and names[1] yellow. The only
-  // threshold that narrows the list is red (yellow would show both), so the
-  // chip goes off → all → red → off.
+  // Starred-filter chip: names[0] is red and names[1] yellow, both starred, and
+  // neither has a session, so Focus hides both. The chip goes off -> focus -> all -> off.
   const chip = page.locator('[data-testid="starred-filter"]:visible');
   const visibleProjectNames = async () => {
     const found = [];
@@ -131,16 +131,16 @@ export async function run({ chat, page, app, paths, expect, snapshot, log }) {
   expect(await star(names[1]).getAttribute('data-star-color') === 'yellow', 'a quick second click takes it to yellow');
   expect(await chip.getAttribute('data-star-filter') === 'off', 'the starred filter starts off');
   await chip.click();
-  expect(await chip.getAttribute('data-star-filter') === 'all', 'the first chip click shows all starred');
+  expect(await chip.getAttribute('data-star-filter') === 'focus', 'the first chip click shows focus');
+  expect(JSON.stringify(await visibleProjectNames()) === JSON.stringify([]), 'focus hides projects with no session in the last 24 h');
+  await snapshot('starred filter: focus');
+  await chip.click();
+  expect(await chip.getAttribute('data-star-filter') === 'all', 'the next chip click shows starred projects');
   expect(await page.locator('[data-testid="project-star"][data-star-color="none"]').count() === 0, 'starred filter hides unstarred projects');
-  expect(JSON.stringify(await visibleProjectNames()) === JSON.stringify(names), 'starred filter keeps both starred e2e projects');
+  expect(JSON.stringify(await visibleProjectNames()) === JSON.stringify(names), 'starred filter keeps both starred e2e projects, whatever the colour');
   await snapshot('starred filter: all starred');
   await chip.click();
-  expect(await chip.getAttribute('data-star-filter') === 'red', 'the next chip click picks red, the only narrowing threshold');
-  expect(JSON.stringify(await visibleProjectNames()) === JSON.stringify([names[0]]), 'red filter shows red and hotter, so only the red project');
-  await snapshot('starred filter: red and hotter');
-  await chip.click();
-  expect(await chip.getAttribute('data-star-filter') === 'off', 'after red the chip is off');
+  expect(await chip.getAttribute('data-star-filter') === 'off', 'after starred the chip is off');
   expect(JSON.stringify(await visibleProjectNames()) === JSON.stringify(names), 'off shows the e2e projects again');
   await snapshot('starred filter off');
 

@@ -91,6 +91,12 @@ const BG_WAIT_CEILING_MS = parseInt(process.env.CLOUDCLI_BG_WAIT_CEILING_MS, 10)
 // that missed the task's end.
 const TRACKED_BACKGROUND_HOLD_CEILING_MS = parseInt(process.env.CLOUDCLI_TRACKED_BG_HOLD_CEILING_MS, 10) || 24 * 60 * 60 * 1000;
 
+// How long a `stopped` task notification waits for a follow-up turn before the
+// process is let go. A Monitor that expires is reported as `stopped` and the CLI
+// then starts a turn to relay the expiry; a task the user stopped gets no turn.
+// The window tells the two apart.
+const STOPPED_TASK_RELEASE_GRACE_MS = parseInt(process.env.CLOUDCLI_STOPPED_TASK_RELEASE_GRACE_MS, 10) || 10000;
+
 const TOOLS_REQUIRING_INTERACTION = new Set(['AskUserQuestion', 'ExitPlanMode']);
 
 /**
@@ -1123,13 +1129,25 @@ async function startClaudeProcess(command, options = {}, ws, context, reattachRe
   // The CLI's stdin. Replaced once the prompt exists; the finally block
   // releases it no matter how the process ends.
   let prompt = { push: () => false, release: () => {}, isReleased: () => false };
+  // Every release goes through here, so a grace window still open cannot fire
+  // on a process that is already gone.
   const releasePromptStream = () => {
+    clearStoppedRelease();
     prompt.release();
     // A released process is on its way out. A server that restarts before it
     // has gone must not reattach to it — nor leave it running for good.
     updateRecord({ released: true });
   };
   let idleReleaseTimer = null;
+  // Open while a `stopped` notification waits out STOPPED_TASK_RELEASE_GRACE_MS
+  // for a follow-up turn. Cancelled by any sign of a new turn or a new message.
+  let stoppedReleaseTimer = null;
+  const clearStoppedRelease = () => {
+    if (stoppedReleaseTimer) {
+      clearTimeout(stoppedReleaseTimer);
+      stoppedReleaseTimer = null;
+    }
+  };
 
   // The turn in progress. `completeSent` is set once the client was told the
   // turn is over — as soon as `result` lands, even though the process may
@@ -1358,6 +1376,7 @@ async function startClaudeProcess(command, options = {}, ws, context, reattachRe
       // The process is working again; the hold is decided afresh at this
       // turn's result.
       clearIdleRelease();
+      clearStoppedRelease();
       return { done: nextTurn.done };
     },
 
@@ -1385,6 +1404,9 @@ async function startClaudeProcess(command, options = {}, ws, context, reattachRe
       // already on its way (see the result handling): the turn is then not
       // over when that result lands.
       pushedSinceLastOutput = true;
+      // A pushed message starts a turn the stopped task's follow-up would
+      // otherwise be waited for on: the hold is decided at that turn's result.
+      clearStoppedRelease();
       if (isQueuedByCli(messages[0]?.message?.content)) {
         commandRunsAwaited += 1;
       }
@@ -1656,6 +1678,7 @@ async function startClaudeProcess(command, options = {}, ws, context, reattachRe
       const settleTurn = () => {
         clearTimeout(trailingPushTimer);
         trailingPushTimer = null;
+        clearStoppedRelease();
         commandRunsAwaited = 0;
         // An aborted turn's terminal `complete` (aborted: true) already went
         // out from the abort handler. The flag is spent on this result: the
@@ -1793,12 +1816,26 @@ async function startClaudeProcess(command, options = {}, ws, context, reattachRe
           }
         }
 
-        // A task the user stopped gets no follow-up turn from the CLI — only its
-        // `stopped` notification — so when that was the last outstanding task
-        // nothing will ever push the `result` the release below waits for, and
-        // the process would sit until the idle ceiling. Release it here. A
-        // completed task is different: the CLI relays its result in a turn of
-        // its own, which closing stdin now would cut short.
+        // A new turn starting (or a message pushed into the process) means the
+        // stopped task's follow-up is under way: the hold is then decided at
+        // that turn's `result`, not by the grace window.
+        if (
+          message.type === 'assistant'
+          || message.type === 'stream_event'
+          || (message.type === 'system' && message.subtype === 'init')
+        ) {
+          clearStoppedRelease();
+        }
+
+        // A stopped task is reported as `stopped` in two cases. When the user
+        // stops it, the CLI pushes no follow-up turn, so nothing else would
+        // ever push the `result` the release below waits for. When a Monitor's
+        // watch expires, the same notification is followed by a turn that
+        // relays the expiry, and closing stdin now would cut that turn short.
+        // The grace window lets that follow-up turn start: if one does, its
+        // `result` releases the process; if none does, the process is let go
+        // once the window ends. A completed task needs no window: the turn that
+        // relays its result ends in `settleTurn`, which releases the process.
         if (
           heldForBackgroundWork
           && message.type === 'system'
@@ -1806,8 +1843,15 @@ async function startClaudeProcess(command, options = {}, ws, context, reattachRe
           && message.status === 'stopped'
           && !backgroundWork.hasOutstanding(sessionKey())
         ) {
-          heldForBackgroundWork = false;
-          releasePromptStream();
+          clearStoppedRelease();
+          stoppedReleaseTimer = setTimeout(() => {
+            stoppedReleaseTimer = null;
+            if (heldForBackgroundWork && !backgroundWork.hasOutstanding(sessionKey())) {
+              heldForBackgroundWork = false;
+              releasePromptStream();
+            }
+          }, STOPPED_TASK_RELEASE_GRACE_MS);
+          stoppedReleaseTimer.unref?.();
         }
 
         // A stopped turn waits for none of the commands pushed into it.
@@ -1921,6 +1965,7 @@ async function startClaudeProcess(command, options = {}, ws, context, reattachRe
       // Always close stdin — otherwise an aborted or failed run leaves the CLI
       // process (and its MCP servers) alive until the server exits.
       clearIdleRelease();
+      clearStoppedRelease();
       releasePromptStream();
       // No run may be left waiting on a turn the process will never finish.
       turn.resolve();

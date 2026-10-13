@@ -11,6 +11,7 @@ import express, { type NextFunction, type Request, type Response } from 'express
 import { closeConnection, initializeDatabase, sessionsDb } from '@/modules/database/index.js';
 import providerRouter from '@/modules/providers/provider.routes.js';
 import { providerRegistry } from '@/modules/providers/provider.registry.js';
+import { setSessionTitleDependencies } from '@/modules/providers/services/session-title.service.js';
 import type { IProvider } from '@/shared/interfaces.js';
 import type { BackgroundTaskSummary, WorkflowAgentActivity } from '@/shared/types.js';
 import { AppError } from '@/shared/utils.js';
@@ -469,5 +470,119 @@ test('the workflow agent route reads an agent\'s timeline and status from its ru
     const missing = await missingResponse.json() as { error: { code: string } };
     assert.equal(missingResponse.status, 404);
     assert.equal(missing.error.code, 'WORKFLOW_AGENT_NOT_FOUND');
+  });
+});
+
+test('auto-rename route names the session and sets its status from a stubbed reply', async () => {
+  await withProviderServer(async (baseUrl) => {
+    sessionsDb.createAppSession('auto-route-session', 'claude', '/workspace/client-a', 'Manual name');
+    sessionsDb.updateSessionCustomName('auto-route-session', 'Manual name', 'user');
+    const restore = setSessionTitleDependencies({
+      loadMessages: async () => [
+        { kind: 'text', role: 'user', content: 'The login test fails', id: 'u1' },
+        { kind: 'text', role: 'assistant', content: 'Looking at the fixture', id: 'a1' },
+      ] as never,
+      runQuery: async () => '{"title": "Fix login test", "status": "bug"}',
+    });
+    try {
+      const response = await fetch(`${baseUrl}/api/providers/sessions/auto-route-session/auto-rename`, {
+        method: 'POST',
+      });
+      const payload = await response.json() as { data: { summary: string; status: string } };
+
+      assert.equal(response.status, 200);
+      assert.equal(payload.data.summary, 'Fix login test');
+      assert.equal(payload.data.status, 'bug');
+      const row = sessionsDb.getSessionById('auto-route-session');
+      assert.equal(row?.custom_name, 'Fix login test');
+      assert.equal(row?.name_source, 'auto');
+      assert.equal(row?.status_source, 'auto');
+    } finally {
+      restore();
+    }
+  });
+});
+
+test('auto-rename route returns 404 for an unknown session and 502 when generation fails', async () => {
+  await withProviderServer(async (baseUrl) => {
+    const missing = await fetch(`${baseUrl}/api/providers/sessions/no-such-session/auto-rename`, { method: 'POST' });
+    assert.equal(missing.status, 404);
+
+    sessionsDb.createAppSession('auto-fail-session', 'claude', '/workspace/client-a', 'Keep me');
+    const restore = setSessionTitleDependencies({
+      loadMessages: async () => [{ kind: 'text', role: 'user', content: 'hello', id: 'u1' }] as never,
+      runQuery: async () => {
+        throw new Error('model unavailable');
+      },
+    });
+    try {
+      const failed = await fetch(`${baseUrl}/api/providers/sessions/auto-fail-session/auto-rename`, { method: 'POST' });
+      const payload = await failed.json() as { error: { code: string; message: string } };
+      assert.equal(failed.status, 502);
+      assert.equal(payload.error.code, 'TITLE_GENERATION_FAILED');
+      assert.equal(sessionsDb.getSessionById('auto-fail-session')?.custom_name, 'Keep me');
+    } finally {
+      restore();
+    }
+  });
+});
+
+test('status route pins a valid key, hands back to Auto on null, and rejects unknown keys', async () => {
+  await withProviderServer(async (baseUrl) => {
+    sessionsDb.createAppSession('status-route-session', 'claude', '/workspace/client-a');
+    const put = (body: unknown) => fetch(`${baseUrl}/api/providers/sessions/status-route-session/status`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+
+    const rejected = await put({ status: 'sleeping' });
+    assert.equal(rejected.status, 400);
+
+    const pinned = await put({ status: 'testing' });
+    assert.equal(pinned.status, 200);
+    assert.equal(sessionsDb.getSessionById('status-route-session')?.status, 'testing');
+    assert.equal(sessionsDb.getSessionById('status-route-session')?.status_source, 'user');
+
+    const auto = await put({ status: null });
+    assert.equal(auto.status, 200);
+    const row = sessionsDb.getSessionById('status-route-session');
+    assert.equal(row?.status, 'testing');
+    assert.equal(row?.status_source, null);
+  });
+});
+
+test('session pin route sets and clears pinned_at and rejects bad input', async () => {
+  await withProviderServer(async (baseUrl) => {
+    sessionsDb.createSession('session-pin-target', 'claude', '/workspace/demo-project', 'Pin me');
+    const pinUrl = `${baseUrl}/api/providers/sessions/session-pin-target/pin`;
+    const putPin = (body: unknown) => fetch(pinUrl, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+
+    const pinResponse = await putPin({ pinned: true });
+    const pinPayload = await pinResponse.json() as { data: { sessionId: string; pinned: boolean } };
+    assert.equal(pinResponse.status, 200);
+    assert.deepEqual(pinPayload.data, { sessionId: 'session-pin-target', pinned: true });
+    assert.ok(sessionsDb.getSessionById('session-pin-target')?.pinned_at);
+
+    const unpinResponse = await putPin({ pinned: false });
+    assert.equal(unpinResponse.status, 200);
+    assert.equal(sessionsDb.getSessionById('session-pin-target')?.pinned_at, null);
+
+    const invalidResponse = await putPin({ pinned: 'yes' });
+    assert.equal(invalidResponse.status, 400);
+
+    const missingFieldResponse = await putPin({});
+    assert.equal(missingFieldResponse.status, 400);
+
+    const unknownResponse = await fetch(`${baseUrl}/api/providers/sessions/no-such-session/pin`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ pinned: true }),
+    });
+    assert.equal(unknownResponse.status, 404);
   });
 });

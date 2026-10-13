@@ -106,6 +106,287 @@
     return body;
   }
 
+  // One live process for the process modal (GET /process). 404 = it ended or its pid was reused.
+  async function fetchProcess(pid, procStart) {
+    const q = `pid=${encodeURIComponent(pid)}&procStart=${encodeURIComponent(procStart)}`;
+    const r = await fetch(`/api/plugins/${RADAR_PLUGIN}/rpc/process?${q}`, { headers: authHeaders() });
+    const body = await r.json().catch(() => ({}));
+    if (!r.ok) throw Object.assign(new Error(body.error || `HTTP ${r.status}`), { status: r.status });
+    return body;
+  }
+
+  // ---- Leftover processes (session-radar GET /leftovers, POST /leftovers/kill) ----
+  // Processes still running after the Claude session that started them ended. The list opens by
+  // itself once per CloudCLI restart (the plugin server restarts with it) until the user closes it;
+  // the Running view keeps a "Leftover processes (N)" entry while N > 0.
+  const LEFTOVER_SEEN_KEY = 'uic-leftovers-seen'; // serverStartedAt the user last closed the list at
+  const LEFTOVER_POLL_MS = 15000;
+  const LEFTOVER_ENTRY = 'uic-leftover-entry';
+  let leftovers = { serverStartedAt: null, groups: [] };
+  let leftoverTimer = null;
+  let leftoverInFlight = false;
+  let loModal = null; // { el, body, cta, err, onKey } while the modal is open
+  let loBusy = false; // a Kill all request is in flight: Kill all and the row X buttons stay disabled
+
+  async function fetchLeftovers() {
+    const r = await fetch(`/api/plugins/${RADAR_PLUGIN}/rpc/leftovers`, { headers: authHeaders() });
+    const body = await r.json().catch(() => ({}));
+    if (!r.ok) throw Object.assign(new Error(body.error || `HTTP ${r.status}`), { status: r.status });
+    return body;
+  }
+
+  async function killLeftoverRpc(payload) {
+    const r = await fetch(`/api/plugins/${RADAR_PLUGIN}/rpc/leftovers/kill`, {
+      method: 'POST',
+      headers: { ...authHeaders(), 'content-type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const body = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(body.error || `HTTP ${r.status}`);
+    return body;
+  }
+
+  const leftoverCount = (groups) => groups.reduce((n, g) => n + g.processes.length, 0);
+  const mk = (tag, cls, text) => {
+    const el = document.createElement(tag);
+    if (cls) el.className = cls;
+    if (text != null) el.textContent = text;
+    return el;
+  };
+  function ageText(ms) {
+    const s = Math.max(0, Math.round(ms / 1000));
+    if (s < 90) return `${s} s`;
+    const m = Math.round(s / 60);
+    if (m < 90) return `${m} min`;
+    const h = Math.round(m / 60);
+    return h < 48 ? `${h} h` : `${Math.round(h / 24)} d`;
+  }
+  const memText = (bytes) => { const mb = bytes / 1048576; return mb >= 1024 ? `${(mb / 1024).toFixed(1)} GB` : `${Math.round(mb)} MB`; };
+
+  function seenStamp() {
+    try { return localStorage.getItem(LEFTOVER_SEEN_KEY); } catch { return null; }
+  }
+
+  function closeLeftovers() {
+    if (!loModal) return;
+    try { localStorage.setItem(LEFTOVER_SEEN_KEY, String(leftovers.serverStartedAt)); } catch { /* storage blocked */ }
+    document.removeEventListener('keydown', loModal.onKey, true);
+    loModal.el.remove();
+    loModal = null;
+    syncLeftoverEntry();
+  }
+
+  // Opens by itself only for a restart stamp the user has not closed the list at yet.
+  function maybeAutoOpen(data) {
+    if (loModal || leftoverCount(data.groups) === 0) return;
+    if (String(data.serverStartedAt) === seenStamp()) return;
+    openLeftovers(data);
+  }
+
+  function xIcon() {
+    const ns = 'http://www.w3.org/2000/svg';
+    const svg = document.createElementNS(ns, 'svg');
+    svg.setAttribute('viewBox', '0 0 24 24');
+    svg.setAttribute('width', '18');
+    svg.setAttribute('height', '18');
+    svg.setAttribute('fill', 'none');
+    svg.setAttribute('stroke', 'currentColor');
+    svg.setAttribute('stroke-width', '2');
+    svg.setAttribute('stroke-linecap', 'round');
+    svg.setAttribute('aria-hidden', 'true');
+    const p = document.createElementNS(ns, 'path');
+    p.setAttribute('d', 'M18 6 6 18M6 6l12 12');
+    svg.append(p);
+    return svg;
+  }
+
+  function updateLoFoot() {
+    const m = loModal;
+    if (!m) return;
+    const n = leftoverCount(leftovers.groups);
+    m.cta.textContent = `Kill all (${n})`;
+    m.cta.disabled = n === 0 || loBusy;
+    if (n === 0 && !m.body.querySelector('.uic-lo-empty')) m.body.replaceChildren(mk('div', 'uic-lo-empty', 'No leftover processes.'));
+  }
+
+  function procEl(g, p, sec) {
+    const li = mk('li', 'uic-lo-item');
+    const row = mk('div', 'uic-lo-row');
+    row.style.setProperty('--depth', String(p.depth));
+    const main = mk('div', 'uic-lo-main');
+    const cmd = mk('div', 'uic-lo-cmd', p.command.length > 160 ? `${p.command.slice(0, 159)}…` : p.command);
+    cmd.title = p.command;
+    main.append(cmd, mk('div', 'uic-lo-meta', `pid ${p.pid} · up ${ageText(Date.now() - p.startedAt)} · ${memText(p.rssBytes)}`));
+    const label = `Kill ${p.name} (pid ${p.pid})`;
+    const btn = mk('button', 'uic-lo-kill');
+    btn.type = 'button';
+    btn.disabled = loBusy;
+    btn.title = label;
+    btn.setAttribute('aria-label', label);
+    btn.append(xIcon());
+    const err = mk('div', 'uic-lo-rowerr');
+    err.setAttribute('role', 'alert');
+    err.hidden = true;
+    row.append(main, btn);
+    li.append(row, err);
+    btn.addEventListener('click', async () => {
+      if (loBusy) return;
+      btn.disabled = true;
+      err.hidden = true;
+      try {
+        await killLeftoverRpc({ unit: g.unit, pid: p.pid, procStart: p.procStart });
+      } catch (e) {
+        btn.disabled = false;
+        err.textContent = `Could not kill ${p.name} (pid ${p.pid}): ${e.message}`;
+        err.hidden = false;
+        return;
+      }
+      // Forget the process; drop its group when it was the last one.
+      g.processes = g.processes.filter((x) => x !== p);
+      li.remove();
+      if (g.processes.length === 0) {
+        leftovers.groups = leftovers.groups.filter((x) => x !== g);
+        sec.remove();
+      }
+      updateLoFoot();
+      syncLeftoverEntry();
+    });
+    return li;
+  }
+
+  function groupEl(g, now) {
+    const sec = mk('section', 'uic-lo-group');
+    sec.title = g.unit;
+    const head = mk('div', 'uic-lo-gh');
+    head.append(mk('span', 'uic-lo-gname', g.title || g.appSessionId.slice(0, 8)));
+    if (g.project) head.append(mk('span', 'uic-lo-gproj', g.project));
+    head.append(mk('span', 'uic-lo-gage', `scope up ${ageText(now - g.startedAt)}`));
+    const list = mk('ul', 'uic-lo-list');
+    for (const p of g.processes) list.append(procEl(g, p, sec));
+    sec.append(head, list);
+    return sec;
+  }
+
+  function renderLeftoverBody() {
+    const m = loModal;
+    if (!m) return;
+    const now = Date.now();
+    m.body.replaceChildren(...leftovers.groups.filter((g) => g.processes.length).map((g) => groupEl(g, now)));
+    updateLoFoot();
+  }
+
+  async function killAllLeftovers() {
+    const m = loModal;
+    if (!m || loBusy || leftoverCount(leftovers.groups) === 0) return;
+    // Busy until the answer is in: a second tap must not send a second kill request.
+    loBusy = true;
+    m.body.querySelectorAll('.uic-lo-kill').forEach((b) => { b.disabled = true; });
+    updateLoFoot();
+    m.err.textContent = '';
+    try {
+      await killLeftoverRpc({ all: true });
+    } catch (e) {
+      loBusy = false;
+      m.err.textContent = `Kill all failed: ${e.message}`;
+      updateLoFoot();
+      return;
+    }
+    try {
+      leftovers = await fetchLeftovers(); // what is still running after the kill
+    } catch {
+      m.err.textContent = 'Killed, but the list could not be refreshed.';
+    }
+    loBusy = false;
+    renderLeftoverBody();
+    syncLeftoverEntry();
+  }
+
+  function openLeftovers(data) {
+    if (loModal) return;
+    if (data) leftovers = data;
+    const el = mk('div', 'uic-lo-overlay');
+    el.id = 'uic-leftovers';
+    const card = mk('div', 'uic-lo-card');
+    card.setAttribute('role', 'dialog');
+    card.setAttribute('aria-modal', 'true');
+    card.setAttribute('aria-labelledby', 'uic-lo-title');
+    const head = mk('div', 'uic-lo-head');
+    const title = mk('h2', 'uic-lo-title', 'Leftover processes');
+    title.id = 'uic-lo-title';
+    const x = mk('button', 'uic-lo-x', '×');
+    x.type = 'button';
+    x.setAttribute('aria-label', 'Close');
+    head.append(title, x);
+    const intro = mk('p', 'uic-lo-intro', 'Still running after the Claude session that started them ended. Kill what you do not need.');
+    const body = mk('div', 'uic-lo-body');
+    const foot = mk('div', 'uic-lo-foot');
+    const err = mk('div', 'uic-lo-err');
+    err.setAttribute('role', 'alert');
+    const btns = mk('div', 'uic-lo-btns');
+    const cta = mk('button', 'uic-lo-cta');
+    cta.type = 'button';
+    const close = mk('button', 'uic-lo-close', 'Close');
+    close.type = 'button';
+    btns.append(cta, close);
+    foot.append(err, btns);
+    card.append(head, intro, body, foot);
+    el.append(card);
+    document.body.append(el);
+    const onKey = (e) => { if (e.key === 'Escape') closeLeftovers(); };
+    loModal = { el, body, cta, err, onKey };
+    document.addEventListener('keydown', onKey, true);
+    el.addEventListener('click', (e) => { if (e.target === el) closeLeftovers(); });
+    x.addEventListener('click', closeLeftovers);
+    close.addEventListener('click', closeLeftovers);
+    cta.addEventListener('click', killAllLeftovers);
+    renderLeftoverBody();
+    syncLeftoverEntry();
+    close.focus();
+  }
+
+  // The Running view's entry: a row above the sessions, shown only while there are leftovers.
+  function syncLeftoverEntry() {
+    const n = leftoverCount(leftovers.groups);
+    const entry = panels.get('data-uic-radar');
+    let btn = document.getElementById(LEFTOVER_ENTRY);
+    if (!entry || !entry.el.isConnected || n === 0) {
+      if (btn) btn.remove();
+      return;
+    }
+    if (!btn) {
+      btn = mk('button', 'uic-lo-entry');
+      btn.type = 'button';
+      btn.id = LEFTOVER_ENTRY;
+      btn.title = 'Processes left running after their Claude session ended';
+      btn.addEventListener('click', () => openLeftovers());
+    }
+    btn.textContent = `Leftover processes (${n})`;
+    if (entry.el.firstElementChild !== btn) entry.el.prepend(btn);
+  }
+
+  // Polls the list (and so notices a CloudCLI restart, or the server coming back after one).
+  async function checkLeftovers() {
+    if (leftoverInFlight) return;
+    leftoverInFlight = true;
+    clearTimeout(leftoverTimer);
+    let delay = LEFTOVER_POLL_MS;
+    try {
+      let token = null;
+      try { token = localStorage.getItem('auth-token'); } catch { /* ignore */ }
+      if (token) {
+        const data = await fetchLeftovers();
+        if (!loModal) leftovers = data; // an open list is the user's view until it closes
+        maybeAutoOpen(data);
+      }
+    } catch (err) {
+      if (err && err.status === 404) delay = 60000; // plugin not installed/running
+    } finally {
+      leftoverInFlight = false;
+      syncLeftoverEntry();
+      leftoverTimer = setTimeout(checkLeftovers, delay);
+    }
+  }
+
   async function artefactsRpc(method, path, body) {
     const r = await fetch(`/api/plugins/${ARTEFACTS_PLUGIN}/rpc/${path}`, {
       method,
@@ -537,7 +818,11 @@
   // plugin panel is pressed, and the panel is mounted in its place.
   const PANELS = [
     { attr: 'data-uic-radar', icon: 'lucide-activity', plugin: RADAR_PLUGIN, name: 'Sessions',
-      render: (mod, el) => mod.renderRadar(el, { fetchData: fetchSessions, stopSession, fetchTree }) },
+      render: (mod, el) => mod.renderRadar(el, {
+        fetchData: fetchSessions, stopSession, fetchTree, fetchProcess,
+        // A kill from the process modal goes through the leftovers route; re-check the list after it.
+        killLeftover: (payload) => killLeftoverRpc(payload).then((res) => { checkLeftovers(); return res; }),
+      }) },
     { attr: 'data-uic-artefacts', icon: 'lucide-message-square', plugin: ARTEFACTS_PLUGIN, name: 'Artefacts',
       render: (mod, el) => mod.renderArtefacts(el, {
         fetchData: () => artefactsRpc('GET', 'artefacts'),
@@ -635,6 +920,7 @@
       const header = root && root.firstElementChild;
       if (!header || header === footer) return;
       try { syncPanels(root, header); } catch (err) { console.warn('[ui-cleanup] sidebar panels', err); }
+      try { syncLeftoverEntry(); } catch (err) { console.warn('[ui-cleanup] leftover entry', err); }
       try { relabelConversations(header); } catch (err) { console.warn('[ui-cleanup] artefacts label', err); }
       const settingsBtn = footerSettingsButton();
       const templateSvg = settingsBtn && settingsBtn.querySelector('svg');
@@ -708,11 +994,15 @@
     schedule();
     pollAlert();
     pollUsage();
+    checkLeftovers();
+    // A page coming back (tab shown again, network back) checks the list at once.
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) checkLeftovers(); });
+    addEventListener('online', () => checkLeftovers());
   }
 
   const testHook = globalThis.__UIC_TEST__;
   if (testHook && typeof testHook === 'object') {
-    Object.assign(testHook, { updateAlert, renderWaitBanner });
+    Object.assign(testHook, { updateAlert, renderWaitBanner, checkLeftovers, openLeftovers, closeLeftovers, syncLeftoverEntry });
     return;
   }
 

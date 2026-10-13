@@ -40,6 +40,7 @@ const renderRow = (state: { isProcessing: boolean; hasBackgroundWork: boolean })
     session: SESSION,
     selectedSession: null,
     needsAttention: false,
+    isPinned: false,
     currentTime: NOW,
     isEditing: false,
     renameDraft: '',

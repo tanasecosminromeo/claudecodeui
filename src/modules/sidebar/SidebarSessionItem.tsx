@@ -1,6 +1,6 @@
-import { memo, useState } from 'react';
+import { memo, useCallback, useState } from 'react';
 import type { KeyboardEvent } from 'react';
-import { Archive, Check, CheckSquare, Edit2, Loader2, MoreHorizontal, Square, Trash2, X } from 'lucide-react';
+import { Archive, Check, CheckSquare, Edit2, Loader2, MoreHorizontal, Pin, PinOff, Sparkles, Square, Tag, Trash2, X } from 'lucide-react';
 import type { TFunction } from 'i18next';
 
 import { Badge, Dialog, DialogContent, DialogTitle, LLMProviderLogo, Tooltip, buttonVariants } from '@/shared/ui';
@@ -10,6 +10,9 @@ import { PROVIDER_LABELS, createSessionViewModel, formatCompactAge } from '@/mod
 import { useCompactSidebar } from '@/modules/sidebar/hooks/useCompactSidebar';
 import { useProviderSessionIdCopy } from '@/modules/sidebar/hooks/useProviderSessionIdCopy';
 import SessionOptions from '@/modules/sidebar/SessionOptions';
+import SessionPinBadge from '@/modules/sidebar/SessionPinBadge';
+import { SessionStatusEmoji, SessionStatusList, SessionStatusPopover } from '@/modules/sidebar/SessionStatusPicker';
+import type { SessionStatusKey } from '@/modules/sidebar/utils/sessionStatus';
 
 type SidebarSessionItemProps = {
   project: Project;
@@ -19,6 +22,8 @@ type SidebarSessionItemProps = {
   /** The session's turn has ended but the agents, workflows or commands it launched still run. */
   hasBackgroundWork: boolean;
   needsAttention: boolean;
+  /** Pinned sessions carry a badge on their provider logo. Passed as a scalar so the memoized row can skip re-renders. */
+  isPinned: boolean;
   currentTime: Date;
   /** Resolved for this row, so a keystroke elsewhere does not invalidate it. */
   isEditing: boolean;
@@ -34,6 +39,11 @@ type SidebarSessionItemProps = {
   onForkSession?: (session: SessionWithProvider) => void;
   /** Archives this session in one click, with Undo offered afterwards. */
   onArchiveSession?: (session: SessionWithProvider) => void;
+  onTogglePinSession?: (session: SessionWithProvider) => void;
+  /** Generates a title and status for this session; absent when the list cannot run it. */
+  onAutoRenameSession?: (session: SessionWithProvider) => Promise<void> | void;
+  /** Pins the status the user picked, or hands it back to automatic checks with null. */
+  onSetSessionStatus?: (session: SessionWithProvider, status: string | null) => Promise<void> | void;
   /** This project's list is in bulk-selection mode: the row acts as a checkbox and hides its options. */
   isSelecting: boolean;
   /** Ticked for the pending bulk delete. Resolved by the list, which never ticks a running row. */
@@ -51,6 +61,7 @@ function SidebarSessionItem({
   isProcessing,
   hasBackgroundWork,
   needsAttention,
+  isPinned,
   currentTime,
   isEditing,
   renameDraft,
@@ -63,6 +74,9 @@ function SidebarSessionItem({
   onDeleteSession,
   onForkSession,
   onArchiveSession,
+  onTogglePinSession,
+  onAutoRenameSession,
+  onSetSessionStatus,
   isSelecting,
   isChecked,
   onToggleSessionSelected,
@@ -73,6 +87,11 @@ function SidebarSessionItem({
   const isSelected = selectedSession?.id === session.id;
   const compactSessionAge = formatCompactAge(sessionView.sessionTime, currentTime);
   const [isMobileOptionsOpen, setIsMobileOptionsOpen] = useState(false);
+  const [isMobileStatusOpen, setIsMobileStatusOpen] = useState(false);
+  const [isStatusPickerOpen, setIsStatusPickerOpen] = useState(false);
+  const [isAutoRenaming, setIsAutoRenaming] = useState(false);
+  const sessionStatus = session.status ?? null;
+  const sessionStatusSource = session.statusSource ?? null;
   const showAttentionIndicator = needsAttention && !isSelected;
   // Background work takes the recent-activity dot's place: the session is
   // still doing something, which says more than that it was touched lately.
@@ -152,6 +171,24 @@ function SidebarSessionItem({
     setMobileOptionsOpen(false);
   };
 
+  const openStatusPicker = useCallback(() => setIsStatusPickerOpen(true), []);
+  const closeStatusPicker = useCallback(() => setIsStatusPickerOpen(false), []);
+  const pickStatus = (status: SessionStatusKey | null) => {
+    void onSetSessionStatus?.(session, status);
+  };
+  // The spinner lives in the row: only the row's own menu shows it.
+  const runAutoRename = async () => {
+    if (!onAutoRenameSession || isAutoRenaming) {
+      return;
+    }
+    setIsAutoRenaming(true);
+    try {
+      await onAutoRenameSession(session);
+    } finally {
+      setIsAutoRenaming(false);
+    }
+  };
+
   return (
     <div className="group relative">
       {(showAttentionIndicator || showBackgroundIndicator || showRecentIndicator) && (
@@ -197,15 +234,17 @@ function SidebarSessionItem({
             {selectionIcon}
             <div
               className={cn(
-                'w-5 h-5 rounded-md flex items-center justify-center flex-shrink-0',
+                'relative w-5 h-5 rounded-md flex items-center justify-center flex-shrink-0',
                 isSelected ? 'bg-primary/10' : 'bg-muted/50',
               )}
             >
               <LLMProviderLogo provider={session.__provider} className="h-3 w-3" />
+              {isPinned && <SessionPinBadge />}
             </div>
 
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2">
+                <SessionStatusEmoji status={sessionStatus} t={t} />
                 <div
                   className="min-w-0 flex-1 truncate text-sm font-normal text-foreground"
                   title={sessionView.sessionName}
@@ -265,8 +304,9 @@ function SidebarSessionItem({
                 <LLMProviderLogo provider={session.__provider} className="h-5 w-5" />
               </div>
               <div className="min-w-0">
-                <p className="truncate text-sm font-medium text-foreground" title={sessionView.sessionName}>
-                  {sessionView.sessionName}
+                <p className="flex min-w-0 items-center gap-1.5 text-sm font-medium text-foreground">
+                  <SessionStatusEmoji status={sessionStatus} t={t} />
+                  <span className="truncate" title={sessionView.sessionName}>{sessionView.sessionName}</span>
                 </p>
                 <p id="mobile-session-options-description" className="text-xs text-muted-foreground">
                   {providerLabel} session
@@ -325,6 +365,69 @@ function SidebarSessionItem({
                   <Edit2 className="h-5 w-5 flex-shrink-0" />
                   <span className="text-sm font-medium">Rename session</span>
                 </button>
+
+                {onTogglePinSession && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMobileOptionsOpen(false);
+                      onTogglePinSession(session);
+                    }}
+                    className="flex min-h-12 w-full items-center gap-3 rounded-xl border border-border bg-muted/35 px-4 py-3 text-left text-foreground transition-colors active:bg-muted"
+                  >
+                    {isPinned ? <PinOff className="h-5 w-5 flex-shrink-0" /> : <Pin className="h-5 w-5 flex-shrink-0" />}
+                    <span className="text-sm font-medium">{isPinned ? 'Unpin' : 'Pin to top'}</span>
+                  </button>
+                )}
+
+                {onAutoRenameSession && (
+                  <button
+                    type="button"
+                    disabled={isAutoRenaming}
+                    onClick={async () => {
+                      await runAutoRename();
+                      setMobileOptionsOpen(false);
+                    }}
+                    className="flex min-h-12 w-full items-center gap-3 rounded-xl border border-border bg-muted/35 px-4 py-3 text-left text-foreground transition-colors active:bg-muted disabled:opacity-60"
+                  >
+                    {isAutoRenaming ? (
+                      <Loader2 className="h-5 w-5 flex-shrink-0 animate-spin" />
+                    ) : (
+                      <Sparkles className="h-5 w-5 flex-shrink-0" />
+                    )}
+                    <span className="text-sm font-medium">
+                      {isAutoRenaming ? t('sessionStatus.autoRenaming') : t('sessionStatus.autoRename')}
+                    </span>
+                  </button>
+                )}
+
+                {onSetSessionStatus && (
+                  <>
+                    <button
+                      type="button"
+                      aria-expanded={isMobileStatusOpen}
+                      onClick={() => setIsMobileStatusOpen((open) => !open)}
+                      className="flex min-h-12 w-full items-center gap-3 rounded-xl border border-border bg-muted/35 px-4 py-3 text-left text-foreground transition-colors active:bg-muted"
+                    >
+                      <Tag className="h-5 w-5 flex-shrink-0" />
+                      <span className="text-sm font-medium">{t('sessionStatus.setStatus')}</span>
+                    </button>
+                    {isMobileStatusOpen && (
+                      <div className="rounded-xl border border-border bg-muted/35 p-1">
+                        <SessionStatusList
+                          status={sessionStatus}
+                          statusSource={sessionStatusSource}
+                          onPick={(status) => {
+                            pickStatus(status);
+                            setIsMobileStatusOpen(false);
+                            setMobileOptionsOpen(false);
+                          }}
+                          t={t}
+                        />
+                      </div>
+                    )}
+                  </>
+                )}
 
                 <button
                   type="button"
@@ -438,14 +541,20 @@ function SidebarSessionItem({
             {selectionIcon}
             <div
               className={cn(
-                'flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-md',
+                'relative flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-md',
                 isSelected ? 'bg-primary/10' : 'bg-muted/50',
               )}
             >
               <LLMProviderLogo provider={session.__provider} className="h-3 w-3" />
+              {isPinned && <SessionPinBadge />}
             </div>
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2">
+                <SessionStatusEmoji
+                  status={sessionStatus}
+                  t={t}
+                  onActivate={onSetSessionStatus && !isSelecting && !isEditing ? openStatusPicker : undefined}
+                />
                 <div
                   className="min-w-0 flex-1 truncate text-sm font-normal text-foreground"
                   title={sessionView.sessionName}
@@ -500,6 +609,21 @@ function SidebarSessionItem({
             onDeleteSession={onDeleteSession}
             onFork={onForkSession ? () => onForkSession(session) : undefined}
             onArchive={onArchiveSession ? () => onArchiveSession(session) : undefined}
+            isPinned={isPinned}
+            onTogglePin={onTogglePinSession ? () => onTogglePinSession(session) : undefined}
+            onAutoRename={onAutoRenameSession ? () => void runAutoRename() : undefined}
+            isAutoRenaming={isAutoRenaming}
+            onOpenStatusPicker={onSetSessionStatus ? openStatusPicker : undefined}
+            t={t}
+          />
+        )}
+        {!isSelecting && onSetSessionStatus && (
+          <SessionStatusPopover
+            open={isStatusPickerOpen}
+            onClose={closeStatusPicker}
+            status={sessionStatus}
+            statusSource={sessionStatusSource}
+            onPick={pickStatus}
             t={t}
           />
         )}

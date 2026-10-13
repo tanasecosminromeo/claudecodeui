@@ -5,9 +5,8 @@ import { test } from 'vitest';
 import type { Project, ProjectGroup, ProjectSession, StarColor } from '@/shared/types';
 import {
   buildProjectSections,
-  filterProjectsByStar,
+  filterStarredProjects,
   sortProjects,
-  starFilterOptions,
 } from '@/modules/sidebar/utils/sidebarProjectFormatting';
 import {
   STAR_COLORS,
@@ -16,7 +15,6 @@ import {
   isStarColor,
   nextStarColor,
   nextStarFilter,
-  normalizeStarFilter,
   starAfterClick,
 } from '@/modules/sidebar/utils/starColors';
 
@@ -133,27 +131,13 @@ test('starAfterClick: a quick click on red (past the top) unstars', () => {
   assert.equal(starAfterClick('red', 500), null);
 });
 
-test('nextStarFilter cycles off, all, then each offered threshold, then off', () => {
-  const options = ['yellow', 'red'] as const;
-  assert.equal(nextStarFilter('off', options), 'all');
-  assert.equal(nextStarFilter('all', options), 'yellow');
-  assert.equal(nextStarFilter('yellow', options), 'red');
-  assert.equal(nextStarFilter('red', options), 'off');
+test('nextStarFilter cycles off, focus, all, then off', () => {
+  assert.equal(nextStarFilter('off'), 'focus');
+  assert.equal(nextStarFilter('focus'), 'all');
+  assert.equal(nextStarFilter('all'), 'off');
 });
 
-test('nextStarFilter with no offered thresholds goes off, all, off', () => {
-  assert.equal(nextStarFilter('off', []), 'all');
-  assert.equal(nextStarFilter('all', []), 'off');
-});
-
-test('nextStarFilter treats a threshold that is no longer offered as all', () => {
-  assert.equal(normalizeStarFilter('orange', ['yellow', 'red']), 'all');
-  assert.equal(normalizeStarFilter('red', ['red']), 'red');
-  assert.equal(nextStarFilter('orange', ['yellow', 'red']), 'yellow');
-  assert.equal(nextStarFilter('red', []), 'off');
-});
-
-test('filterProjectsByStar: off keeps all, all keeps starred, a colour keeps it and hotter', () => {
+test('filterStarredProjects keeps every starred project, of any colour, and drops the rest', () => {
   const projects = [
     project('none'),
     project('green-one', { isStarred: true, starColor: 'green' }),
@@ -165,72 +149,19 @@ test('filterProjectsByStar: off keeps all, all keeps starred, a colour keeps it 
   ];
 
   assert.deepEqual(
-    names(filterProjectsByStar(projects, 'off')),
-    ['none', 'green-one', 'yellow-one', 'legacy-star', 'orange-one', 'red-one', 'cleared'],
-  );
-  assert.deepEqual(
-    names(filterProjectsByStar(projects, 'all')),
+    names(filterStarredProjects(projects)),
     ['green-one', 'yellow-one', 'legacy-star', 'orange-one', 'red-one'],
   );
-  assert.deepEqual(
-    names(filterProjectsByStar(projects, 'yellow')),
-    ['yellow-one', 'legacy-star', 'orange-one', 'red-one'],
-  );
-  assert.deepEqual(names(filterProjectsByStar(projects, 'orange')), ['orange-one', 'red-one']);
-  assert.deepEqual(names(filterProjectsByStar(projects, 'red')), ['red-one']);
 });
 
-test('filterProjectsByStar: retired blue and purple count as green', () => {
+test('filterStarredProjects: retired blue and purple count as green', () => {
   const projects = [
     project('old-blue', { isStarred: true, starColor: 'blue' as StarColor }),
     project('old-purple', { isStarred: true, starColor: 'purple' as StarColor }),
     project('red-one', { isStarred: true, starColor: 'red' }),
   ];
 
-  assert.deepEqual(names(filterProjectsByStar(projects, 'all')), ['old-blue', 'old-purple', 'red-one']);
-  assert.deepEqual(names(filterProjectsByStar(projects, 'yellow')), ['red-one']);
-});
-
-test('starFilterOptions offers only thresholds that narrow the list, starting from all', () => {
-  const projects = [
-    project('g', { isStarred: true, starColor: 'green' }),
-    project('y', { isStarred: true, starColor: 'yellow' }),
-    project('o', { isStarred: true, starColor: 'orange' }),
-    project('r', { isStarred: true, starColor: 'red' }),
-  ];
-
-  assert.deepEqual(starFilterOptions(projects), ['yellow', 'orange', 'red']);
-});
-
-test('starFilterOptions with only yellow and red projects offers just red', () => {
-  const projects = [
-    project('y', { isStarred: true, starColor: 'yellow' }),
-    project('r', { isStarred: true, starColor: 'red' }),
-  ];
-
-  assert.deepEqual(starFilterOptions(projects), ['red']);
-});
-
-test('starFilterOptions skips a threshold that would not narrow the list', () => {
-  // Every starred project is orange or hotter, so yellow would change nothing.
-  const projects = [
-    project('o', { isStarred: true, starColor: 'orange' }),
-    project('r', { isStarred: true, starColor: 'red' }),
-    project('none'),
-  ];
-
-  assert.deepEqual(starFilterOptions(projects), ['red']);
-  assert.deepEqual(starFilterOptions([project('only-green', { isStarred: true, starColor: 'green' })]), []);
-  assert.deepEqual(starFilterOptions([]), []);
-});
-
-test('starFilterOptions with green and yellow projects offers yellow', () => {
-  const projects = [
-    project('g', { isStarred: true, starColor: 'green' }),
-    project('y', { isStarred: true, starColor: 'yellow' }),
-  ];
-
-  assert.deepEqual(starFilterOptions(projects), ['yellow']);
+  assert.deepEqual(names(filterStarredProjects(projects)), ['old-blue', 'old-purple', 'red-one']);
 });
 
 test('buildProjectSections puts groups first by name, keeps order inside, then ungrouped', () => {

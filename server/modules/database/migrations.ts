@@ -433,6 +433,15 @@ const addForkedFromSessionIdColumn = (db: Database): void => {
 };
 
 /**
+ * Adds `pinned_at`, the sidebar pin marker. NULL for every existing row, so
+ * nothing is pinned until the user pins it.
+ */
+const addSessionPinnedAtColumn = (db: Database): void => {
+  const columnNames = getTableInfo(db, 'sessions').map((column) => column.name);
+  addColumnToTableIfNotExists(db, 'sessions', columnNames, 'pinned_at', 'TEXT');
+};
+
+/**
  * Adds the `model` column that records which model each session runs with.
  *
  * Left NULL for pre-existing rows on purpose: the model resolver falls back to
@@ -457,6 +466,23 @@ const addSessionEffortColumn = (db: Database): void => {
   const columnNames = sessionsTableInfo.map((column) => column.name);
 
   addColumnToTableIfNotExists(db, 'sessions', columnNames, 'effort', 'TEXT');
+};
+
+/**
+ * Adds the columns behind auto-rename and session status emoji.
+ *
+ * `name_source` and `status_source` record who last set the value ('user' or
+ * 'auto'), so automatic runs never overwrite a choice the user made. `auto_turns`
+ * is the user-turn count at the last automatic run (NULL = never ran). All
+ * columns stay NULL for existing rows: they read as "derived / no status yet".
+ */
+const addSessionAutoRenameColumns = (db: Database): void => {
+  const columnNames = getTableInfo(db, 'sessions').map((column) => column.name);
+
+  addColumnToTableIfNotExists(db, 'sessions', columnNames, 'name_source', 'TEXT');
+  addColumnToTableIfNotExists(db, 'sessions', columnNames, 'status', 'TEXT');
+  addColumnToTableIfNotExists(db, 'sessions', columnNames, 'status_source', 'TEXT');
+  addColumnToTableIfNotExists(db, 'sessions', columnNames, 'auto_turns', 'INTEGER');
 };
 
 /**
@@ -563,6 +589,8 @@ export const runMigrations = (db: Database) => {
     addSessionModelColumn(db);
     addSessionEffortColumn(db);
     addForkedFromSessionIdColumn(db);
+    addSessionPinnedAtColumn(db);
+    addSessionAutoRenameColumns(db);
     ensureProjectsForSessionPaths(db);
     db.exec(SCHEDULED_MESSAGES_TABLE_SCHEMA_SQL);
     db.exec(SIDE_QUESTIONS_TABLE_SCHEMA_SQL);

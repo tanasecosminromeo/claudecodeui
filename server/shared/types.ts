@@ -281,8 +281,15 @@ export type SessionUpsertedEvent = {
     summary: string;
     messageCount: number;
     lastActivity: string;
+    pinned: boolean;
+    /** Status key shown before the title, or null. */
+    status: string | null;
+    statusSource: 'user' | 'auto' | null;
+    nameSource: 'user' | 'auto' | null;
   };
   project: SessionUpsertedProject | null;
+  /** Set when only the row's metadata (pin, title) changed, not its transcript. */
+  metadataOnly?: true;
   timestamp: string;
 };
 
