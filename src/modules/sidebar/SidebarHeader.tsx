@@ -1,4 +1,4 @@
-import { ArrowDownAZ, Clock, FolderPlus, ListStart, Plus, RefreshCw, Search, Star, X, PanelLeftClose } from 'lucide-react';
+import { ArrowDownAZ, Clock, Crosshair, FolderPlus, ListStart, Plus, RefreshCw, Search, Star, X, PanelLeftClose } from 'lucide-react';
 import type { TFunction } from 'i18next';
 
 import { Button, Input } from '@/shared/ui';
@@ -7,7 +7,6 @@ import { cn, IS_PLATFORM } from '@/shared/utils';
 import type { ProjectSortOrder, SidebarSearchMode, StarFilter } from '@/shared/types';
 import GitHubStarBadge from '@/modules/sidebar/GitHubStarBadge';
 import SidebarModeTabs from '@/modules/sidebar/SidebarModeTabs';
-import { STAR_COLOR_CLASSES } from '@/modules/sidebar/utils/starColors';
 
 const MOD_KEY =
   typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform) ? '⌘' : 'Ctrl';
@@ -56,8 +55,9 @@ function LogoBlock({ t }: { t: TFunction }) {
 }
 
 /**
- * The Projects list's star filter, beside the search box. Click cycles
- * off → all starred → each narrowing threshold → off.
+ * The Projects list's chip, beside the search box. Click cycles
+ * off, focus (active in the last 24 h), starred, then off. The tooltip says what
+ * the list shows now and what the next click does.
  */
 function StarFilterChip({
   starFilter,
@@ -69,18 +69,8 @@ function StarFilterChip({
   t: TFunction;
 }) {
   const isOff = starFilter === 'off';
-  const iconClass = starFilter === 'all'
-    ? 'text-foreground'
-    : isOff
-      ? 'text-muted-foreground/60'
-      : STAR_COLOR_CLASSES[starFilter].icon;
-  const title = isOff
-    ? t('projects.starFilter.off')
-    : starFilter === 'all'
-      ? t('projects.starFilter.all')
-      : starFilter === 'red'
-        ? t('projects.starFilter.top')
-        : t('projects.starFilter.color', { color: t(`starColors.${starFilter}`) });
+  const title = t(`projects.starFilter.${starFilter}`);
+  const Icon = starFilter === 'focus' ? Crosshair : Star;
 
   return (
     <button
@@ -93,10 +83,10 @@ function StarFilterChip({
       onClick={onCycleStarFilter}
       className={cn(
         'flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl transition-colors hover:bg-accent/80',
-        !isOff && 'bg-accent/60',
+        isOff ? 'text-muted-foreground/60' : 'bg-accent/60 text-foreground',
       )}
     >
-      <Star className={cn('h-4 w-4', iconClass)} fill={isOff ? 'none' : 'currentColor'} />
+      <Icon className="h-4 w-4" fill={starFilter === 'all' ? 'currentColor' : 'none'} />
     </button>
   );
 }

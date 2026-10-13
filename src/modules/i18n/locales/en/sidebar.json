@@ -19,11 +19,11 @@
     "tryDifferentSearch": "Try adjusting your search term",
     "runClaudeCli": "Run Claude CLI in a project directory to get started",
     "starFilter": {
-      "off": "Show all projects. Click to show starred projects only.",
-      "all": "Showing starred projects. Click to filter by colour.",
-      "color": "Showing {{color}} and hotter. Click to narrow.",
-      "top": "Showing red only. Click to show everything.",
+      "off": "Show all projects. Click to show only projects active in the last 24h.",
+      "focus": "Showing projects active in the last 24h. Click to show starred projects.",
+      "all": "Showing starred projects. Click to show all projects.",
       "empty": "No starred projects",
+      "focusEmpty": "Nothing active in the last 24h",
       "showAll": "Show all projects"
     },
     "sort": {
