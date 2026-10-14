@@ -531,6 +531,9 @@ const automaticChecksInFlight = new Set<string>();
  */
 let automaticChecksReserved = 0;
 
+/** The local day the "daily limit reached" line was last logged, so it is logged once a day. */
+let limitLoggedOn = '';
+
 /**
  * Takes one automatic check from today's allowance. Today's rows in the table
  * count against the limit, so a restart does not reset it. False once the day's
@@ -539,7 +542,11 @@ let automaticChecksReserved = 0;
 function takeAutomaticCheck(settings: SessionStatusSettings): boolean {
   const used = sessionStatusChecksDb.countAutomaticSince(localMidnightIso(new Date(), 0));
   if (used + automaticChecksReserved >= settings.dailyLimit) {
-    console.log(`[SessionTitle] daily limit of ${settings.dailyLimit} automatic checks reached; no more model checks until tomorrow`);
+    const today = localMidnightIso(new Date(), 0);
+    if (limitLoggedOn !== today) {
+      limitLoggedOn = today;
+      console.log(`[SessionTitle] daily limit of ${settings.dailyLimit} automatic checks reached; no more model checks until tomorrow`);
+    }
     return false;
   }
   automaticChecksReserved += 1;
@@ -572,7 +579,8 @@ export async function runAutomaticSessionCheck(sessionId: string): Promise<void>
     let plan = settings.enabled ? planAutomaticCheck(session, turns, settings) : null;
     let reason: 'automatic' | 'leaving-blocked' = 'automatic';
     // A reply that no longer asks the user clears `blocked` now, instead of at the next interval check.
-    if (settings.enabled && !plan && !asksUser && !statusPinned && session.status === 'blocked') {
+    // Only the free reply check can tell that; without it this would ask the model after every run.
+    if (settings.enabled && settings.freeBlockedCheck && !plan && !asksUser && !statusPinned && session.status === 'blocked') {
       plan = { wantTitle: false };
       reason = 'leaving-blocked';
     }

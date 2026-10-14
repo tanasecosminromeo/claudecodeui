@@ -832,6 +832,23 @@ test('automatic check: with the free reply check off, a reply that asks the user
   });
 });
 
+test('automatic check: with the free reply check off, a blocked status does not ask the model after every run', async () => {
+  await withIsolatedDatabase(async () => {
+    saveSessionStatusSettings({ freeBlockedCheck: false });
+    sessionsDb.createAppSession('app-session', 'claude', '/workspace/client-a', 'Start');
+    sessionsDb.updateSessionStatus('app-session', 'blocked', 'auto');
+    sessionsDb.setSessionAutoTurns('app-session', 3);
+    const model = countingModel(() => conversation(4));
+    const restore = setSessionTitleDependencies(model.deps);
+    try {
+      await runAutomaticSessionCheck('app-session');
+      assert.equal(model.calls.length, 0);
+    } finally {
+      restore();
+    }
+  });
+});
+
 test('automatic check: changed first-turn and interval settings are respected without a restart', async () => {
   await withIsolatedDatabase(async () => {
     saveSessionStatusSettings({ firstTurn: 2, interval: 2 });
