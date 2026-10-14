@@ -150,6 +150,25 @@ CREATE TABLE IF NOT EXISTS side_questions (
 );
 `;
 
+/** One row per model call that session titles and statuses make. Stats and the daily cap read it. */
+export const SESSION_STATUS_CHECKS_TABLE_SCHEMA_SQL = `
+CREATE TABLE IF NOT EXISTS session_status_checks (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    -- ISO 8601 UTC, written by the server when the call finished.
+    created_at TEXT NOT NULL,
+    session_id TEXT NOT NULL,
+    -- automatic | leaving-blocked | auto-rename
+    reason TEXT NOT NULL,
+    -- 1 when the reply was parsed, 0 when the call or the parse failed.
+    ok INTEGER NOT NULL,
+    duration_ms INTEGER NOT NULL,
+    -- NULL or 0 when the CLI reported no usage (a failed call, or a test stub).
+    input_tokens INTEGER NOT NULL DEFAULT 0,
+    output_tokens INTEGER NOT NULL DEFAULT 0,
+    cost_usd REAL
+);
+`;
+
 export const SESSIONS_TABLE_SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS sessions (
     session_id TEXT NOT NULL,

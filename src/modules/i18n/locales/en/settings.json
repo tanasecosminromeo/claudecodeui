@@ -134,7 +134,48 @@
     "browser": "Browser",
     "notifications": "Notifications",
     "plugins": "Plugins",
+    "autoStatus": "Auto status",
     "about": "About"
+  },
+  "autoStatus": {
+    "title": "Auto status",
+    "description": "Haiku labels each session and marks it blocked when Claude waits for you.",
+    "checks": {
+      "title": "Automatic checks",
+      "enabled": "Enabled",
+      "enabledDescription": "Off means no automatic model calls. The ✨ Auto rename button still works.",
+      "freeBlocked": "Mark sessions blocked when the last reply asks you something (free)",
+      "dailyLimit": "Daily limit",
+      "firstTurn": "First check at turn",
+      "interval": "Then every N turns",
+      "range": "A whole number from {{min}} to {{max}}.",
+      "explainer": "Each check is one small Haiku call (about 4,000 input and 700 output tokens). The ✨ Auto rename button is not limited."
+    },
+    "usage": {
+      "title": "Usage",
+      "today": "Today",
+      "used": "{{used}} / {{limit}} automatic checks",
+      "tokens": "{{input}} in · {{output}} out",
+      "cost": "API-equivalent cost",
+      "failed": "Failed",
+      "breakdown": "{{automatic}} automatic · {{autoRename}} Auto rename",
+      "days": "Last 14 days",
+      "day": "Day",
+      "checks": "Checks",
+      "tokensColumn": "Tokens",
+      "costColumn": "Cost",
+      "last": "Last check: {{when}} · {{reason}} · {{status}} · {{ms}} ms",
+      "reason": {
+        "automatic": "automatic",
+        "leavingBlocked": "leaving blocked",
+        "autoRename": "Auto rename"
+      },
+      "ok": "ok",
+      "notOk": "failed",
+      "none": "No model checks yet."
+    },
+    "loadError": "Could not load the auto status settings.",
+    "saving": "Saving…"
   },
   "notifications": {
     "title": "Notifications",

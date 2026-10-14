@@ -29,3 +29,8 @@ export { scheduledMessagesDb } from './repositories/scheduled-messages.db.js';
 export type { ScheduledMessageRow, ScheduledMessageStatus } from './repositories/scheduled-messages.db.js';
 export { sideQuestionsDb } from './repositories/side-questions.db.js';
 export type { SideQuestionRow, SideQuestionStatus } from './repositories/side-questions.db.js';
+export { sessionStatusChecksDb } from './repositories/session-status-checks.db.js';
+export type {
+  SessionStatusCheckInsert,
+  SessionStatusCheckReason,
+} from './repositories/session-status-checks.db.js';
