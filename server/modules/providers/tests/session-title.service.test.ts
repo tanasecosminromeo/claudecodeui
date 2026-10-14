@@ -309,37 +309,43 @@ test('planAutomaticCheck does nothing once the user pinned the status and the ti
 });
 
 test('generateTitleAndStatus sends the excerpt prompt and parses the reply', async () => {
-  const prompts: string[] = [];
-  const restore = setSessionTitleDependencies({
-    loadMessages: async () => conversation(2),
-    runQuery: async (prompt) => {
-      prompts.push(prompt);
-      return '{"title": "Fix the login test", "status": "bug"}';
-    },
+  // It records the call, so it needs a database of its own, never the real one.
+  await withIsolatedDatabase(async () => {
+    const prompts: string[] = [];
+    const restore = setSessionTitleDependencies({
+      loadMessages: async () => conversation(2),
+      runQuery: async (prompt) => {
+        prompts.push(prompt);
+        return '{"title": "Fix the login test", "status": "bug"}';
+      },
+    });
+    try {
+      const result = await generateTitleAndStatus('app-session', { wantTitle: true });
+      assert.deepEqual(result, { title: 'Fix the login test', status: 'bug' });
+      assert.equal(prompts.length, 1);
+      assert.ok(prompts[0].includes('User: prompt 1'));
+    } finally {
+      restore();
+    }
   });
-  try {
-    const result = await generateTitleAndStatus('app-session', { wantTitle: true });
-    assert.deepEqual(result, { title: 'Fix the login test', status: 'bug' });
-    assert.equal(prompts.length, 1);
-    assert.ok(prompts[0].includes('User: prompt 1'));
-  } finally {
-    restore();
-  }
 });
 
 test('generateTitleAndStatus wraps a failed model call in a 502 AppError', async () => {
-  const restore = setSessionTitleDependencies({
-    loadMessages: async () => conversation(1),
-    runQuery: async () => 'not json at all',
+  // It records the call, so it needs a database of its own, never the real one.
+  await withIsolatedDatabase(async () => {
+    const restore = setSessionTitleDependencies({
+      loadMessages: async () => conversation(1),
+      runQuery: async () => 'not json at all',
+    });
+    try {
+      await assert.rejects(
+        generateTitleAndStatus('app-session', { wantTitle: true }),
+        (error: { statusCode?: number; code?: string }) => error.statusCode === 502 && error.code === 'TITLE_GENERATION_FAILED',
+      );
+    } finally {
+      restore();
+    }
   });
-  try {
-    await assert.rejects(
-      generateTitleAndStatus('app-session', { wantTitle: true }),
-      (error: { statusCode?: number; code?: string }) => error.statusCode === 502 && error.code === 'TITLE_GENERATION_FAILED',
-    );
-  } finally {
-    restore();
-  }
 });
 
 test('automatic check: turn 2 makes no model call', async () => {
@@ -453,7 +459,7 @@ test('automatic check (a): a reply that asks the user sets blocked with no model
   });
 });
 
-test('automatic check (b): the next reply that no longer asks clears blocked with one model call', async () => {
+test('automatic check (b): the next reply that no longer asks clears blocked without a model call', async () => {
   await withIsolatedDatabase(async () => {
     sessionsDb.createAppSession('app-session', 'claude', '/workspace/client-a', 'Start');
     sessionsDb.updateSessionCustomName('app-session', 'Auto title', 'auto');
@@ -470,9 +476,27 @@ test('automatic check (b): the next reply that no longer asks clears blocked wit
     try {
       await runAutomaticSessionCheck('app-session');
       const row = sessionsDb.getSessionById('app-session');
-      assert.equal(calls, 1);
-      assert.equal(row?.status, 'testing');
-      assert.equal(row?.auto_turns, 5);
+      assert.equal(calls, 0);
+      assert.equal(row?.status, null);
+      assert.equal(row?.auto_turns, 4);
+    } finally {
+      restore();
+    }
+  });
+});
+
+test('automatic check: a model answer of blocked is not taken while the free reply check is on', async () => {
+  await withIsolatedDatabase(async () => {
+    sessionsDb.createAppSession('app-session', 'claude', '/workspace/client-a', 'Start');
+    sessionsDb.updateSessionStatus('app-session', 'building', 'auto');
+    sessionsDb.setSessionAutoTurns('app-session', 3);
+    const restore = setSessionTitleDependencies({
+      loadMessages: async () => conversationEndingWith(8, 'Start it inside tmux next time.'),
+      runQuery: async () => '{"status": "blocked"}',
+    });
+    try {
+      await runAutomaticSessionCheck('app-session');
+      assert.equal(sessionsDb.getSessionById('app-session')?.status, 'building');
     } finally {
       restore();
     }
