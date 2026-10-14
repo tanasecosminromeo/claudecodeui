@@ -162,8 +162,8 @@ export default function SessionOptions({
       ) : (
         <>
         {canArchive && (
-          // Shown on the row's hover (and while anything in it has focus); the
-          // row reserves its width so the title never runs underneath it.
+          // Always visible, so touch screens can reach it; the row reserves its
+          // width so the title and the age never run underneath it.
           <button
             type="button"
             onClick={(event) => {
@@ -172,7 +172,7 @@ export default function SessionOptions({
             }}
             title={archiveLabel}
             aria-label={`${archiveLabel}: ${sessionName}`}
-            className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground opacity-0 transition-opacity hover:bg-muted hover:text-foreground focus-visible:opacity-100 group-focus-within:opacity-100 group-hover:opacity-100"
+            className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
           >
             <Archive className="h-3.5 w-3.5" />
           </button>

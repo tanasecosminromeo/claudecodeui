@@ -173,7 +173,7 @@ export default function SidebarRecentConversations({
                 data-testid="recent-conversation-row"
                 className={cn(
                   'flex min-w-0 items-center gap-2 rounded-lg px-2 py-2 text-left transition-colors',
-                  // Room for the options menu, plus the hover-revealed archive icon.
+                  // Room for the options menu, plus the archive icon.
                   canArchive ? 'pr-[4.5rem]' : 'pr-11',
                   isSelected
                     ? 'bg-primary/10 text-foreground'

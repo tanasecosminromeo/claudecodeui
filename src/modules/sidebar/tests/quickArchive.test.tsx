@@ -274,6 +274,14 @@ test('the row offers a one-click archive named after the session', () => {
   assert.equal(onArchive.mock.calls.length, 1);
 });
 
+test('the archive icon is visible at rest, without a hover to reveal it', () => {
+  renderOptions({ onArchive: noop });
+
+  const button = screen.getByRole('button', { name: 'Archive session: title of s1' });
+  assert.equal(button.className.includes('opacity-0'), false, 'no opacity-0 at rest');
+  assert.equal(button.className.includes('group-hover'), false, 'nothing keyed to the row hover');
+});
+
 test('the archive control is withheld while the session is processing, and when the row has nowhere to send it', () => {
   renderOptions({ onArchive: noop, isProcessing: true });
   assert.equal(screen.queryByRole('button', { name: /^Archive session/ }) === null, true);

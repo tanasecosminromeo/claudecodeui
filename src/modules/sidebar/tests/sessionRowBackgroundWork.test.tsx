@@ -79,6 +79,14 @@ test('background work shows as the purple dot in place of the green one, with no
   assert.equal(recordedOptionsProps.at(-1)?.isProcessing, false, 'the row is not locked the way a responding one is');
 });
 
+test('the age stays visible at rest: the row no longer fades it on hover', () => {
+  const { container } = renderRow({ isProcessing: false, hasBackgroundWork: false });
+
+  const age = container.querySelector('.text-\\[11px\\]');
+  assert.ok(age, 'the fixture shows an age');
+  assert.equal(age.className.includes('group-hover:opacity-0'), false);
+});
+
 test('a response in flight still spins and shows no dot', () => {
   const { container } = renderRow({ isProcessing: true, hasBackgroundWork: false });
 
