@@ -104,7 +104,8 @@
           "src/shared/userSettings.ts",
           "src/shared/chatDrafts.ts",
           "src/shared/syntaxHighlighter.ts",
-          "src/shared/branding.ts"
+          "src/shared/branding.ts",
+          "src/shared/needsInputChime.ts"
         ],
         "mode": "file"
       },

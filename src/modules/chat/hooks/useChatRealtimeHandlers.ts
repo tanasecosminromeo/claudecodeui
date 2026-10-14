@@ -4,16 +4,13 @@ import type { Dispatch, MutableRefObject, SetStateAction } from 'react';
 import type { ServerEvent,MarkSessionIdle,MarkSessionProcessing,PendingPermissionRequest,ProjectSession,LLMProvider,NormalizedMessage,GetSessionActivity,MarkSessionBackground,SessionRunningElsewhereEvent } from '@/shared/types';
 import { showCompletionTitleIndicator } from '@/modules/chat/utils/pageTitleNotification';
 import { playChatCompletionSound, playNotificationSound } from '@/shared/utils';
+import { noteNeedsInputChime } from '@/shared/needsInputChime';
 import type { SessionStore } from '@/modules/chat/hooks/useSessionStore';
 import { normalizedToChatMessages } from '@/modules/chat/hooks/useChatMessages';
 import { collectRunningBackgroundTasks } from '@/modules/chat/utils/backgroundTasks';
 
 const isActionablePermissionRequest = (request: { toolName?: unknown } | null | undefined): boolean => {
   return request?.toolName !== 'ExitPlanMode' && request?.toolName !== 'exit_plan_mode';
-};
-
-const hasActionablePermissionRequests = (requests: Array<{ toolName?: unknown }> | null | undefined): boolean => {
-  return Array.isArray(requests) && requests.some((request) => isActionablePermissionRequest(request));
 };
 
 type UseChatRealtimeHandlersArgs = {
@@ -164,18 +161,13 @@ export function useChatRealtimeHandlers({
             });
           }
 
+          // Opening a chat stays silent; the radar watcher chimes for new waiting sessions.
           const isViewedSession = sid === activeViewSessionId;
           if (isViewedSession && Array.isArray(msg.pendingPermissions)) {
             const nextPendingPermissionRequests = msg.pendingPermissions as PendingPermissionRequest[];
-            const hadActionablePermissionRequests = hasActionablePermissionRequests(pendingPermissionRequestsRef.current);
-            const hasPendingActionablePermissionRequests = hasActionablePermissionRequests(nextPendingPermissionRequests);
 
             pendingPermissionRequestsRef.current = nextPendingPermissionRequests;
             setPendingPermissionRequests(nextPendingPermissionRequests);
-
-            if (hasPendingActionablePermissionRequests && !hadActionablePermissionRequests) {
-              void playNotificationSound();
-            }
           }
           return;
         }
@@ -333,7 +325,11 @@ export function useChatRealtimeHandlers({
         case 'permission_request': {
           if (!msg.requestId) break;
           if (isActionablePermissionRequest({ toolName: msg.toolName })) {
-            void playNotificationSound();
+            if (sid) {
+              noteNeedsInputChime(sid);
+            } else {
+              void playNotificationSound();
+            }
           }
 
           if (sid === activeViewSessionId) {
