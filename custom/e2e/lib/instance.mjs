@@ -29,6 +29,7 @@ export function runPaths(runDir) {
     database: path.join(runDir, 'auth.db'),
     project: path.join(runDir, 'project'),
     processes: path.join(runDir, 'claude-processes'),
+    branding: path.join(runDir, 'branding'),
     artifacts: path.join(runDir, 'artifacts'),
   };
 }
@@ -89,6 +90,9 @@ export async function startInstance({ appDir, sourceDir, port, paths, log }) {
     DATABASE_PATH: paths.database,
     CLOUDCLI_DETACHED_CLAUDE: process.env.E2E_DETACHED ?? '1',
     CLOUDCLI_CLAUDE_PROCESSES_DIR: paths.processes,
+    // The branding folder defaults to ~/.cloudcli/branding, which the live
+    // service reads: an e2e upload there would rebrand the real app.
+    CLOUDCLI_BRANDING_DIR: paths.branding,
     // A short hold for background work the runtime cannot track (30 min in
     // production). Tracked work — every backgrounded command the scenarios
     // start — must outlive this: that is what `16-restart-idle-with-background`

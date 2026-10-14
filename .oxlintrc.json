@@ -103,7 +103,8 @@
           "src/shared/codeEditorSettings.ts",
           "src/shared/userSettings.ts",
           "src/shared/chatDrafts.ts",
-          "src/shared/syntaxHighlighter.ts"
+          "src/shared/syntaxHighlighter.ts",
+          "src/shared/branding.ts"
         ],
         "mode": "file"
       },

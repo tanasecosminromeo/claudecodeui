@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { useTheme } from '@/shared/context/ThemeContext';
 import type { CodeEditorSettingsState, ProjectSortOrder, ThemeMode } from '@/shared/types';
 import { LanguageSelector } from '@/modules/i18n';
+import BrandingSettings from '@/modules/settings/BrandingSettings';
 import SettingsCard from '@/modules/settings/SettingsCard';
 import SettingsRow from '@/modules/settings/SettingsRow';
 import SettingsSection from '@/modules/settings/SettingsSection';
@@ -57,6 +58,10 @@ export default function AppearanceSettingsTab({
         <SettingsCard>
           <LanguageSelector />
         </SettingsCard>
+      </SettingsSection>
+
+      <SettingsSection title={t('appearanceSettings.branding.title')}>
+        <BrandingSettings />
       </SettingsSection>
 
       <SettingsSection title={t('appearanceSettings.projectSorting.label')}>

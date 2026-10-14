@@ -52,6 +52,9 @@ import {
 } from './modules/scheduled-messages/index.js';
 import browserUseRoutes from './modules/browser-use/browser-use.routes.js';
 import { assetsRoutes } from './modules/assets/index.js';
+import { brandingRoutes, createBrandingPublicRouter } from './modules/branding/index.js';
+import { getBrandedIndexHtml } from './modules/branding/services/branding-public.service.js';
+import { getBrandingDir, readBrandingState } from './modules/branding/services/branding.service.js';
 import { fileTreeRoutes } from './modules/file-tree/index.js';
 import { worktreesRoutes } from './modules/worktrees/index.js';
 import browserUseMcpRoutes from './modules/browser-use/browser-use-mcp.routes.js';
@@ -173,6 +176,9 @@ app.use('/api/projects', authenticateToken, projectModuleRoutes);
 // Chat attachment upload/serving (global ~/.cloudcli/assets store, protected)
 app.use('/api/assets', authenticateToken, assetsRoutes);
 
+// Per-instance branding: GET is public, icon and name writes check auth inside the router
+app.use('/api/branding', brandingRoutes);
+
 // Git API Routes (protected)
 app.use('/api/git', authenticateToken, gitRoutes);
 
@@ -212,6 +218,13 @@ app.use('/api/scheduled-messages', authenticateToken, scheduledMessagesRoutes);
 app.use('/api/agent', agentRoutes);
 
 app.use('/api/voice', authenticateToken, voiceRoutes);
+
+// Custom icon and name overrides for the stock PWA files (favicon, icons, logo, manifest,
+// index.html). Mounted before the static public folder so they win; a no-op when unbranded.
+app.use(createBrandingPublicRouter({
+    publicDir: path.join(APP_ROOT, 'public'),
+    distDir: path.join(APP_ROOT, 'dist'),
+}));
 
 // Serve public files (like api-docs.html)
 app.use(express.static(path.join(APP_ROOT, 'public')));
@@ -256,6 +269,10 @@ app.get('*', (req, res) => {
         res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
         res.setHeader('Pragma', 'no-cache');
         res.setHeader('Expires', '0');
+        const brandedHtml = getBrandedIndexHtml(indexPath, readBrandingState(getBrandingDir()));
+        if (brandedHtml !== null) {
+            return res.type('html').send(brandedHtml);
+        }
         res.sendFile(indexPath);
     } else {
         // In development, redirect to Vite dev server only if dist doesn't exist

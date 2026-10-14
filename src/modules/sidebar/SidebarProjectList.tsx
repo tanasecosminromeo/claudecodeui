@@ -1,5 +1,6 @@
 import { Fragment, useEffect, useMemo } from 'react';
 
+import { useBranding } from '@/shared/branding';
 import type { SidebarProjectListProps } from '@/shared/types';
 import { Button } from '@/shared/ui';
 import { getPageTitle } from '@/shared/utils';
@@ -71,7 +72,8 @@ export default function SidebarProjectList({
   onArchiveSelectedSessions,
   t,
 }: SidebarProjectListProps) {
-  const pageTitle = getPageTitle(selectedProject, selectedSession);
+  const { name: customAppName } = useBranding();
+  const pageTitle = getPageTitle(selectedProject, selectedSession, customAppName ?? undefined);
   const state = (
     <SidebarProjectsState
       isLoading={isLoading}
