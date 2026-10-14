@@ -3,6 +3,7 @@ import {
   getStoredAuthToken,
   storeAuthToken,
 } from '@/shared/authToken';
+import type { SessionStatusCheckSettings } from '@/shared/types';
 import { IS_PLATFORM } from '@/shared/utils';
 import { readVoiceConfig, voiceConfigHeaders } from '@/shared/voiceConfig';
 
@@ -302,6 +303,12 @@ export const api = {
     get(`/api/providers/sessions/${encodeURIComponent(sessionId)}/workflows/${encodeURIComponent(runId)}/agents/${encodeURIComponent(agentId)}`),
 
   // Scheduled messages: send a message to a session at a future time.
+  // Automatic status checks: their settings and this server's usage of the model for them.
+  sessionStatusChecks: {
+    get: () => get('/api/session-status-checks'),
+    saveSettings: (settings: Partial<SessionStatusCheckSettings>) =>
+      put('/api/session-status-checks/settings', settings),
+  },
   scheduledMessages: {
     list: (sessionId?: string) =>
       get(`/api/scheduled-messages${sessionId ? query({ sessionId }) : ''}`),

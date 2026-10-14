@@ -1430,7 +1430,38 @@ export type AgentContext = {
 };
 
 /** Identifier of a top-level section in the settings dialog; use it whenever a tab is stored, compared or requested so deep links, the sidebar and the command palette all agree on the same set of names. */
-export type SettingsMainTab = 'agents' | 'appearance' | 'git' | 'api' | 'voice' | 'tasks' | 'browser' | 'notifications' | 'plugins' | 'about';
+export type SettingsMainTab = 'agents' | 'appearance' | 'git' | 'api' | 'voice' | 'tasks' | 'browser' | 'notifications' | 'auto-status' | 'plugins' | 'about';
+
+/** Settings of the automatic session status checks, as the server stores them. */
+export type SessionStatusCheckSettings = {
+  enabled: boolean;
+  freeBlockedCheck: boolean;
+  dailyLimit: number;
+  firstTurn: number;
+  interval: number;
+};
+
+/** Usage of the automatic and ✨ Auto rename model calls, from GET /api/session-status-checks. */
+export type SessionStatusCheckStats = {
+  today: {
+    checks: number;
+    automatic: number;
+    autoRename: number;
+    failed: number;
+    inputTokens: number;
+    outputTokens: number;
+    costUsd: number;
+    limit: number;
+    used: number;
+  };
+  days: Array<{ day: string; checks: number; inputTokens: number; outputTokens: number; costUsd: number }>;
+  last: { at: string; sessionId: string; reason: 'automatic' | 'leaving-blocked' | 'auto-rename'; ok: boolean; durationMs: number } | null;
+};
+
+export type SessionStatusChecksView = {
+  settings: SessionStatusCheckSettings;
+  stats: SessionStatusCheckStats;
+};
 
 /** The coding-agent CLI a settings screen is configuring, aliasing LLMProvider so agent-scoped settings read as being about an agent rather than a chat model. */
 export type AgentProvider = LLMProvider;

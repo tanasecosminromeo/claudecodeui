@@ -12,6 +12,7 @@ import VoiceSettingsTab from '@/modules/settings/tabs/VoiceSettingsTab';
 import GitSettingsTab from '@/modules/settings/tabs/git-settings/GitSettingsTab';
 import BrowserUseSettingsTab from '@/modules/settings/tabs/browser-use-settings/BrowserUseSettingsTab';
 import NotificationsSettingsTab from '@/modules/settings/tabs/NotificationsSettingsTab';
+import AutoStatusSettingsTab from '@/modules/settings/tabs/AutoStatusSettingsTab';
 import TasksSettingsTab from '@/modules/settings/tabs/tasks-settings/TasksSettingsTab';
 import { PluginSettingsTab } from '@/modules/plugins';
 import AboutTab from '@/modules/settings/tabs/AboutTab';
@@ -267,6 +268,8 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'agents' }: Set
                   onDisableDesktopNotifications={handleDisableDesktopNotifications}
                 />
               )}
+
+              {activeTab === 'auto-status' && <AutoStatusSettingsTab />}
 
               {activeTab === 'api' && <CredentialsSettingsTab />}
 
