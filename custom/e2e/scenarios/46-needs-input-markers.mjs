@@ -112,6 +112,12 @@ export async function run({ chat, page, app, paths, expect, snapshot, log }) {
     const openList = async () => {
       await page.goto(`${app.base}/`);
       await row(a).waitFor({ timeout: 20000 });
+      // The leftover-processes list opens once per fresh instance, and covers the sidebar. Close it:
+      // it lists processes of the whole machine, not of this test.
+      const leftovers = page.locator('#uic-leftovers .uic-lo-close');
+      if (await leftovers.waitFor({ state: 'visible', timeout: 4000 }).then(() => true, () => false)) {
+        await leftovers.click();
+      }
       await showRows(a, ids[a]);
       await showRows(b, ids[b]);
     };
