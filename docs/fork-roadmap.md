@@ -45,7 +45,7 @@ Status ✅. Done 2026-10-05.
 ## 2. UX fixes
 
 ### 2.1 Quick archive visible without hovering
-Today the archive button only appears on hover, where it replaces the row's age.
+Status ✅. Done 2026-10-14 (e2e 19).
 - Show both the age and the archive button, including on touch screens, which have no hover.
 - **Done:** e2e scenario 19 archives without hovering first.
 
