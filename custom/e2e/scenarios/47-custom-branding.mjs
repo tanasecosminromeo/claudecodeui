@@ -24,6 +24,19 @@ export async function run({ chat, page, app, expect, snapshot }) {
     });
     return { status: response.status, body: await response.json().catch(() => null) };
   };
+  // The ui-cleanup "Leftover processes" dialog opens on its own when the host has
+  // real leftovers and covers the page. Answer its list with nothing; never kill anything.
+  await page.route('**/api/plugins/*/rpc/leftovers', (route) => route.fulfill({
+    status: 200, contentType: 'application/json', body: JSON.stringify({ groups: [], serverStartedAt: 0 }),
+  }));
+  const leftovers = page.locator('#uic-leftovers');
+  if (await leftovers.isVisible().catch(() => false)) {
+    await leftovers.getByRole('button', { name: 'Close', exact: true }).click();
+  }
+  const openAppearance = async () => {
+    await page.locator('button:has(svg.lucide-settings)').filter({ visible: true }).first().click();
+    await page.getByRole('button', { name: 'Appearance', exact: true }).first().click();
+  };
   const resetBranding = async () => {
     await api('DELETE', '/api/branding/icon');
     await api('PUT', '/api/branding/name', { name: '' });
@@ -36,10 +49,7 @@ export async function run({ chat, page, app, expect, snapshot }) {
     const stockManifest = await (await fetch(`${app.base}/manifest.json`)).json();
     expect(!String(stockManifest.icons[0].src).includes('?v='), 'unbranded manifest icons have no version query');
 
-    // Open Settings → Appearance.
-    const settingsButton = page.locator('button:has(svg.lucide-settings)').filter({ visible: true }).first();
-    await settingsButton.click();
-    await page.getByRole('button', { name: 'Appearance', exact: true }).first().click();
+    await openAppearance();
     const uploadInput = page.locator('input[type="file"][aria-label="Upload image"]');
     await uploadInput.waitFor({ state: 'attached', timeout: 10000 });
 
@@ -62,6 +72,7 @@ export async function run({ chat, page, app, expect, snapshot }) {
     const favicon = await page.evaluate(() => document.querySelector('link[rel="icon"]')?.getAttribute('href'));
     expect(String(favicon).endsWith(`?v=${state.iconVersion}`), `the open tab's favicon points at the new icon without a reload (${favicon})`);
 
+    await snapshot('settings: Appearance, Branding with the uploaded icon and name');
     await page.keyboard.press('Escape');
     await snapshot('settings closed, sidebar shows the custom icon and name');
 
@@ -101,8 +112,7 @@ export async function run({ chat, page, app, expect, snapshot }) {
     expect(anonymous.status === 401, `renaming without a token is refused (${anonymous.status})`);
 
     // Reset from the UI.
-    await page.locator('button:has(svg.lucide-settings)').filter({ visible: true }).first().click();
-    await page.getByRole('button', { name: 'Appearance', exact: true }).first().click();
+    await openAppearance();
     await page.getByRole('button', { name: 'Reset to default' }).click();
     await page.getByRole('button', { name: 'Reset to default' }).waitFor({ state: 'detached', timeout: 10000 });
     const resetName = page.getByRole('textbox', { name: 'App name' });
