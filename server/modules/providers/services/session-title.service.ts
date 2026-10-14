@@ -35,6 +35,13 @@ export const SESSION_STATUS_KEYS = Object.keys(SESSION_STATUS_DEFINITIONS) as Se
 const AUTO_FIRST_RUN_TURNS = 3;
 const AUTO_STATUS_TURN_INTERVAL = 5;
 
+/**
+ * Automatic model checks allowed per local day, across all sessions. One check
+ * is about 4k input and 700 output Haiku tokens, so the day stays small on the
+ * subscription. The free reply check and the user's own Auto rename are not counted.
+ */
+export const DAILY_AUTOMATIC_CHECK_LIMIT = 50;
+
 const EXCERPT_FIRST_USER_MESSAGES = 3;
 const EXCERPT_LATEST_PER_ROLE = 2;
 const EXCERPT_MESSAGE_CHARS = 600;
@@ -48,8 +55,8 @@ export type TitleAndStatus = {
   status: SessionStatusKey;
 };
 
-/** Sends one prompt to a no-tools Claude and returns its raw text reply. */
-export type TitleQueryRunner = (prompt: string) => Promise<string>;
+/** Sends one prompt to a no-tools Claude and returns its raw text reply. `label` names the check in the log. */
+export type TitleQueryRunner = (prompt: string, label?: string) => Promise<string>;
 
 export type SessionTitleDependencies = {
   runQuery: TitleQueryRunner;
@@ -246,15 +253,30 @@ export function parseTitleAndStatusReply(raw: string, options: { wantTitle: bool
   return { title, status };
 }
 
+/** Sums the tokens of every model the CLI used for one call, for the log line. */
+function describeUsage(
+  modelUsage: Record<string, { inputTokens?: number; outputTokens?: number }> | undefined,
+  costUsd: number | undefined,
+): string {
+  const models = Object.values(modelUsage ?? {});
+  const input = models.reduce((sum, model) => sum + (model.inputTokens ?? 0), 0);
+  const output = models.reduce((sum, model) => sum + (model.outputTokens ?? 0), 0);
+  const cost = typeof costUsd === 'number' ? `, API-equivalent $${costUsd.toFixed(4)}` : '';
+  return `${input} input / ${output} output tokens${cost}`;
+}
+
 /**
  * Runs Claude once with every tool and hook off, on a small model, and returns
  * the text of its reply. The prompt carries the excerpt, so no session is
  * resumed or forked and the call works for any provider's session.
  */
-export async function runClaudeTitleQuery(prompt: string): Promise<string> {
+export async function runClaudeTitleQuery(prompt: string, label = 'check'): Promise<string> {
   const abortController = new AbortController();
   const timer = setTimeout(() => abortController.abort(), TITLE_QUERY_TIMEOUT_MS);
   const executablePath = resolveClaudeCodeExecutablePath(process.env.CLAUDE_CLI_PATH);
+  const startedAt = Date.now();
+  let usageNote = 'no usage reported';
+  let outcomeNote = 'failed';
 
   try {
     const stream = query({
@@ -286,7 +308,8 @@ export async function runClaudeTitleQuery(prompt: string): Promise<string> {
           }
         }
       } else if (message?.type === 'result') {
-        const outcome = message as { is_error?: boolean; errors?: string[]; result?: unknown };
+        const outcome = message as { is_error?: boolean; errors?: string[]; result?: unknown; total_cost_usd?: number; modelUsage?: Record<string, { inputTokens?: number; outputTokens?: number }> };
+        usageNote = describeUsage(outcome.modelUsage, outcome.total_cost_usd);
         if (outcome.is_error && textParts.length === 0) {
           throw new Error(outcome.errors?.[0] || (typeof outcome.result === 'string' ? outcome.result : 'Claude returned an error'));
         }
@@ -298,9 +321,12 @@ export async function runClaudeTitleQuery(prompt: string): Promise<string> {
     if (!reply) {
       throw new Error('Claude returned an empty reply');
     }
+    outcomeNote = 'ok';
     return reply;
   } finally {
     clearTimeout(timer);
+    // One line per model call, so the checks can be counted: journalctl … | grep -c '\[SessionTitle\] check'
+    console.log(`[SessionTitle] check ${label}: ${outcomeNote}, ${Date.now() - startedAt} ms, ${usageNote}`);
   }
 }
 
@@ -333,7 +359,7 @@ export function setSessionTitleDependencies(overrides: Partial<SessionTitleDepen
  */
 export async function generateTitleAndStatus(
   sessionId: string,
-  options: { wantTitle: boolean },
+  options: { wantTitle: boolean; reason?: 'auto-rename' | 'automatic' | 'leaving-blocked' },
 ): Promise<TitleAndStatus> {
   const messages = await dependencies.loadMessages(sessionId);
   const excerpt = buildTitleExcerpt(messages);
@@ -345,7 +371,8 @@ export async function generateTitleAndStatus(
   }
 
   try {
-    const reply = await dependencies.runQuery(buildTitlePrompt(excerpt, options.wantTitle));
+    const label = `${options.reason ?? 'auto-rename'} ${sessionId}`;
+    const reply = await dependencies.runQuery(buildTitlePrompt(excerpt, options.wantTitle), label);
     return parseTitleAndStatusReply(reply, options);
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error);
@@ -442,6 +469,38 @@ export function planAutomaticCheck(
 /** Sessions with an automatic check running. A second completion while one runs is dropped. */
 const automaticChecksInFlight = new Set<string>();
 
+/** Automatic model checks used today (local date), against DAILY_AUTOMATIC_CHECK_LIMIT. */
+let automaticCheckBudget = { day: '', used: 0 };
+
+function localDay(): string {
+  const now = new Date();
+  return `${now.getFullYear()}-${now.getMonth() + 1}-${now.getDate()}`;
+}
+
+/** Takes one automatic check from today's budget; false once the day's limit is reached. */
+function takeAutomaticCheck(): boolean {
+  const day = localDay();
+  if (automaticCheckBudget.day !== day) {
+    automaticCheckBudget = { day, used: 0 };
+  }
+  if (automaticCheckBudget.used >= DAILY_AUTOMATIC_CHECK_LIMIT) {
+    return false;
+  }
+  automaticCheckBudget.used += 1;
+  if (automaticCheckBudget.used === DAILY_AUTOMATIC_CHECK_LIMIT) {
+    console.log(`[SessionTitle] daily limit of ${DAILY_AUTOMATIC_CHECK_LIMIT} automatic checks reached; no more model checks until tomorrow`);
+  }
+  return true;
+}
+
+/**
+ * Starts today's budget over. Tests use it so one test's checks do not count against another's.
+ * @internal
+ */
+export function resetAutomaticCheckBudget(): void {
+  automaticCheckBudget = { day: '', used: 0 };
+}
+
 /**
  * Runs the automatic check for one session after a run completes. Errors are
  * logged and swallowed: a failed title must never disturb the chat.
@@ -465,15 +524,21 @@ export async function runAutomaticSessionCheck(sessionId: string): Promise<void>
 
     // A reply that no longer asks the user clears `blocked` now, instead of at the next 5-turn check.
     let plan = planAutomaticCheck(session, turns);
+    let reason: 'automatic' | 'leaving-blocked' = 'automatic';
     if (!plan && !asksUser && !statusPinned && session.status === 'blocked') {
       plan = { wantTitle: false };
+      reason = 'leaving-blocked';
+    }
+    // Past the day's limit the model is not asked; the free reply check below still sets `blocked`.
+    if (plan && !takeAutomaticCheck()) {
+      plan = null;
     }
 
     let result: TitleAndStatus | null = null;
     let modelError: unknown = null;
     if (plan) {
       try {
-        result = await generateTitleAndStatus(sessionId, { wantTitle: plan.wantTitle });
+        result = await generateTitleAndStatus(sessionId, { wantTitle: plan.wantTitle, reason });
       } catch (error) {
         modelError = error;
       }

@@ -12,7 +12,9 @@ import {
   generateTitleAndStatus,
   lastReplyAsksUser,
   parseTitleAndStatusReply,
+  DAILY_AUTOMATIC_CHECK_LIMIT,
   planAutomaticCheck,
+  resetAutomaticCheckBudget,
   runAutomaticSessionCheck,
   setSessionTitleDependencies,
   SESSION_STATUS_KEYS,
@@ -49,6 +51,7 @@ async function withIsolatedDatabase(runTest: () => void | Promise<void>): Promis
   closeConnection();
   process.env.DATABASE_PATH = path.join(tempDirectory, 'auth.db');
   await initializeDatabase();
+  resetAutomaticCheckBudget();
 
   try {
     await runTest();
@@ -642,6 +645,58 @@ test('automatic check: a failed model call is swallowed and leaves the session u
       const row = sessionsDb.getSessionById('app-session');
       assert.equal(row?.custom_name, 'Start');
       assert.equal(row?.auto_turns, null);
+    } finally {
+      restore();
+    }
+  });
+});
+
+test('automatic check: the model call is labelled with its reason and session', async () => {
+  await withIsolatedDatabase(async () => {
+    sessionsDb.createAppSession('app-session', 'claude', '/workspace/client-a', 'Start');
+    const labels: Array<string | undefined> = [];
+    const restore = setSessionTitleDependencies({
+      loadMessages: async () => conversation(3),
+      runQuery: async (_prompt, label) => {
+        labels.push(label);
+        return '{"title": "Fix login test", "status": "bug"}';
+      },
+    });
+    try {
+      await runAutomaticSessionCheck('app-session');
+      assert.deepEqual(labels, ['automatic app-session']);
+    } finally {
+      restore();
+    }
+  });
+});
+
+test('automatic check: past the daily limit the model is not called, and blocked still comes from the reply', async () => {
+  await withIsolatedDatabase(async () => {
+    let calls = 0;
+    const restore = setSessionTitleDependencies({
+      loadMessages: async (sessionId) =>
+        sessionId === 'asks' ? [...conversation(3), textMessage('assistant', 'Should I push it?')] : conversation(3),
+      runQuery: async () => {
+        calls += 1;
+        return '{"title": "Fix login test", "status": "bug"}';
+      },
+    });
+    try {
+      for (let index = 0; index < DAILY_AUTOMATIC_CHECK_LIMIT; index += 1) {
+        sessionsDb.createAppSession(`s${index}`, 'claude', '/workspace/client-a', 'Start');
+        await runAutomaticSessionCheck(`s${index}`);
+      }
+      assert.equal(calls, DAILY_AUTOMATIC_CHECK_LIMIT);
+
+      sessionsDb.createAppSession('over', 'claude', '/workspace/client-a', 'Start');
+      await runAutomaticSessionCheck('over');
+      sessionsDb.createAppSession('asks', 'claude', '/workspace/client-a', 'Start');
+      await runAutomaticSessionCheck('asks');
+
+      assert.equal(calls, DAILY_AUTOMATIC_CHECK_LIMIT);
+      assert.equal(sessionsDb.getSessionById('over')?.auto_turns, null);
+      assert.equal(sessionsDb.getSessionById('asks')?.status, 'blocked');
     } finally {
       restore();
     }
