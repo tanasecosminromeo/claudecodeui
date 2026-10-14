@@ -326,6 +326,8 @@ export type NormalizedMessage = {
    * has to survive a reload — never a value this app synthesized.
    */
   transcriptAnchorId?: string;
+  /** Set on frames re-sent from a run's replay buffer on subscribe, never on live events. */
+  replayed?: boolean;
   sessionId: string;
   timestamp: string;
   provider: LLMProvider;

@@ -533,6 +533,8 @@ export type NormalizedMessage = {
    * anchor for "edit this message" and "fork from here".
    */
   transcriptAnchorId?: string;
+  /** Set on frames re-sent from a run's replay buffer on subscribe, never on live events. */
+  replayed?: boolean;
   /**
    * Set only on the client-side optimistic echo of an edited message, naming
    * the anchor that echo replaces. Never sent by the backend.

@@ -165,3 +165,41 @@ test('a retained run\'s eviction timer cannot evict the session\'s next run earl
     mock.timers.reset();
   }
 });
+
+test('events replayed on subscribe are flagged replayed, and the buffered events are not mutated', async () => {
+  await withIsolatedDatabase(async () => {
+    const connection = createFakeSocket();
+    const run = chatRunRegistry.startRun({
+      appSessionId: SESSION_ID,
+      provider: 'claude',
+      providerSessionId: 'native-1',
+      connection: connection as never,
+      userId: 1,
+    });
+    assert.ok(run);
+    run.writer.send({ kind: 'text', provider: 'claude', sessionId: 'native-1', content: 'hello' } as never);
+    run.writer.send({ kind: 'permission_request', provider: 'claude', sessionId: 'native-1', requestId: 'req-1', toolName: 'Bash', input: {} } as never);
+    assert.equal(chatRunRegistry.isProcessing(SESSION_ID), true);
+
+    const newTab = createFakeSocket();
+    handleChatConnection(
+      newTab as never,
+      { user: { id: 1 } } as never,
+      { runtime: { hasBackgroundWork: () => false, getPendingApprovalsForSession: () => [] } as never },
+    );
+    newTab.emit('message', JSON.stringify({ type: 'chat.subscribe', sessions: [{ sessionId: SESSION_ID, lastSeq: 0 }] }));
+    await settle();
+
+    const replayedFrames = newTab.frames.filter((frame) => frame.kind === 'text' || frame.kind === 'permission_request');
+    assert.equal(replayedFrames.length, 2, 'both buffered events are replayed to the new tab');
+    for (const frame of replayedFrames) {
+      assert.equal(frame.replayed, true);
+    }
+
+    const buffered = chatRunRegistry.replayEvents(SESSION_ID, 0);
+    assert.ok(buffered.length >= 2);
+    for (const event of buffered) {
+      assert.equal('replayed' in event, false, 'the buffer itself must not carry the replay flag');
+    }
+  });
+});

@@ -1,11 +1,14 @@
 import assert from 'node:assert/strict';
 
 import { renderHook } from '@testing-library/react';
-import { test } from 'vitest';
+import { test, vi } from 'vitest';
 
 import { useChatRealtimeHandlers } from '@/modules/chat/hooks/useChatRealtimeHandlers';
+import { noteNeedsInputChime } from '@/shared/needsInputChime';
 import type { ServerEvent, ProjectSession, PendingPermissionRequest } from '@/shared/types';
 import type { SessionStore } from '@/modules/chat/hooks/useSessionStore';
+
+vi.mock('@/shared/needsInputChime', () => ({ noteNeedsInputChime: vi.fn() }));
 
 /**
  * Answering a permission prompt resolves it over the inbound socket only, but
@@ -87,4 +90,16 @@ test('an unanswered request stays pending through a resolution for another id', 
   const pending = getPending();
   assert.equal(pending.length, 1);
   assert.equal(pending[0].requestId, 'req-open');
+});
+
+test('a replayed request chimes nothing, a live one chimes once', () => {
+  const { dispatch } = renderHandlers();
+  vi.mocked(noteNeedsInputChime).mockClear();
+
+  dispatch({ kind: 'chat_subscribed', sessionId: 'viewed-session', isProcessing: true, pendingPermissions: [] } as unknown as ServerEvent);
+  dispatch({ ...requestEvent('req-old', 1), replayed: true } as unknown as ServerEvent);
+  assert.equal(vi.mocked(noteNeedsInputChime).mock.calls.length, 0);
+
+  dispatch(requestEvent('req-new', 3));
+  assert.equal(vi.mocked(noteNeedsInputChime).mock.calls.length, 1);
 });

@@ -726,7 +726,8 @@ function handleChatSubscribe(
     // 0) would duplicate messages the history fetch already returned.
     const replayed = isProcessing ? chatRunRegistry.replayEvents(sessionId, lastSeq) : [];
     for (const event of replayed) {
-      sendJson(ws, event);
+      // Flagged so the client does not treat an old prompt as a new one (no chime).
+      sendJson(ws, { ...event, replayed: true });
     }
 
     // Errors raised while nobody watched are not in the transcript the

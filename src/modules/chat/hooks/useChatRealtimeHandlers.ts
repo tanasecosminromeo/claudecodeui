@@ -324,7 +324,8 @@ export function useChatRealtimeHandlers({
 
         case 'permission_request': {
           if (!msg.requestId) break;
-          if (isActionablePermissionRequest({ toolName: msg.toolName })) {
+          // A replayed prompt is an old one re-sent on subscribe, not a new need for input.
+          if (msg.replayed !== true && isActionablePermissionRequest({ toolName: msg.toolName })) {
             if (sid) {
               noteNeedsInputChime(sid);
             } else {
