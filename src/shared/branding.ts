@@ -75,7 +75,27 @@ export function applyBrandingState(value: unknown): void {
   } catch {
     // Storage can be full or disabled; the in-memory state is still correct.
   }
+  applyHeadIcons(next);
   listeners.forEach((listener) => listener());
+}
+
+/**
+ * Points the open tab's favicon and touch icons at the current icon, so an upload
+ * or a reset shows in the browser tab without a reload. The server rewrites the
+ * same links in index.html for the next load.
+ */
+function applyHeadIcons(branding: Branding): void {
+  if (typeof document === 'undefined') {
+    return;
+  }
+  const links = document.querySelectorAll<HTMLLinkElement>('link[rel="icon"], link[rel="apple-touch-icon"]');
+  links.forEach((link) => {
+    const base = (link.getAttribute('href') ?? '').split('?')[0];
+    if (!base) {
+      return;
+    }
+    link.setAttribute('href', branding.iconVersion ? `${base}?v=${branding.iconVersion}` : base);
+  });
 }
 
 let inFlightRefresh: Promise<void> | null = null;
