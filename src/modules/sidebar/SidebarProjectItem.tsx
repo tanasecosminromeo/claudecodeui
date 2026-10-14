@@ -22,6 +22,8 @@ import { useCompactSidebar } from '@/modules/sidebar/hooks/useCompactSidebar';
 import StarColorPalette from '@/modules/sidebar/StarColorPalette';
 import ProjectGroupMenu from '@/modules/sidebar/ProjectGroupMenu';
 import { STAR_COLOR_CLASSES } from '@/modules/sidebar/utils/starColors';
+import NeedsInputDot from '@/modules/sidebar/NeedsInputDot';
+import { useNeedsInputSessions, sessionNeedsInput } from '@/modules/sidebar/hooks/useNeedsInputSessions';
 
 const LONG_PRESS_MS = 500;
 
@@ -148,6 +150,19 @@ function SidebarProjectItem({
   const sessionCountLabel = `${sessionCountDisplay} session${totalSessionCount === 1 ? '' : 's'}`;
   const taskStatus = getTaskIndicatorStatus(project, mcpServerStatus);
   const mobileRenameInputRef = useRef<HTMLInputElement>(null);
+  // Counts only the sessions this row has loaded, not the ones still on the server.
+  const needsInputStates = useNeedsInputSessions();
+  const needsInputCount = sessions.reduce((count, session) => count + (sessionNeedsInput(session, needsInputStates) ? 1 : 0), 0);
+  const needsInputBadge = !isEditing && needsInputCount > 0 ? (
+    <span
+      className="flex flex-shrink-0 items-center gap-1 text-[11px] font-medium text-amber-600 dark:text-amber-400"
+      title={t('tooltips.needsInputProjectCount', { count: needsInputCount, defaultValue: '{{count}} sessions need input' })}
+      data-testid="project-needs-input-count"
+    >
+      <NeedsInputDot />
+      {needsInputCount}
+    </span>
+  ) : null;
 
   useEffect(() => {
     if (!isEditing || !mobileRenameInputRef.current) {
@@ -332,6 +347,7 @@ function SidebarProjectItem({
               </div>
 
               <div className="flex items-center gap-1">
+                {needsInputBadge}
                 {isEditing ? (
                   <>
                     <button
@@ -475,6 +491,7 @@ function SidebarProjectItem({
           </div>
 
           <div className="flex flex-shrink-0 items-center gap-1">
+            {needsInputBadge}
             {isEditing ? (
               <>
                 <div

@@ -11,6 +11,8 @@ import { useCompactSidebar } from '@/modules/sidebar/hooks/useCompactSidebar';
 import { useProviderSessionIdCopy } from '@/modules/sidebar/hooks/useProviderSessionIdCopy';
 import SessionOptions from '@/modules/sidebar/SessionOptions';
 import SessionPinBadge from '@/modules/sidebar/SessionPinBadge';
+import NeedsInputDot from '@/modules/sidebar/NeedsInputDot';
+import { useNeedsInputSessions, sessionNeedsInput } from '@/modules/sidebar/hooks/useNeedsInputSessions';
 import { SessionStatusEmoji, SessionStatusList, SessionStatusPopover } from '@/modules/sidebar/SessionStatusPicker';
 import type { SessionStatusKey } from '@/modules/sidebar/utils/sessionStatus';
 
@@ -103,6 +105,9 @@ function SidebarSessionItem({
       ? t('tooltips.backgroundWorkIndicator', { defaultValue: 'Background work running' })
       : t('tooltips.activeSessionIndicator');
   const providerLabel = PROVIDER_LABELS[session.__provider];
+  const needsInputStates = useNeedsInputSessions();
+  const needsInput = sessionNeedsInput(session, needsInputStates);
+  const needsInputLabel = t('tooltips.needsInputIndicator', { defaultValue: 'Needs input' });
 
   // The desktop controls live in SessionOptions, which owns the rename panel and
   // its outside-click dismissal. The mobile rename sits inside the bottom sheet,
@@ -245,6 +250,7 @@ function SidebarSessionItem({
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2">
                 <SessionStatusEmoji status={sessionStatus} t={t} />
+                {needsInput && <NeedsInputDot label={needsInputLabel} />}
                 <div
                   className="min-w-0 flex-1 truncate text-sm font-normal text-foreground"
                   title={sessionView.sessionName}
@@ -555,6 +561,7 @@ function SidebarSessionItem({
                   t={t}
                   onActivate={onSetSessionStatus && !isSelecting && !isEditing ? openStatusPicker : undefined}
                 />
+                {needsInput && <NeedsInputDot label={needsInputLabel} />}
                 <div
                   className="min-w-0 flex-1 truncate text-sm font-normal text-foreground"
                   title={sessionView.sessionName}

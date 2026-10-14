@@ -8,6 +8,8 @@ import type { ProjectSession, RecentConversationListItem, SessionRowActions } fr
 import { formatCompactAge } from '@/modules/sidebar/utils/sidebarProjectFormatting';
 import SessionOptions from '@/modules/sidebar/SessionOptions';
 import SessionPinBadge from '@/modules/sidebar/SessionPinBadge';
+import NeedsInputDot from '@/modules/sidebar/NeedsInputDot';
+import { useNeedsInputSessions, sessionNeedsInput } from '@/modules/sidebar/hooks/useNeedsInputSessions';
 import { SessionStatusEmoji } from '@/modules/sidebar/SessionStatusPicker';
 
 type SidebarRecentConversationsProps = {
@@ -66,6 +68,7 @@ export default function SidebarRecentConversations({
   onRetry,
   t,
 }: SidebarRecentConversationsProps) {
+  const needsInputStates = useNeedsInputSessions();
   if (isLoading && conversations.length === 0) {
     return <RecentConversationSkeleton />;
   }
@@ -110,6 +113,7 @@ export default function SidebarRecentConversations({
       <div className="space-y-0.5">
         {conversations.map((conversation) => {
           const isSelected = String(selectedSession?.id ?? '') === conversation.sessionId;
+          const needsInput = sessionNeedsInput({ id: conversation.sessionId, status: conversation.status }, needsInputStates);
           const age = formatCompactAge(conversation.lastActivity, currentTime);
           const hasBackgroundWork = sessionActions.backgroundSessionIds.has(conversation.sessionId);
           const isProcessing = sessionActions.activeSessions.has(conversation.sessionId) && !hasBackgroundWork;
@@ -187,6 +191,9 @@ export default function SidebarRecentConversations({
                 <span className="min-w-0 flex-1">
                   <span className="flex min-w-0 items-center gap-1.5 text-[13px] font-normal leading-4">
                     <SessionStatusEmoji status={conversation.status ?? null} t={t} />
+                    {needsInput && (
+                      <NeedsInputDot label={t('tooltips.needsInputIndicator', { defaultValue: 'Needs input' })} />
+                    )}
                     <span className="block truncate">{conversation.sessionTitle}</span>
                   </span>
                   <span className="mt-0.5 flex min-w-0 items-center gap-1.5 text-[10px] leading-3 text-muted-foreground">
