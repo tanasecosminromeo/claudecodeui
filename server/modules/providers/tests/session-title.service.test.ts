@@ -4,7 +4,18 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
-import { closeConnection, initializeDatabase, sessionsDb } from '@/modules/database/index.js';
+import {
+  closeConnection,
+  getConnection,
+  initializeDatabase,
+  sessionsDb,
+  sessionStatusChecksDb,
+} from '@/modules/database/index.js';
+import type { SessionStatusCheckInsert } from '@/modules/database/index.js';
+import {
+  SESSION_STATUS_SETTINGS_DEFAULTS,
+  saveSessionStatusSettings,
+} from '@/modules/providers/services/session-status-checks.service.js';
 import {
   buildTitleExcerpt,
   buildTitlePrompt,
@@ -12,9 +23,7 @@ import {
   generateTitleAndStatus,
   lastReplyAsksUser,
   parseTitleAndStatusReply,
-  DAILY_AUTOMATIC_CHECK_LIMIT,
   planAutomaticCheck,
-  resetAutomaticCheckBudget,
   runAutomaticSessionCheck,
   setSessionTitleDependencies,
   SESSION_STATUS_KEYS,
@@ -51,7 +60,6 @@ async function withIsolatedDatabase(runTest: () => void | Promise<void>): Promis
   closeConnection();
   process.env.DATABASE_PATH = path.join(tempDirectory, 'auth.db');
   await initializeDatabase();
-  resetAutomaticCheckBudget();
 
   try {
     await runTest();
@@ -64,6 +72,21 @@ async function withIsolatedDatabase(runTest: () => void | Promise<void>): Promis
     }
     await rm(tempDirectory, { recursive: true, force: true });
   }
+}
+
+/** One stored model call, for seeding the daily cap. */
+function checkRow(overrides: Partial<SessionStatusCheckInsert>): SessionStatusCheckInsert {
+  return {
+    createdAt: new Date().toISOString(),
+    sessionId: 'seeded',
+    reason: 'automatic',
+    ok: true,
+    durationMs: 1200,
+    inputTokens: 4000,
+    outputTokens: 700,
+    costUsd: 0.006,
+    ...overrides,
+  };
 }
 
 /** Builds N user/assistant pairs, so N user turns, with the given prompts. */
@@ -264,25 +287,25 @@ test('lastReplyAsksUser is false when there is no assistant text', () => {
 
 test('planAutomaticCheck runs once at 3 user turns, then a status check every 5 turns', () => {
   const fresh = { auto_turns: null, name_source: null, status_source: null };
-  assert.equal(planAutomaticCheck(fresh, 2), null);
-  assert.deepEqual(planAutomaticCheck(fresh, 3), { wantTitle: true });
+  assert.equal(planAutomaticCheck(fresh, 2, SESSION_STATUS_SETTINGS_DEFAULTS), null);
+  assert.deepEqual(planAutomaticCheck(fresh, 3, SESSION_STATUS_SETTINGS_DEFAULTS), { wantTitle: true });
 
   const ran = { auto_turns: 3, name_source: 'auto', status_source: 'auto' };
-  assert.equal(planAutomaticCheck(ran, 4), null);
-  assert.equal(planAutomaticCheck(ran, 7), null);
-  assert.deepEqual(planAutomaticCheck(ran, 8), { wantTitle: false });
+  assert.equal(planAutomaticCheck(ran, 4, SESSION_STATUS_SETTINGS_DEFAULTS), null);
+  assert.equal(planAutomaticCheck(ran, 7, SESSION_STATUS_SETTINGS_DEFAULTS), null);
+  assert.deepEqual(planAutomaticCheck(ran, 8, SESSION_STATUS_SETTINGS_DEFAULTS), { wantTitle: false });
 });
 
 test('planAutomaticCheck never writes a title over a user name', () => {
   const userNamed = { auto_turns: null, name_source: 'user', status_source: null };
-  assert.deepEqual(planAutomaticCheck(userNamed, 3), { wantTitle: false });
+  assert.deepEqual(planAutomaticCheck(userNamed, 3, SESSION_STATUS_SETTINGS_DEFAULTS), { wantTitle: false });
 });
 
 test('planAutomaticCheck does nothing once the user pinned the status and the title is done', () => {
   const pinned = { auto_turns: 3, name_source: 'auto', status_source: 'user' };
-  assert.equal(planAutomaticCheck(pinned, 8), null);
+  assert.equal(planAutomaticCheck(pinned, 8, SESSION_STATUS_SETTINGS_DEFAULTS), null);
   const pinnedNew = { auto_turns: null, name_source: 'user', status_source: 'user' };
-  assert.equal(planAutomaticCheck(pinnedNew, 3), null);
+  assert.equal(planAutomaticCheck(pinnedNew, 3, SESSION_STATUS_SETTINGS_DEFAULTS), null);
 });
 
 test('generateTitleAndStatus sends the excerpt prompt and parses the reply', async () => {
@@ -671,32 +694,215 @@ test('automatic check: the model call is labelled with its reason and session', 
   });
 });
 
+/** Stubs the model with a fixed answer and counts the calls. */
+function countingModel(messagesFor: (sessionId: string) => NormalizedMessage[] = () => conversation(3)) {
+  const calls: Array<string | undefined> = [];
+  return {
+    calls,
+    deps: {
+      loadMessages: async (sessionId: string) => messagesFor(sessionId),
+      runQuery: async (_prompt: string, label?: string) => {
+        calls.push(label);
+        return { text: '{"title": "Fix login test", "status": "bug"}', usage: null };
+      },
+    },
+  };
+}
+
 test('automatic check: past the daily limit the model is not called, and blocked still comes from the reply', async () => {
   await withIsolatedDatabase(async () => {
-    let calls = 0;
-    const restore = setSessionTitleDependencies({
-      loadMessages: async (sessionId) =>
-        sessionId === 'asks' ? [...conversation(3), textMessage('assistant', 'Should I push it?')] : conversation(3),
-      runQuery: async () => {
-        calls += 1;
-        return '{"title": "Fix login test", "status": "bug"}';
-      },
-    });
+    saveSessionStatusSettings({ dailyLimit: 3 });
+    const model = countingModel((sessionId) =>
+      sessionId === 'asks' ? [...conversation(3), textMessage('assistant', 'Should I push it?')] : conversation(3),
+    );
+    const restore = setSessionTitleDependencies(model.deps);
     try {
-      for (let index = 0; index < DAILY_AUTOMATIC_CHECK_LIMIT; index += 1) {
+      for (let index = 0; index < 3; index += 1) {
         sessionsDb.createAppSession(`s${index}`, 'claude', '/workspace/client-a', 'Start');
         await runAutomaticSessionCheck(`s${index}`);
       }
-      assert.equal(calls, DAILY_AUTOMATIC_CHECK_LIMIT);
+      assert.equal(model.calls.length, 3);
 
       sessionsDb.createAppSession('over', 'claude', '/workspace/client-a', 'Start');
       await runAutomaticSessionCheck('over');
       sessionsDb.createAppSession('asks', 'claude', '/workspace/client-a', 'Start');
       await runAutomaticSessionCheck('asks');
 
-      assert.equal(calls, DAILY_AUTOMATIC_CHECK_LIMIT);
+      assert.equal(model.calls.length, 3);
       assert.equal(sessionsDb.getSessionById('over')?.auto_turns, null);
       assert.equal(sessionsDb.getSessionById('asks')?.status, 'blocked');
+    } finally {
+      restore();
+    }
+  });
+});
+
+test('automatic check: the cap counts rows already stored today, so a restart does not reset it', async () => {
+  await withIsolatedDatabase(async () => {
+    saveSessionStatusSettings({ dailyLimit: 3 });
+    const now = new Date().toISOString();
+    for (let index = 0; index < 3; index += 1) {
+      sessionStatusChecksDb.insert(checkRow({ createdAt: now, reason: 'automatic' }));
+    }
+    const model = countingModel();
+    const restore = setSessionTitleDependencies(model.deps);
+    try {
+      sessionsDb.createAppSession('after-restart', 'claude', '/workspace/client-a', 'Start');
+      await runAutomaticSessionCheck('after-restart');
+      assert.equal(model.calls.length, 0);
+      assert.equal(sessionsDb.getSessionById('after-restart')?.auto_turns, null);
+    } finally {
+      restore();
+    }
+  });
+});
+
+test('automatic check: rows from yesterday do not count against today', async () => {
+  await withIsolatedDatabase(async () => {
+    saveSessionStatusSettings({ dailyLimit: 3 });
+    const yesterday = new Date(Date.now() - 25 * 60 * 60 * 1000).toISOString();
+    for (let index = 0; index < 3; index += 1) {
+      sessionStatusChecksDb.insert(checkRow({ createdAt: yesterday, reason: 'automatic' }));
+    }
+    const model = countingModel();
+    const restore = setSessionTitleDependencies(model.deps);
+    try {
+      sessionsDb.createAppSession('today', 'claude', '/workspace/client-a', 'Start');
+      await runAutomaticSessionCheck('today');
+      assert.equal(model.calls.length, 1);
+    } finally {
+      restore();
+    }
+  });
+});
+
+test('automatic check: auto-rename calls do not count against the automatic limit', async () => {
+  await withIsolatedDatabase(async () => {
+    saveSessionStatusSettings({ dailyLimit: 3 });
+    const now = new Date().toISOString();
+    for (let index = 0; index < 3; index += 1) {
+      sessionStatusChecksDb.insert(checkRow({ createdAt: now, reason: 'auto-rename' }));
+    }
+    const model = countingModel();
+    const restore = setSessionTitleDependencies(model.deps);
+    try {
+      sessionsDb.createAppSession('still-allowed', 'claude', '/workspace/client-a', 'Start');
+      await runAutomaticSessionCheck('still-allowed');
+      assert.equal(model.calls.length, 1);
+    } finally {
+      restore();
+    }
+  });
+});
+
+test('automatic check: with automatic checks disabled there is no model call, but blocked still comes from the reply', async () => {
+  await withIsolatedDatabase(async () => {
+    saveSessionStatusSettings({ enabled: false });
+    const model = countingModel((sessionId) =>
+      sessionId === 'asks' ? [...conversation(3), textMessage('assistant', 'Should I push it?')] : conversation(3),
+    );
+    const restore = setSessionTitleDependencies(model.deps);
+    try {
+      sessionsDb.createAppSession('quiet', 'claude', '/workspace/client-a', 'Start');
+      await runAutomaticSessionCheck('quiet');
+      sessionsDb.createAppSession('asks', 'claude', '/workspace/client-a', 'Start');
+      await runAutomaticSessionCheck('asks');
+      assert.equal(model.calls.length, 0);
+      assert.equal(sessionsDb.getSessionById('quiet')?.auto_turns, null);
+      assert.equal(sessionsDb.getSessionById('asks')?.status, 'blocked');
+    } finally {
+      restore();
+    }
+  });
+});
+
+test('automatic check: with the free reply check off, a reply that asks the user does not set blocked', async () => {
+  await withIsolatedDatabase(async () => {
+    saveSessionStatusSettings({ freeBlockedCheck: false });
+    sessionsDb.createAppSession('asks', 'claude', '/workspace/client-a', 'Start');
+    const model = countingModel(() => [...conversation(2), textMessage('assistant', 'Should I push it?')]);
+    const restore = setSessionTitleDependencies(model.deps);
+    try {
+      await runAutomaticSessionCheck('asks');
+      assert.equal(model.calls.length, 0);
+      assert.notEqual(sessionsDb.getSessionById('asks')?.status, 'blocked');
+    } finally {
+      restore();
+    }
+  });
+});
+
+test('automatic check: changed first-turn and interval settings are respected without a restart', async () => {
+  await withIsolatedDatabase(async () => {
+    saveSessionStatusSettings({ firstTurn: 2, interval: 2 });
+    sessionsDb.createAppSession('app-session', 'claude', '/workspace/client-a', 'Start');
+    const model = countingModel();
+    const restore = setSessionTitleDependencies(model.deps);
+    try {
+      await runAutomaticSessionCheck('app-session');
+      assert.equal(model.calls.length, 1);
+      assert.equal(sessionsDb.getSessionById('app-session')?.auto_turns, 3);
+    } finally {
+      restore();
+    }
+    // Interval 2 after the run at 3 turns: the next status check is due at 5 turns.
+    const later = countingModel(() => conversation(5));
+    const restoreLater = setSessionTitleDependencies(later.deps);
+    try {
+      await runAutomaticSessionCheck('app-session');
+      assert.equal(later.calls.length, 1);
+    } finally {
+      restoreLater();
+    }
+  });
+});
+
+test('generateTitleAndStatus records one row per model call with its usage, and a failed call as not ok', async () => {
+  await withIsolatedDatabase(async () => {
+    sessionsDb.createAppSession('app-session', 'claude', '/workspace/client-a', 'Start');
+    const restore = setSessionTitleDependencies({
+      loadMessages: async () => conversation(2),
+      runQuery: async () => ({
+        text: '{"title": "Fix login", "status": "bug"}',
+        usage: { inputTokens: 4000, outputTokens: 700, costUsd: 0.0061 },
+      }),
+    });
+    try {
+      await generateTitleAndStatus('app-session', { wantTitle: true, reason: 'automatic' });
+    } finally {
+      restore();
+    }
+
+    const failing = setSessionTitleDependencies({
+      loadMessages: async () => conversation(2),
+      runQuery: async () => 'not json at all',
+    });
+    try {
+      await assert.rejects(generateTitleAndStatus('app-session', { wantTitle: true }));
+    } finally {
+      failing();
+    }
+
+    const rows = getConnection()
+      .prepare('SELECT reason, ok, input_tokens, output_tokens, cost_usd FROM session_status_checks ORDER BY id')
+      .all();
+    assert.deepEqual(rows, [
+      { reason: 'automatic', ok: 1, input_tokens: 4000, output_tokens: 700, cost_usd: 0.0061 },
+      { reason: 'auto-rename', ok: 0, input_tokens: 0, output_tokens: 0, cost_usd: null },
+    ]);
+  });
+});
+
+test('automatic check: with automatic checks disabled, auto-rename still works', async () => {
+  await withIsolatedDatabase(async () => {
+    saveSessionStatusSettings({ enabled: false });
+    sessionsDb.createAppSession('app-session', 'claude', '/workspace/client-a', 'Start');
+    const model = countingModel(() => conversation(1));
+    const restore = setSessionTitleDependencies(model.deps);
+    try {
+      const result = await generateTitleAndStatus('app-session', { wantTitle: true });
+      assert.equal(result.title, 'Fix login test');
+      assert.equal(model.calls.length, 1);
     } finally {
       restore();
     }
