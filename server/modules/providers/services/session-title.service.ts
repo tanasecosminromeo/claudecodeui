@@ -27,7 +27,11 @@ export type SessionStatusKey = keyof typeof SESSION_STATUS_DEFINITIONS;
 
 export const SESSION_STATUS_KEYS = Object.keys(SESSION_STATUS_DEFINITIONS) as SessionStatusKey[];
 
-/** Automatic status and title checks: first run at this many user turns, then every N turns. */
+/**
+ * Automatic checks: the first title and status run at 3 user turns, then a
+ * status-only model check every 5 turns. `blocked` does not wait for those
+ * checks: a free reply check runs after every finished run (see lastReplyAsksUser).
+ */
 const AUTO_FIRST_RUN_TURNS = 3;
 const AUTO_STATUS_TURN_INTERVAL = 5;
 
@@ -68,9 +72,66 @@ export function countUserTurns(messages: NormalizedMessage[]): number {
   return messages.filter(isUserPrompt).length;
 }
 
+/** Phrases that hand a decision or a next step back to the user. */
+const ASKS_USER_PHRASES = /\b(your call|let me know|should i|shall i|do you want|want me to|which one|please (decide|approve|confirm)|can you (approve|confirm))\b/i;
+
+/** A line that opens with a decision label, such as "**Decide:** …" or "Confirm: …". */
+const DECISION_LABEL = /^[\W_]*(decide|approve|confirm)\b/i;
+
+/** Optional extra work offered at the end of a reply; the user owes no answer. */
+const OPTIONAL_OFFER = /\b(anything else|i can also|want me to also)\b/i;
+
+/**
+ * True when the last assistant reply asks the user something: one of its last
+ * three lines ends with a question mark or hands the user a decision. Code
+ * blocks are ignored, and a user prompt after the reply means it was answered.
+ * Pure and free, so it can run after every finished run.
+ */
+export function lastReplyAsksUser(messages: NormalizedMessage[]): boolean {
+  let lastAssistantIndex = -1;
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    if (isAssistantText(messages[index])) {
+      lastAssistantIndex = index;
+      break;
+    }
+  }
+  if (lastAssistantIndex === -1) {
+    return false;
+  }
+  if (messages.slice(lastAssistantIndex + 1).some(isUserPrompt)) {
+    return false;
+  }
+
+  // An unclosed fence runs to the end of the reply, so it is dropped too.
+  const prose = (messages[lastAssistantIndex].content ?? '').replace(/```[\s\S]*?(```|$)/g, '');
+  const lastLines = prose
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0)
+    .slice(-3);
+
+  return lastLines.some((line) => {
+    if (OPTIONAL_OFFER.test(line)) {
+      return false;
+    }
+    if (DECISION_LABEL.test(line)) {
+      return true;
+    }
+    const withoutNoise = line.replace(/[*_)`\s]+$/, '');
+    return withoutNoise.endsWith('?') || ASKS_USER_PHRASES.test(line);
+  });
+}
+
+/** Keeps the start of the text. */
 function truncate(text: string, maxChars: number): string {
   const trimmed = text.trim();
   return trimmed.length <= maxChars ? trimmed : `${trimmed.slice(0, maxChars - 1)}…`;
+}
+
+/** Keeps the end of the text, so a question or hand-off at the bottom survives. */
+function truncateKeepingEnd(text: string, maxChars: number): string {
+  const trimmed = text.trim();
+  return trimmed.length <= maxChars ? trimmed : `…${trimmed.slice(-(maxChars - 1))}`;
 }
 
 /**
@@ -89,11 +150,14 @@ export function buildTitleExcerpt(messages: NormalizedMessage[]): string {
     ...assistantTexts.slice(-EXCERPT_LATEST_PER_ROLE),
   ]);
 
+  // The latest assistant reply is cut from its end: that is where it asks the user for a decision.
+  const latestAssistant = assistantTexts[assistantTexts.length - 1];
   const lines = messages
     .filter((message) => picked.has(message))
     .map((message) => {
       const label = message.role === 'user' ? 'User' : 'Assistant';
-      return `${label}: ${truncate(message.content ?? '', EXCERPT_MESSAGE_CHARS)}`;
+      const cut = message === latestAssistant ? truncateKeepingEnd : truncate;
+      return `${label}: ${cut(message.content ?? '', EXCERPT_MESSAGE_CHARS)}`;
     });
 
   const excerpt = lines.join('\n\n');
@@ -123,7 +187,8 @@ export function buildTitlePrompt(excerpt: string, wantTitle: boolean): string {
     '',
     `${titleRule}"status": exactly one key from this list, chosen for the session's current state:`,
     statusLines,
-    'Judge by the goal, not the current step: fixing broken behaviour is "bug" even while tests run to check the fix; "testing" is for sessions whose goal is the tests themselves.',
+    'Check "blocked" first: the status is "blocked", whatever the goal, when the last message is from the assistant and it ends by asking the user a question, asking them to choose, approve or confirm, or handing them a step only they can do (for example a command to push or deploy). An offer of optional extra work ("I can also…") alone is not blocked.',
+    'Otherwise, judge by the goal, not the current step: fixing broken behaviour is "bug" even while tests run to check the fix; "testing" is for sessions whose goal is the tests themselves.',
     '',
     'Transcript excerpt:',
     '<excerpt>',
@@ -352,7 +417,7 @@ export async function setSessionStatus(sessionId: string, status: SessionStatusK
 /**
  * Decides whether a session needs an automatic check now, and whether that
  * check may write a title. Pure, so the rules are tested without a database.
- * - First check at 3 user turns, if it has not run yet.
+ * - First check at 3 user turns, if it has not run yet. Only this run may write a title.
  * - Then a status-only check every 5 user turns, unless the user pinned a status.
  */
 export function planAutomaticCheck(
@@ -395,24 +460,57 @@ export async function runAutomaticSessionCheck(sessionId: string): Promise<void>
 
     const messages = await dependencies.loadMessages(sessionId);
     const turns = countUserTurns(messages);
-    const plan = planAutomaticCheck(session, turns);
-    if (!plan) {
-      return;
+    const asksUser = lastReplyAsksUser(messages);
+    const statusPinned = session.status_source === 'user';
+
+    // A reply that no longer asks the user clears `blocked` now, instead of at the next 5-turn check.
+    let plan = planAutomaticCheck(session, turns);
+    if (!plan && !asksUser && !statusPinned && session.status === 'blocked') {
+      plan = { wantTitle: false };
     }
 
-    const result = await generateTitleAndStatus(sessionId, { wantTitle: plan.wantTitle });
+    let result: TitleAndStatus | null = null;
+    let modelError: unknown = null;
+    if (plan) {
+      try {
+        result = await generateTitleAndStatus(sessionId, { wantTitle: plan.wantTitle });
+      } catch (error) {
+        modelError = error;
+      }
+    }
 
     // Re-read before writing: the user may have renamed or pinned while Claude was answering.
     const latest = requireSession(sessionId);
-    if (plan.wantTitle && latest.name_source !== 'user' && result.title) {
-      sessionsDb.updateSessionCustomName(sessionId, result.title, 'auto');
-    }
-    if (latest.status_source !== 'user') {
-      sessionsDb.updateSessionStatus(sessionId, result.status, 'auto');
-    }
-    sessionsDb.setSessionAutoTurns(sessionId, turns);
+    const newTitle = plan?.wantTitle && latest.name_source !== 'user' && result?.title ? result.title : null;
+    const titleChanged = newTitle !== null && newTitle !== latest.custom_name;
 
-    await announceSessionChange(sessionId);
+    // The reply check decides `blocked` on its own. Otherwise the model's status (if it ran) is used.
+    let newStatus: SessionStatusKey | null = null;
+    if (!statusPinned) {
+      const target = asksUser ? 'blocked' : (result?.status ?? null);
+      if (target !== null && target !== latest.status) {
+        newStatus = target;
+      }
+    }
+    const statusChanged = newStatus !== null;
+
+    if (titleChanged) {
+      sessionsDb.updateSessionCustomName(sessionId, newTitle as string, 'auto');
+    }
+    if (statusChanged) {
+      sessionsDb.updateSessionStatus(sessionId, newStatus as SessionStatusKey, 'auto');
+    }
+    if (result) {
+      sessionsDb.setSessionAutoTurns(sessionId, turns);
+    }
+    if (titleChanged || statusChanged) {
+      await announceSessionChange(sessionId);
+    }
+
+    // Failed model call: the `blocked` above is already saved, now log the failure as before.
+    if (modelError) {
+      throw modelError;
+    }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     console.error('[SessionTitle] Automatic title check failed', { sessionId, error: message });
