@@ -133,6 +133,16 @@ describe('host mode', () => {
     expect(logo().getAttribute('data-envsw-label')).toBe('Dev');
   });
 
+  it('marks the logo when a custom app icon (an img) replaces the stock svg', async () => {
+    ctl = api.start();
+    vi.useFakeTimers();
+    document.querySelector('.flex-shrink-0').innerHTML = '<div class="flex min-w-0 items-center"><img src="/api/branding/icon?size=64" alt=""><h1>My app</h1></div>';
+    await flush();
+    vi.advanceTimersByTime(60);
+    expect(logo()).not.toBeNull();
+    expect(logo().getAttribute('data-envsw-label')).toBe('Dev');
+  });
+
   it('opens the menu from the logo and closes it with Escape', () => {
     ctl = api.start();
     logo().dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));

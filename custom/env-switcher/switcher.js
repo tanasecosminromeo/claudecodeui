@@ -128,15 +128,16 @@
     else document.addEventListener('DOMContentLoaded', fn, { once: true });
   }
 
-  // LogoBlock (src/modules/sidebar/SidebarHeader.tsx): div.min-w-0 > [div > svg, h1]; rendered for
-  // the desktop header and the mobile drawer. Attributes only, no child nodes: React owns the children.
+  // LogoBlock (src/modules/sidebar/SidebarHeader.tsx): div.min-w-0 > [div > svg | img, h1]; rendered for
+  // the desktop header and the mobile drawer. The mark is the stock svg, or an img once a custom app
+  // icon is set (Settings > Appearance). Attributes only, no child nodes: React owns the children.
   function logoRoots() {
     const roots = [];
     for (const h1 of document.querySelectorAll('h1')) {
       const root = h1.parentElement;
       if (!root || !root.classList.contains('min-w-0') || root.lastElementChild !== h1) continue;
       const mark = root.firstElementChild;
-      if (!mark || mark === h1 || !mark.querySelector('svg')) continue;
+      if (!mark || mark === h1 || !(mark.tagName === 'IMG' || mark.querySelector('svg'))) continue;
       roots.push(root);
     }
     return roots;
