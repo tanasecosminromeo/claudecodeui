@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { brandingLogoUrl, useBranding } from '@/shared/branding';
 import { IS_PLATFORM } from '@/shared/utils';
 
 type AuthScreenLayoutProps = {
@@ -20,6 +21,7 @@ export default function AuthScreenLayout({
   logo,
 }: AuthScreenLayoutProps) {
   const { t } = useTranslation('auth');
+  const branding = useBranding();
   return (
     <div className="relative h-screen overflow-y-auto bg-background">
       {/* Ambient, on-brand backdrop that gives the screen depth without
@@ -37,7 +39,7 @@ export default function AuthScreenLayout({
             <div className="mb-5 flex justify-center">
               {logo ?? (
                 <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-primary to-primary/80 shadow-lg shadow-primary/25 ring-1 ring-inset ring-white/20">
-                  <img src="/logo.svg" alt="CloudCLI" className="h-9 w-9" />
+                  <img src={brandingLogoUrl(branding)} alt={branding.name ?? 'CloudCLI'} className={branding.hasIcon ? 'h-9 w-9 rounded-md object-cover' : 'h-9 w-9'} />
                 </div>
               )}
             </div>

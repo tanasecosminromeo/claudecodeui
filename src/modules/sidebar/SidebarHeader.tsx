@@ -1,6 +1,7 @@
 import { ArrowDownAZ, Clock, Crosshair, FolderPlus, ListStart, Plus, RefreshCw, Search, Star, X, PanelLeftClose } from 'lucide-react';
 import type { TFunction } from 'i18next';
 
+import { useBranding, brandingIconUrl } from '@/shared/branding';
 import { Button, Input } from '@/shared/ui';
 import { CLOUDCLI_WORDMARK_FONT_FAMILY } from '@/shared/constants';
 import { cn, IS_PLATFORM } from '@/shared/utils';
@@ -35,20 +36,33 @@ type SidebarHeaderProps = {
   t: TFunction;
 };
 
-/** Module-level, not a nested render function, so the wordmark is not remounted on every SidebarHeader render. */
-function LogoBlock({ t }: { t: TFunction }) {
+/**
+ * Module-level, not a nested render function, so the wordmark is not remounted on every SidebarHeader render.
+ * Shows the custom icon and app name when branding is set, otherwise the stock speech-bubble mark.
+ */
+export function LogoBlock({ t }: { t: TFunction }) {
+  const { name, iconVersion, hasIcon } = useBranding();
+
   return (
     <div className="flex min-w-0 items-center gap-2.5">
-      <div className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg bg-primary/90 shadow-sm">
-        <svg className="h-3.5 w-3.5 text-primary-foreground" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round">
-          <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-        </svg>
-      </div>
+      {hasIcon && iconVersion ? (
+        <img
+          src={brandingIconUrl(64, iconVersion)}
+          alt=""
+          className="h-7 w-7 flex-shrink-0 rounded-lg object-cover shadow-sm"
+        />
+      ) : (
+        <div className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg bg-primary/90 shadow-sm">
+          <svg className="h-3.5 w-3.5 text-primary-foreground" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round">
+            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+          </svg>
+        </div>
+      )}
       <h1
         className="truncate text-sm font-bold tracking-tight text-foreground"
         style={{ fontFamily: CLOUDCLI_WORDMARK_FONT_FAMILY }}
       >
-        {t('app.title')}
+        {name ?? t('app.title')}
       </h1>
     </div>
   );

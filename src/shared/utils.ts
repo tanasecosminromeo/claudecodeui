@@ -219,13 +219,14 @@ export const getSessionTitle = (session: ProjectSession): string => {
 export const getPageTitle = (
   selectedProject: Project | null,
   selectedSession: ProjectSession | null,
+  appName: string = DEFAULT_PAGE_TITLE,
 ): string => {
   if (selectedSession) {
     return getSessionTitle(selectedSession);
   }
 
   const displayName = selectedProject?.displayName?.trim();
-  return displayName ? `${displayName} - ${DEFAULT_PAGE_TITLE}` : DEFAULT_PAGE_TITLE;
+  return displayName ? `${displayName} - ${appName}` : appName;
 };
 
 // ---------------------------

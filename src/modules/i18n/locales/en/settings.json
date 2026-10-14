@@ -169,6 +169,22 @@
     }
   },
   "appearanceSettings": {
+    "branding": {
+      "title": "Branding",
+      "upload": "Upload image",
+      "reset": "Reset to default",
+      "error": "Could not save the branding change.",
+      "icon": {
+        "label": "App icon",
+        "description": "Shown in the sidebar, on the login screen and in the browser tab. Installed home-screen apps may need reinstalling to show a new icon.",
+        "previewAlt": "Current app icon"
+      },
+      "name": {
+        "label": "App name",
+        "description": "Shown in the sidebar, on the login screen and in the browser tab. Leave empty to use the default.",
+        "placeholder": "CloudCLI UI"
+      }
+    },
     "darkMode": {
       "label": "Dark Mode",
       "description": "Toggle between light and dark themes"
