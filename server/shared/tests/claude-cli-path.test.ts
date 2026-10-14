@@ -1,10 +1,22 @@
 import assert from 'node:assert/strict';
-import test from 'node:test';
+import test, { after, before } from 'node:test';
 
 import {
   resolveClaudeCodeExecutablePath,
   type ResolveClaudeCodeExecutablePathDependencies,
 } from '@/shared/claude-cli-path.js';
+
+// The tests that pass `undefined` mean "nothing configured", but that argument
+// falls back to CLAUDE_CLI_PATH, so a machine that sets it made them fail.
+const configuredCliPath = process.env.CLAUDE_CLI_PATH;
+before(() => {
+  delete process.env.CLAUDE_CLI_PATH;
+});
+after(() => {
+  if (configuredCliPath !== undefined) {
+    process.env.CLAUDE_CLI_PATH = configuredCliPath;
+  }
+});
 
 test('resolveClaudeCodeExecutablePath resolves the npm Claude wrapper to its native exe on Windows', () => {
   const wrapperDir = 'C:\\nvm4w\\nodejs';
