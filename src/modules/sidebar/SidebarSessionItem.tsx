@@ -267,7 +267,7 @@ function SidebarSessionItem({
                     </Tooltip>
                   </span>
                 ) : compactSessionAge && (
-                  <span className="ml-auto flex-shrink-0 text-[11px] text-muted-foreground transition-opacity duration-200 group-hover:opacity-0 group-focus-within:opacity-0 group-has-[[aria-expanded=true]]:opacity-0">{compactSessionAge}</span>
+                  <span className="ml-auto flex-shrink-0 text-[11px] text-muted-foreground">{compactSessionAge}</span>
                 )}
               </div>
               <div className="mt-0.5 flex items-center">
@@ -278,6 +278,23 @@ function SidebarSessionItem({
                 )}
               </div>
             </div>
+
+            {canArchive && (
+              // Pixel size, not h-8/w-8: the ui-cleanup CSS shrinks the root font
+              // size, which would make the rem sizes come out under 32 px.
+              <button
+                type="button"
+                title={t('sessions.archiveSession', 'Archive session')}
+                aria-label={`${t('sessions.archiveSession', 'Archive session')}: ${sessionView.sessionName}`}
+                className="ml-1 flex h-[32px] w-[32px] flex-shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:scale-95"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onArchiveSession?.(session);
+                }}
+              >
+                <Archive className="h-4 w-4" />
+              </button>
+            )}
 
             {!isSelecting && (
               <button
@@ -517,8 +534,8 @@ function SidebarSessionItem({
             buttonVariants({ variant: 'ghost' }),
             'h-auto w-full justify-start rounded-md border bg-card p-2 text-left font-normal transition-all duration-150',
             // Room on the right for the controls: the options menu, plus the
-            // hover-revealed archive icon when the row offers it.
-            isSelecting ? 'pr-2' : canArchive ? 'pr-[4.5rem]' : 'pr-11',
+            // archive icon when the row offers it. The age sits left of that.
+            isSelecting ? 'pr-2' : canArchive ? 'pr-[4.75rem]' : 'pr-11',
             isSelected ? 'border-primary/20 bg-primary/5' : 'border-border/30',
             !isSelected && isProcessing
               ? 'border-border/60 bg-muted/20 hover:bg-muted/25'
@@ -573,7 +590,7 @@ function SidebarSessionItem({
                   <span
                     className={cn(
                       'ml-auto flex-shrink-0 transition-opacity duration-200',
-                      isEditing ? 'opacity-0' : !isSelecting && 'group-hover:opacity-0 group-focus-within:opacity-0 group-has-[[aria-expanded=true]]:opacity-0',
+                      isEditing && 'opacity-0',
                     )}
                   >
                     <Tooltip content={t('tooltips.processingSessionIndicator', 'Processing session')} position="top">
@@ -586,7 +603,7 @@ function SidebarSessionItem({
                   <span
                     className={cn(
                       'ml-auto flex-shrink-0 text-[11px] text-muted-foreground transition-opacity duration-200',
-                      isEditing ? 'opacity-0' : !isSelecting && 'group-hover:opacity-0 group-focus-within:opacity-0 group-has-[[aria-expanded=true]]:opacity-0',
+                      isEditing && 'opacity-0',
                     )}
                   >
                     {compactSessionAge}
