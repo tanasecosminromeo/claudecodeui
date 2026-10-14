@@ -144,6 +144,9 @@ try {
         localStorage.setItem('auth-token', token);
         localStorage.setItem('claude-model', model);
         localStorage.setItem('permissionMode-last-claude', mode);
+        // The leftover-processes list lists real processes on this machine and
+        // would open over the page; scenarios never need it to open by itself.
+        localStorage.setItem('uic-leftovers-no-auto', '1');
         sessionStorage.setItem('e2e-seeded', '1');
       }
     }, { token: app.token, model: meta.model ?? 'haiku', mode: meta.mode ?? 'bypassPermissions' });

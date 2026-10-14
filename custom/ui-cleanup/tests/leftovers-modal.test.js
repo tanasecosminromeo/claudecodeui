@@ -175,6 +175,15 @@ describe('leftover processes modal', () => {
     expect(overlay()).toBeNull();
   });
 
+  it('never opens by itself with the no-auto flag, but the Running view entry still opens it', async () => {
+    localStorage.setItem('uic-leftovers-no-auto', '1');
+    vi.stubGlobal('fetch', vi.fn(async () => resp(200, payload([group()], 4321))));
+    await uic.checkLeftovers();
+    expect(overlay()).toBeNull();
+    uic.openLeftovers();
+    expect(overlay()).not.toBeNull();
+  });
+
   it('a failed check (server down) is silent and does not open the modal', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => { throw new TypeError('Failed to fetch'); }));
     await expect(uic.checkLeftovers()).resolves.toBeUndefined();
