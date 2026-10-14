@@ -16,6 +16,10 @@ Status 🧪. It's not clear this holds up in daily use, even though e2e scenario
   restart, a terminal and the web UI splitting a conversation.
 - Write an e2e scenario that reproduces each case, then fix it.
 - **Done:** every collected case is an e2e scenario and passes, and there have been no new reports for a week of daily use.
+- Checked 2026-10-14: no session had two live processes; a CloudCLI restart mid-turn reattached and the
+  reply arrived; a week of logs had no failed reattach. The "Error interrupting superseded run" noise
+  (an interrupt sent to a process that had already exited) stopped with the 2026-10-13 deploy. No open
+  cases, so the week of daily use runs from 2026-10-14: if nothing is reported by 2026-10-21, mark ✅.
 
 ### 1.2 Keeping machines in step (`make sync`, `make remote`)
 Status 🧪. Syncing between machines doesn't work reliably.
@@ -41,7 +45,7 @@ Status ✅. Done 2026-10-05.
 ## 2. UX fixes
 
 ### 2.1 Quick archive visible without hovering
-Today the archive button only appears on hover, where it replaces the row's age.
+Status ✅. Done 2026-10-14 (e2e 19).
 - Show both the age and the archive button, including on touch screens, which have no hover.
 - **Done:** e2e scenario 19 archives without hovering first.
 
@@ -52,7 +56,7 @@ Status ✅. Done 2026-10-13.
 - **Done:** e2e scenario 26 covers cycling, unstarring after the delay, the project staying in place, and the filter.
 
 ### 2.3 "Needs input" for every session, kept until handled
-Today the pulsing favicon and badge point at one waiting session and disappear when it changes.
+Status ✅. Done 2026-10-14 (e2e 46). The count on a project covers the sessions its row has loaded.
 - Mark every waiting session on its own row, and show a count on its project, so opening a project
   shows what you need to unblock.
 - Keep the marker until you answer, including across reloads and restarts.

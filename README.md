@@ -40,12 +40,12 @@ This is a personal fork of [siteboon/claudecodeui](https://github.com/siteboon/c
 
 | Feature | Status | What it does |
 |---|---|---|
-| Quick archive with Undo | ✅ | Archive a conversation in one click, with an Undo notice. *Next:* the button only shows on hover, where it replaces the row's age; make it visible without hovering. |
+| Quick archive with Undo | ✅ | Archive a conversation in one click, with an Undo notice. The archive button and the row's age are always visible, and phone rows have their own archive button. |
 | Star colours and project groups | ✅ | Each click on a star means more important: green, then yellow, orange and red, the top. Click to star, click again within 3 s to go one step up, click past red or wait longer to unstar; hold or right-click to pick a colour. Recolouring a star never moves a project. The star button beside the search box steps from all projects to Focus (only projects with a session active in the last 24 h, every project and group opened), then to starred projects of any colour; each step narrows the list. The sort button beside it cycles the project list through starred first (any colour), A–Z and most recent. Put projects into named groups. |
 | Running view ([session-radar](custom/session-radar/README.md)) | 🧪 | Live sessions grouped Needs you / Running / Idle / Ended, with details and a Stop button. |
 | Per-session process tree | 🧪 | Expand a live session in the Running view to see the processes it started. |
 | Push for every session | 🧪 | A push notification on every subscribed device (phone, laptops) when any Claude session needs input, finishes a turn of 3+ minutes or fails, including Shell-tab and terminal sessions. Held while CloudCLI is in use on one of your devices; opening the app clears that device's notifications. iPhones need `VAPID_SUBJECT` in `.env` (see `.env.example`). |
-| "Needs input" badge | 🚧 | While a session waits on you, the favicon pulses and a badge opens that conversation. *Next:* cover every session and keep the marker on the session, so opening a project shows what you need to unblock. |
+| "Needs input" badge | ✅ | While a session waits on you, the favicon pulses and a badge opens that conversation. Every waiting session gets a pulsing orange dot on its sidebar row and its project shows a count: an open card (permission, question, plan approval) or a last reply that asks you something. The marker stays across reloads and restarts. |
 
 ### Plugins and tools
 
