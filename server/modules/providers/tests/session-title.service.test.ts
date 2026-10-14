@@ -222,6 +222,17 @@ test('lastReplyAsksUser is true for a "Decide:" line near the end', () => {
   assert.equal(lastReplyAsksUser([textMessage('user', 'options'), textMessage('assistant', reply)]), true);
 });
 
+test('lastReplyAsksUser is false for a statement that only uses a decision word', () => {
+  const reply = 'Tests confirm the fix works.\nThe team will decide on naming later.';
+  assert.equal(lastReplyAsksUser([textMessage('user', 'go'), textMessage('assistant', reply)]), false);
+});
+
+test('lastReplyAsksUser is false for an optional offer at the end', () => {
+  for (const ending of ['Done. Let me know if you want anything else.', 'Done. Want me to also add a README note?', 'I can also add tests, should that help?']) {
+    assert.equal(lastReplyAsksUser([textMessage('user', 'go'), textMessage('assistant', ending)]), false, ending);
+  }
+});
+
 test('lastReplyAsksUser ignores a question that is only inside a code block', () => {
   const reply = 'Here is the snippet:\n```ts\nconst ok = isReady ? 1 : 2; // ready?\n```\nThat is all.';
   assert.equal(lastReplyAsksUser([textMessage('user', 'show'), textMessage('assistant', reply)]), false);

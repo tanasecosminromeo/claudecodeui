@@ -73,7 +73,13 @@ export function countUserTurns(messages: NormalizedMessage[]): number {
 }
 
 /** Phrases that hand a decision or a next step back to the user. */
-const ASKS_USER_PHRASES = /\b(decide|your call|approve|confirm|let me know|should i|shall i|do you want|want me to|which one)\b/i;
+const ASKS_USER_PHRASES = /\b(your call|let me know|should i|shall i|do you want|want me to|which one|please (decide|approve|confirm)|can you (approve|confirm))\b/i;
+
+/** A line that opens with a decision label, such as "**Decide:** …" or "Confirm: …". */
+const DECISION_LABEL = /^[\W_]*(decide|approve|confirm)\b/i;
+
+/** Optional extra work offered at the end of a reply; the user owes no answer. */
+const OPTIONAL_OFFER = /\b(anything else|i can also|want me to also)\b/i;
 
 /**
  * True when the last assistant reply asks the user something: one of its last
@@ -105,6 +111,12 @@ export function lastReplyAsksUser(messages: NormalizedMessage[]): boolean {
     .slice(-3);
 
   return lastLines.some((line) => {
+    if (OPTIONAL_OFFER.test(line)) {
+      return false;
+    }
+    if (DECISION_LABEL.test(line)) {
+      return true;
+    }
     const withoutNoise = line.replace(/[*_)`\s]+$/, '');
     return withoutNoise.endsWith('?') || ASKS_USER_PHRASES.test(line);
   });
