@@ -592,7 +592,7 @@
   let pulseTimer = null;
   let pulseOn = false;
   let origIcons = null; // [{ link, href }]
-  let iconFrames = null; // Promise<[litHref, dimHref]>
+  let iconFrames = null; // { src, frames: Promise<[litHref, dimHref]> } for the icon they were drawn from
   let alertBadge = null;
   let waitingNow = [];
   let lastStatesKey = '';
@@ -611,9 +611,20 @@
     dispatchEvent(new PopStateEvent('popstate', { state: {} }));
   }
 
+  // The icon the page shows now: the branding code versions its href (?v=) when a custom icon is
+  // uploaded or reset. Our own data: frames are skipped, so a pulse never draws from itself.
+  function currentIconSrc() {
+    const link = [...document.querySelectorAll('link[rel~="icon"]')]
+      .find((l) => { const href = l.getAttribute('href'); return href && !href.startsWith('data:'); });
+    return (link && link.getAttribute('href')) || '/favicon.png';
+  }
+
+  // Frames are kept per icon source: a new or reset app icon draws new ones instead of pulsing
+  // with the icon the tab first loaded.
   function buildIconFrames() {
-    if (iconFrames) return iconFrames;
-    iconFrames = new Promise((resolve) => {
+    const src = (origIcons && origIcons.map((o) => o.href).find((h) => h && !h.startsWith('data:'))) || currentIconSrc();
+    if (iconFrames && iconFrames.src === src) return iconFrames.frames;
+    const frames = new Promise((resolve) => {
       const img = new Image();
       const draw = (withBase) => {
         const frame = (lit) => {
@@ -632,9 +643,10 @@
       };
       img.onload = () => draw(true);
       img.onerror = () => draw(false);
-      img.src = '/favicon.png';
+      img.src = src;
     });
-    return iconFrames;
+    iconFrames = { src, frames };
+    return frames;
   }
 
   function iconLinks() {
@@ -1014,7 +1026,7 @@
 
   const testHook = globalThis.__UIC_TEST__;
   if (testHook && typeof testHook === 'object') {
-    Object.assign(testHook, { updateAlert, renderWaitBanner, checkLeftovers, openLeftovers, closeLeftovers, syncLeftoverEntry });
+    Object.assign(testHook, { updateAlert, buildIconFrames, renderWaitBanner, checkLeftovers, openLeftovers, closeLeftovers, syncLeftoverEntry });
     return;
   }
 
