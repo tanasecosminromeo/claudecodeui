@@ -46,6 +46,10 @@ export async function run({ chat, page, app, expect, snapshot, sleep }) {
       const Ctor = window[name];
       if (!Ctor || Ctor.prototype.__e2eChimeWrapped) continue;
       Ctor.prototype.__e2eChimeWrapped = true;
+      // A page nobody has clicked yet never gets its audio unlocked, so the
+      // chime would wait on resume() forever and go uncounted; in real use the
+      // user's click unlocks it. Count every chime the app tries to play.
+      Ctor.prototype.resume = () => Promise.resolve();
       const createOscillator = Ctor.prototype.createOscillator;
       Ctor.prototype.createOscillator = function (...args) {
         const oscillator = createOscillator.apply(this, args);
