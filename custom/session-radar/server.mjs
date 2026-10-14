@@ -15,6 +15,7 @@ import { sessionActivity } from './activity.mjs';
 import { processFor } from './process-detail.mjs';
 import { otherAgentRows, treeFor } from './tree-route.mjs';
 import { acquireLock, lockPath, startOrphanGuard } from './orphan-guard.mjs';
+import { blockedRows } from './blocked.mjs';
 
 // Server mode runs only as CloudCLI's plugin (the plugin host sets PLUGIN_NAME) and only once per
 // CloudCLI instance. --dump is a read-only print and works anywhere.
@@ -74,6 +75,12 @@ function titlesFor(ids) {
     }
   } catch { /* schema changed upstream: fall back to derived names */ }
   return out;
+}
+
+// Sessions whose last reply asked the user something (status 'blocked'), for the needs-input pulse.
+function blockedSessions(liveRows) {
+  try { return blockedRows(db, liveRows); }
+  catch { return []; }
 }
 
 // ---- process liveness ----
@@ -210,7 +217,7 @@ function listSessions() {
 
   // Needs you > running > idle > other > ended; within a group, most recent message first.
   out.sort((a, b) => (STATE_RANK[a.state] - STATE_RANK[b.state]) || ((b.lastMessage || 0) - (a.lastMessage || 0)));
-  return { now, machine: machineStats(), sessions: out };
+  return { now, machine: machineStats(), sessions: out, blocked: blockedSessions(out) };
 }
 
 const server = http.createServer((req, res) => {

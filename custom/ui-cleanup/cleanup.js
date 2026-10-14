@@ -594,13 +594,14 @@
   let origIcons = null; // [{ link, href }]
   let iconFrames = null; // { src, frames: Promise<[litHref, dimHref]> } for the icon they were drawn from
   let alertBadge = null;
-  let waitingNow = [];
+  let waitingNow = []; // open cards in a live CLI (the terminal banner uses these only)
+  let needsYou = []; // cards + blocked sessions: what the pulse and the pill cover
   let lastStatesKey = '';
   // Inside env-switcher's iframe only the top window's favicon is visible, so the top one pulses
   // for everyone: it adds the other environments' count, published by env-switcher.
   const FRAMED = (() => { try { return window.top !== window.self; } catch { return true; } })();
   const remoteWaiting = () => Number(document.documentElement.dataset.envswWaiting) || 0;
-  const shouldPulse = () => !FRAMED && waitingNow.length + remoteWaiting() > 0;
+  const shouldPulse = () => !FRAMED && needsYou.length + remoteWaiting() > 0;
 
   function sessionPath(s) { return `/session/${encodeURIComponent(s.appSessionId || s.sessionId)}`; }
 
@@ -721,8 +722,8 @@
   addEventListener('resize', () => placeAlert());
 
   function renderBadge() {
-    // targets = waiting sessions other than the one already open
-    const targets = waitingNow.filter((s) => sessionPath(s) !== currentPath());
+    // targets = sessions that need you other than the one already open
+    const targets = needsYou.filter((s) => sessionPath(s) !== currentPath());
     if (targets.length === 0) {
       if (alertBadge) { alertBadge.remove(); alertBadge = null; }
       return;
@@ -733,7 +734,7 @@
       alertBadge.id = 'uic-alert';
       alertBadge.addEventListener('click', (e) => {
         e.preventDefault();
-        const next = waitingNow.find((s) => sessionPath(s) !== currentPath());
+        const next = needsYou.find((s) => sessionPath(s) !== currentPath());
         if (next) goTo(next);
         renderBadge();
       });
@@ -754,13 +755,16 @@
 
   function syncPulse() { if (shouldPulse()) startPulse(); else stopPulse(); }
 
-  function updateAlert(sessions) {
+  function updateAlert(sessions, blocked = []) {
     waitingNow = sessions.filter((s) => s.state === 'waiting');
     // React sidebar ids (appSessionId first), so rows can match them without the radar's provider ids.
     const idOf = (s) => s.appSessionId || s.sessionId;
     const waitingIds = waitingNow.map(idOf).sort();
     const busyIds = sessions.filter((s) => s.state === 'busy').map(idOf).sort();
-    const count = String(waitingNow.length);
+    // A blocked session has no card (its CLI may be gone): it needs you too, counted once.
+    const cardIds = new Set(waitingNow.map(idOf));
+    needsYou = [...waitingNow, ...blocked.filter((b) => !cardIds.has(idOf(b)))];
+    const count = String(needsYou.length);
     const key = JSON.stringify([count, waitingIds, busyIds]);
     window.__uicSessionStates = { waiting: waitingIds, busy: busyIds };
     if (document.documentElement.dataset.uicWaiting !== count || key !== lastStatesKey) {
@@ -828,7 +832,10 @@
     try {
       let token = null;
       try { token = localStorage.getItem('auth-token'); } catch { /* ignore */ }
-      if (token) updateAlert((await fetchSessions()).sessions || []);
+      if (token) {
+        const body = await fetchSessions();
+        updateAlert(body.sessions || [], body.blocked || []);
+      }
     } catch (err) {
       if (err && err.status === 404) delay = 60000; // plugin not installed/running
       updateAlert([]);
