@@ -70,7 +70,7 @@
     "cancel": "Cancel",
     "clearSearch": "Clear search",
     "openCommandPalette": "Open command palette",
-    "attentionRequiredIndicator": "Session needs attention",
+    "attentionRequiredIndicator": "New activity",
     "backgroundWorkIndicator": "Background work running",
     "needsInputIndicator": "Needs input",
     "needsInputProjectCount": "{{count}} sessions need input",

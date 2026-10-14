@@ -148,13 +148,13 @@ test('a session with only background work running gets the purple dot, not the s
   assert.equal(container.querySelectorAll('time').length, 1, 'the other row shows its age');
 });
 
-test('a session needing attention gets the amber dot', () => {
+test('a session needing attention gets the blue new-activity dot', () => {
   const { container } = renderList(
     [conversation('s1'), conversation('s2')],
     makeActions({ attentionSessionIds: new Set(['s2']) }),
   );
 
-  const dots = container.querySelectorAll('[role="status"].bg-amber-500');
+  const dots = container.querySelectorAll('[role="status"].bg-blue-500');
   assert.equal(dots.length, 1);
   const rows = container.querySelectorAll('[data-testid="recent-conversation-row"]');
   assert.equal(rows.length, 2);

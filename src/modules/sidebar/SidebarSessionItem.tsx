@@ -100,7 +100,7 @@ function SidebarSessionItem({
   const showBackgroundIndicator = !showAttentionIndicator && hasBackgroundWork;
   const showRecentIndicator = !showAttentionIndicator && !showBackgroundIndicator && !isProcessing && sessionView.isActive;
   const indicatorLabel = showAttentionIndicator
-    ? t('tooltips.attentionRequiredIndicator', { defaultValue: 'Session needs attention' })
+    ? t('tooltips.attentionRequiredIndicator', { defaultValue: 'New activity' })
     : showBackgroundIndicator
       ? t('tooltips.backgroundWorkIndicator', { defaultValue: 'Background work running' })
       : t('tooltips.activeSessionIndicator');
@@ -203,12 +203,13 @@ function SidebarSessionItem({
               role="status"
               aria-label={indicatorLabel}
               className={cn(
-                'h-2 w-2 animate-pulse rounded-full',
+                'h-2 w-2 rounded-full',
+                // New activity is a steady blue, like an unread mark: orange means Needs input.
                 showAttentionIndicator
-                  ? 'bg-amber-500'
+                  ? 'bg-blue-500'
                   : showBackgroundIndicator
-                    ? 'bg-purple-500 dark:bg-purple-400'
-                    : 'bg-green-500',
+                    ? 'animate-pulse bg-purple-500 dark:bg-purple-400'
+                    : 'animate-pulse bg-green-500',
               )}
             />
           </Tooltip>
