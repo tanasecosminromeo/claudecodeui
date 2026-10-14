@@ -53,6 +53,15 @@ export async function run({ chat, page, app, paths, expect, snapshot, log }) {
   };
   await cleanUp();
 
+  // The leftover-processes list opens once per fresh instance and covers the sidebar.
+  // It lists processes of the whole machine, not of this test, so close it when it shows.
+  const closeLeftovers = async () => {
+    const close = page.locator('#uic-leftovers .uic-lo-close');
+    if (await close.waitFor({ state: 'visible', timeout: 4000 }).then(() => true, () => false)) {
+      await close.click();
+    }
+  };
+
   // The radar answer the browser sees: our two sessions, with the state set below.
   // titles: the project name each faked session belongs to, keyed by its app session id.
   const fake = { states: {}, titles: {} };
@@ -86,6 +95,7 @@ export async function run({ chat, page, app, paths, expect, snapshot, log }) {
       await page.goto(`${app.base}/`);
       const row = page.getByRole('button', { name: new RegExp(`^${name}`) });
       await row.waitFor({ timeout: 20000 });
+      await closeLeftovers();
       await row.click();
       const newSession = page.getByRole('button', { name: 'New Session' });
       if (await newSession.isVisible().catch(() => false)) {
@@ -112,12 +122,7 @@ export async function run({ chat, page, app, paths, expect, snapshot, log }) {
     const openList = async () => {
       await page.goto(`${app.base}/`);
       await row(a).waitFor({ timeout: 20000 });
-      // The leftover-processes list opens once per fresh instance, and covers the sidebar. Close it:
-      // it lists processes of the whole machine, not of this test.
-      const leftovers = page.locator('#uic-leftovers .uic-lo-close');
-      if (await leftovers.waitFor({ state: 'visible', timeout: 4000 }).then(() => true, () => false)) {
-        await leftovers.click();
-      }
+      await closeLeftovers();
       await showRows(a, ids[a]);
       await showRows(b, ids[b]);
     };
