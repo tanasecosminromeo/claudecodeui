@@ -593,6 +593,7 @@
   let iconFrames = null; // Promise<[litHref, dimHref]>
   let alertBadge = null;
   let waitingNow = [];
+  let lastStatesKey = '';
   // Inside env-switcher's iframe only the top window's favicon is visible, so the top one pulses
   // for everyone: it adds the other environments' count, published by env-switcher.
   const FRAMED = (() => { try { return window.top !== window.self; } catch { return true; } })();
@@ -741,10 +742,19 @@
 
   function updateAlert(sessions) {
     waitingNow = sessions.filter((s) => s.state === 'waiting');
+    // React sidebar ids (appSessionId first), so rows can match them without the radar's provider ids.
+    const idOf = (s) => s.appSessionId || s.sessionId;
+    const waitingIds = waitingNow.map(idOf).sort();
+    const busyIds = sessions.filter((s) => s.state === 'busy').map(idOf).sort();
     const count = String(waitingNow.length);
-    if (document.documentElement.dataset.uicWaiting !== count) {
+    const key = JSON.stringify([count, waitingIds, busyIds]);
+    window.__uicSessionStates = { waiting: waitingIds, busy: busyIds };
+    if (document.documentElement.dataset.uicWaiting !== count || key !== lastStatesKey) {
       document.documentElement.dataset.uicWaiting = count; // read by env-switcher if it loads later
-      dispatchEvent(new CustomEvent('uic:waiting', { detail: { count: waitingNow.length } }));
+      lastStatesKey = key;
+      dispatchEvent(new CustomEvent('uic:waiting', {
+        detail: { count: waitingNow.length, waiting: waitingIds, busy: busyIds },
+      }));
     }
     syncPulse();
     renderBadge();
