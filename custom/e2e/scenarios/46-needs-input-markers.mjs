@@ -109,42 +109,49 @@ export async function run({ chat, page, app, paths, expect, snapshot, log }) {
     }
     const [a, b] = NAMES;
 
-    // Waiting for both, then the list as a person sees it. Expands a project only when its rows are not shown.
+    // The dot sits on a session row, so the project is expanded to see it. Expanding one
+    // project folds the other, so every check expands its own project first. A project's
+    // count shows while it is folded, so counts need no expansion.
     const row = (name) => page.getByRole('button', { name: new RegExp(`^${name}`) });
+    const rowLink = (id) => page.locator(`a[href="/session/${id}"]:visible`);
     const markerOf = (id) => page.locator(`a[href="/session/${id}"] [role="img"][aria-label="Needs input"]:visible`);
     const countOf = (name) => row(name).locator('[data-testid="project-needs-input-count"]:visible');
-    const countText = async (name) => (await countOf(name).count()) === 0 ? null : (await countOf(name).first().textContent())?.trim();
-    const showRows = async (name, id) => {
-      if ((await page.locator(`a[href="/session/${id}"]:visible`).count()) === 0) {
+    const countText = async (name) => ((await countOf(name).count()) === 0 ? null : (await countOf(name).first().textContent())?.trim());
+    const expandFor = async (name, id) => {
+      if ((await rowLink(id).count()) === 0) {
         await row(name).click();
       }
+    };
+    // Number of dots on the session's row, with its project expanded first.
+    const dotsFor = async (name, id) => {
+      await expandFor(name, id);
+      return markerOf(id).count();
     };
     const openList = async () => {
       await page.goto(`${app.base}/`);
       await row(a).waitFor({ timeout: 20000 });
       await closeLeftovers();
-      await showRows(a, ids[a]);
-      await showRows(b, ids[b]);
     };
+    const summary = async () => `rows ${await dotsFor(a, ids[a])}/${await dotsFor(b, ids[b])}, counts ${await countText(a)}/${await countText(b)}`;
+    const bothShown = async () => (await dotsFor(a, ids[a])) === 1 && (await dotsFor(b, ids[b])) === 1
+      && (await countText(a)) === '1' && (await countText(b)) === '1';
 
     fake.states = { [ids[a]]: 'waiting', [ids[b]]: 'waiting' };
     await openList();
-    const bothMarked = await waitUntil(async () => (await markerOf(ids[a]).count()) === 1
-      && (await markerOf(ids[b]).count()) === 1 && (await countText(a)) === '1' && (await countText(b)) === '1');
-    expect(bothMarked, `before reload: both rows show the dot and both projects count 1 (rows ${await markerOf(ids[a]).count()}/${await markerOf(ids[b]).count()}, counts ${await countText(a)}/${await countText(b)})`);
+    const bothMarked = await waitUntil(bothShown);
+    expect(bothMarked, `before reload: both rows show the dot and both projects count 1 (${await summary()})`);
     await snapshot('desktop sidebar: both sessions waiting, both projects count 1');
 
     await page.reload();
     await openList();
-    const afterReload = await waitUntil(async () => (await markerOf(ids[a]).count()) === 1
-      && (await markerOf(ids[b]).count()) === 1 && (await countText(a)) === '1' && (await countText(b)) === '1');
-    expect(afterReload, `after reload: both rows show the dot and both projects count 1 (rows ${await markerOf(ids[a]).count()}/${await markerOf(ids[b]).count()}, counts ${await countText(a)}/${await countText(b)})`);
+    const afterReload = await waitUntil(bothShown);
+    expect(afterReload, `after reload: both rows show the dot and both projects count 1 (${await summary()})`);
 
     // B turns busy (its status is not blocked): its dot and count go, A keeps its own.
     fake.states = { [ids[a]]: 'waiting', [ids[b]]: 'busy' };
-    const bCleared = await waitUntil(async () => (await markerOf(ids[b]).count()) === 0 && (await countText(b)) === null);
-    expect(bCleared, 'busy: the busy session loses its dot and its project loses the count');
-    expect((await markerOf(ids[a]).count()) === 1 && (await countText(a)) === '1', 'busy: the waiting session keeps its dot and count');
+    const bCleared = await waitUntil(async () => (await dotsFor(b, ids[b])) === 0 && (await countText(b)) === null);
+    expect(bCleared, `busy: the busy session loses its dot and its project loses the count (${await summary()})`);
+    expect((await dotsFor(a, ids[a])) === 1 && (await countText(a)) === '1', 'busy: the waiting session keeps its dot and count');
     await snapshot('desktop sidebar: one session busy, its marker gone');
 
     // Phone: the same list in the phone layout.
