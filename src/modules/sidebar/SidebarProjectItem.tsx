@@ -473,8 +473,11 @@ function SidebarProjectItem({
                 </div>
               ) : (
                 <div>
-                  <div className="truncate text-sm font-normal text-foreground" title={project.displayName}>
-                    {project.displayName}
+                  <div className="flex min-w-0 items-center gap-1.5">
+                    <div className="truncate text-sm font-normal text-foreground" title={project.displayName}>
+                      {project.displayName}
+                    </div>
+                    {needsInputBadge}
                   </div>
                   <div className="text-xs text-muted-foreground">
                     {sessionCountDisplay}
@@ -491,7 +494,6 @@ function SidebarProjectItem({
           </div>
 
           <div className="flex flex-shrink-0 items-center gap-1">
-            {needsInputBadge}
             {isEditing ? (
               <>
                 <div
