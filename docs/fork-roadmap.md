@@ -16,6 +16,10 @@ Status 🧪. It's not clear this holds up in daily use, even though e2e scenario
   restart, a terminal and the web UI splitting a conversation.
 - Write an e2e scenario that reproduces each case, then fix it.
 - **Done:** every collected case is an e2e scenario and passes, and there have been no new reports for a week of daily use.
+- Checked 2026-10-14: no session had two live processes; a CloudCLI restart mid-turn reattached and the
+  reply arrived; a week of logs had no failed reattach. The "Error interrupting superseded run" noise
+  (an interrupt sent to a process that had already exited) stopped with the 2026-10-13 deploy. No open
+  cases, so the week of daily use runs from 2026-10-14: if nothing is reported by 2026-10-21, mark ✅.
 
 ### 1.2 Keeping machines in step (`make sync`, `make remote`)
 Status 🧪. Syncing between machines doesn't work reliably.
