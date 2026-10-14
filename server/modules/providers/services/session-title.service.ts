@@ -264,14 +264,25 @@ export function parseTitleAndStatusReply(raw: string, options: { wantTitle: bool
   return { title, status };
 }
 
+type ModelUsageEntry = {
+  inputTokens?: number;
+  outputTokens?: number;
+  cacheReadInputTokens?: number;
+  cacheCreationInputTokens?: number;
+};
+
 /** Sums the tokens of every model the CLI used for one call. */
 function summariseUsage(
-  modelUsage: Record<string, { inputTokens?: number; outputTokens?: number }> | undefined,
+  modelUsage: Record<string, ModelUsageEntry> | undefined,
   costUsd: number | undefined,
 ): TitleQueryUsage {
   const models = Object.values(modelUsage ?? {});
   return {
-    inputTokens: models.reduce((sum, model) => sum + (model.inputTokens ?? 0), 0),
+    // The CLI caches its own prompt, so most input arrives as cache reads; all of it is input.
+    inputTokens: models.reduce(
+      (sum, model) => sum + (model.inputTokens ?? 0) + (model.cacheReadInputTokens ?? 0) + (model.cacheCreationInputTokens ?? 0),
+      0,
+    ),
     outputTokens: models.reduce((sum, model) => sum + (model.outputTokens ?? 0), 0),
     costUsd: typeof costUsd === 'number' ? costUsd : null,
   };
@@ -327,7 +338,7 @@ export async function runClaudeTitleQuery(prompt: string, label = 'check'): Prom
           }
         }
       } else if (message?.type === 'result') {
-        const outcome = message as { is_error?: boolean; errors?: string[]; result?: unknown; total_cost_usd?: number; modelUsage?: Record<string, { inputTokens?: number; outputTokens?: number }> };
+        const outcome = message as { is_error?: boolean; errors?: string[]; result?: unknown; total_cost_usd?: number; modelUsage?: Record<string, ModelUsageEntry> };
         usage = summariseUsage(outcome.modelUsage, outcome.total_cost_usd);
         usageNote = describeUsage(usage);
         if (outcome.is_error && textParts.length === 0) {
@@ -577,13 +588,7 @@ export async function runAutomaticSessionCheck(sessionId: string): Promise<void>
 
     // Automatic model checks off: no model call here. The free reply check below still runs.
     let plan = settings.enabled ? planAutomaticCheck(session, turns, settings) : null;
-    let reason: 'automatic' | 'leaving-blocked' = 'automatic';
-    // A reply that no longer asks the user clears `blocked` now, instead of at the next interval check.
-    // Only the free reply check can tell that; without it this would ask the model after every run.
-    if (settings.enabled && settings.freeBlockedCheck && !plan && !asksUser && !statusPinned && session.status === 'blocked') {
-      plan = { wantTitle: false };
-      reason = 'leaving-blocked';
-    }
+    const reason = 'automatic';
     // Past the day's limit the model is not asked; the free reply check below still sets `blocked`.
     if (plan && !takeAutomaticCheck(settings)) {
       plan = null;
@@ -607,19 +612,28 @@ export async function runAutomaticSessionCheck(sessionId: string): Promise<void>
     const titleChanged = newTitle !== null && newTitle !== latest.custom_name;
 
     // The reply check decides `blocked` on its own. Otherwise the model's status (if it ran) is used.
+    // With the free reply check on it alone decides `blocked`: a reply that asks sets it, one that
+    // does not clears it (to no status, until the next model check), and a model answer of
+    // `blocked` is not taken, so a hand-off the model reads as blocked cannot keep a session there.
     let newStatus: SessionStatusKey | null = null;
+    let clearBlocked = false;
     if (!statusPinned) {
-      const target = asksUser ? 'blocked' : (result?.status ?? null);
+      const modelStatus = settings.freeBlockedCheck && result?.status === 'blocked' ? null : (result?.status ?? null);
+      const target = asksUser ? 'blocked' : modelStatus;
       if (target !== null && target !== latest.status) {
         newStatus = target;
+      } else if (target === null && settings.freeBlockedCheck && !asksUser && latest.status === 'blocked') {
+        clearBlocked = true;
       }
     }
-    const statusChanged = newStatus !== null;
+    const statusChanged = newStatus !== null || clearBlocked;
 
     if (titleChanged) {
       sessionsDb.updateSessionCustomName(sessionId, newTitle as string, 'auto');
     }
-    if (statusChanged) {
+    if (clearBlocked) {
+      sessionsDb.updateSessionStatus(sessionId, null, null);
+    } else if (statusChanged) {
       sessionsDb.updateSessionStatus(sessionId, newStatus as SessionStatusKey, 'auto');
     }
     if (result) {
