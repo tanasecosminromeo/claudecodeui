@@ -56,7 +56,7 @@ Status ✅. Done 2026-10-13.
 - **Done:** e2e scenario 26 covers cycling, unstarring after the delay, the project staying in place, and the filter.
 
 ### 2.3 "Needs input" for every session, kept until handled
-Today the pulsing favicon and badge point at one waiting session and disappear when it changes.
+Status ✅. Done 2026-10-14 (e2e 46). The count on a project covers the sessions its row has loaded.
 - Mark every waiting session on its own row, and show a count on its project, so opening a project
   shows what you need to unblock.
 - Keep the marker until you answer, including across reloads and restarts.
