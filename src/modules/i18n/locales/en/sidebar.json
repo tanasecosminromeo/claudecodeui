@@ -72,6 +72,8 @@
     "openCommandPalette": "Open command palette",
     "attentionRequiredIndicator": "Session needs attention",
     "backgroundWorkIndicator": "Background work running",
+    "needsInputIndicator": "Needs input",
+    "needsInputProjectCount": "{{count}} sessions need input",
     "cycleStarColor": "Star: click quickly to change colour, click later to unstar; hold or right-click for colours",
     "moveToGroup": "Move to group"
   },
